@@ -1,0 +1,18 @@
+/* Wikipedia-like math: prose stays serif-free; formulas use KaTeX Computer Modern */
+.katex-display-block .katex-display {
+  margin: 0;
+  text-align: center;
+}
+
+.katex-inline-math .katex {
+  font-size: 1.05em;
+}
+
+.katex-display-block .katex {
+  font-size: 1.12em;
+}
+
+/* Prevent long formulas from breaking layout */
+.katex-display-block {
+  -webkit-overflow-scrolling: touch;
+}

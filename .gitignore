@@ -1,0 +1,7 @@
+.vercel
+.env*.local
+node_modules
+.pnpm-store
+.pnpm-home
+dist
+.DS_Store

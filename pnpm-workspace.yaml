@@ -1,0 +1,6 @@
+packages:
+  - '.'
+allowBuilds:
+  '@tailwindcss/oxide': true
+  es5-ext: true
+  esbuild: true
