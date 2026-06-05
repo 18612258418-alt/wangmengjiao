@@ -69,12 +69,22 @@ export function ExamGraphCanvas({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 });
+  /** 当前按下的所有指针（client 坐标），用于区分单指平移与双指缩放 */
+  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const panRef = useRef<{ active: boolean; moved: boolean; startX: number; startY: number; base: Transform }>({
     active: false,
     moved: false,
     startX: 0,
     startY: 0,
     base: { x: 0, y: 0, scale: 1 },
+  });
+  /** 双指捏合缩放状态：记录起始间距、起始 transform，以及捏合中点对应的图坐标 */
+  const pinchRef = useRef<{ active: boolean; startDist: number; base: Transform; gx: number; gy: number }>({
+    active: false,
+    startDist: 0,
+    base: { x: 0, y: 0, scale: 1 },
+    gx: 0,
+    gy: 0,
   });
 
   const { nodes, edges, width, height } = useMemo(
@@ -132,20 +142,71 @@ export function ExamGraphCanvas({
   }, [zoomAt]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    if (e.button !== 0) return;
-    const target = e.target as SVGElement;
-    if (target.closest?.("[data-graph-node]")) return;
-    panRef.current = {
-      active: true,
-      moved: false,
-      startX: e.clientX,
-      startY: e.clientY,
-      base: transform,
-    };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch { /* ignore */ }
+
+    // 第二根手指落下 → 进入双指缩放，并取消单指平移
+    if (pointersRef.current.size === 2) {
+      panRef.current.active = false;
+      panRef.current.moved = true; // 抑制本次手势结束后的误触选中
+      const [a, b] = [...pointersRef.current.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      const cx = (a.x + b.x) / 2 - rect.left;
+      const cy = (a.y + b.y) / 2 - rect.top;
+      pinchRef.current = {
+        active: true,
+        startDist: dist,
+        base: transform,
+        gx: (cx - transform.x) / transform.scale,
+        gy: (cy - transform.y) / transform.scale,
+      };
+      return;
+    }
+
+    // 单指：在空白处开始平移（点击节点交给节点自身的 onClick）
+    if (pointersRef.current.size === 1) {
+      const target = e.target as SVGElement;
+      if (target.closest?.("[data-graph-node]")) return;
+      panRef.current = {
+        active: true,
+        moved: false,
+        startX: e.clientX,
+        startY: e.clientY,
+        base: transform,
+      };
+    }
   }, [transform]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (pointersRef.current.has(e.pointerId)) {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    // 双指缩放：根据两指间距比例缩放，并让捏合中点对应的图坐标始终贴合中点（顺带支持双指平移）
+    if (pinchRef.current.active && pointersRef.current.size >= 2) {
+      const el = containerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const [a, b] = [...pointersRef.current.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      const cx = (a.x + b.x) / 2 - rect.left;
+      const cy = (a.y + b.y) / 2 - rect.top;
+      const p = pinchRef.current;
+      const nextScale = clampScale(p.base.scale * (dist / p.startDist));
+      setTransform({
+        scale: nextScale,
+        x: cx - p.gx * nextScale,
+        y: cy - p.gy * nextScale,
+      });
+      return;
+    }
+
     const pan = panRef.current;
     if (!pan.active) return;
     const dx = e.clientX - pan.startX;
@@ -160,16 +221,41 @@ export function ExamGraphCanvas({
   }, []);
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    pointersRef.current.delete(e.pointerId);
     const wasPan = panRef.current.moved;
+
+    // 双指缩放结束（抬起一根手指）
+    if (pinchRef.current.active && pointersRef.current.size < 2) {
+      pinchRef.current.active = false;
+      // 若仍剩一根手指，平滑地接管为单指平移，避免跳变
+      if (pointersRef.current.size === 1) {
+        const [remaining] = [...pointersRef.current.values()];
+        panRef.current = {
+          active: true,
+          moved: true,
+          startX: remaining.x,
+          startY: remaining.y,
+          base: transform,
+        };
+      } else {
+        panRef.current.active = false;
+      }
+      setTimeout(() => { panRef.current.moved = false; }, 0);
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch { /* ignore */ }
+      return;
+    }
+
     panRef.current.active = false;
     setTimeout(() => { panRef.current.moved = false; }, 0);
-    if (!wasPan && !(e.target as Element).closest?.("[data-graph-node]")) {
+    if (!wasPan && pointersRef.current.size === 0 && !(e.target as Element).closest?.("[data-graph-node]")) {
       onSelect(null);
     }
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
     } catch { /* ignore */ }
-  }, [onSelect]);
+  }, [onSelect, transform]);
 
   const handleNodeClick = useCallback((nodeId: string) => {
     if (panRef.current.moved) return;
@@ -240,7 +326,7 @@ export function ExamGraphCanvas({
       <div className="flex-shrink-0 px-4 pt-3 pb-2.5 border-b border-[#EAEDF2] bg-white">
         <p className="text-[14px] text-[#020418]" style={{ fontWeight: 700 }}>考点知识图谱</p>
         <p className="text-[11px] text-[#9CA3AF] mt-0.5">
-          拖拽平移 · 滚轮缩放 · 点击节点查看考点详情
+          拖拽平移 · 滚轮/双指缩放 · 点击节点查看考点详情
         </p>
       </div>
 
