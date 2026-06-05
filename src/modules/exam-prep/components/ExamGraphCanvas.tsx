@@ -247,6 +247,7 @@ export function ExamGraphCanvas({
       <div
         ref={containerRef}
         className="flex-1 min-h-0 relative overflow-hidden cursor-grab active:cursor-grabbing select-none bg-[#FAFBFD]"
+        style={{ touchAction: "none" }}
         onWheel={handleWheel}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
