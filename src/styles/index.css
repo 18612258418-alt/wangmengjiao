@@ -1,3 +1,4 @@
 @import './fonts.css';
 @import './tailwind.css';
 @import './theme.css';
+@import '../modules/exam-prep/exam-theme.css';

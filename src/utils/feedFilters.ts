@@ -1,5 +1,5 @@
 import type { CardContentType, FeedGroup } from "../types";
-import { appearsInNotesTab, hasExamIntent, hasHomeworkIntent } from "./cardSurfaces";
+import { appearsInNotesTab, hasHomeworkIntent } from "./cardSurfaces";
 
 export function isNoteCard(card: import("../types").CardData): boolean {
   return appearsInNotesTab(card);
@@ -13,16 +13,13 @@ export function filterFeedGroupsByContentType(
   for (const group of feedGroups) {
     const cards = group.cards.filter(c => {
       if (type === "homework") return hasHomeworkIntent(c);
-      if (type === "exam") return hasExamIntent(c);
       return appearsInNotesTab(c);
     });
     if (cards.length === 0) continue;
     const label =
       type === "homework"
         ? `${cards.length} 项待办`
-        : type === "exam"
-          ? `${cards.length} 份试卷/习题`
-          : group.label;
+        : group.label;
     result.push({ ...group, cards, label });
   }
   return result;

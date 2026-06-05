@@ -24,9 +24,8 @@ export interface SourceDraft {
   contentType?: CardContentType;
   homeworkTasks?: string[];
   taskDueDate?: string;
-  examSummary?: string;
   /** 保存后建议打开的 Tab */
-  openTab?: "homework" | "exam" | null;
+  openTab?: "homework" | null;
   error?: string;
 }
 

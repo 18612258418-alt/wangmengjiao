@@ -17,10 +17,8 @@ import { AllCardsView } from "../features/all/AllCardsView";
 import { SyllabusNotesView } from "../features/feed/SyllabusNotesView";
 import { TopTabs, type TopTabId } from "../features/feed/TopTabs";
 import { HomeworkView } from "../features/feed/HomeworkView";
-import { ExamView } from "../features/feed/ExamView";
-import { ExamReviewPlanModal } from "../features/exam/ExamReviewPlanModal";
-import { filterFeedGroupsByContentType } from "../utils/feedFilters";
-import { mergeExamPrepIntoCard } from "../data/examPrepContent";
+import { ExamPrepView } from "../modules/exam-prep";
+import { filterNoteFeedGroups } from "../utils/feedFilters";
 import { EditableSubjectName } from "../features/feed/EditableSubjectName";
 import { GenerateDrawer } from "../features/generate/GenerateDrawer";
 import { ExerciseDetailDrawer } from "../features/exercise/ExerciseDetailDrawer";
@@ -61,8 +59,6 @@ export default function App() {
   const [drawerExerciseSet, setDrawerExerciseSet] = useState<ExerciseSet | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [showAddSource, setShowAddSource] = useState(false);
-  const [showExamReviewPlan, setShowExamReviewPlan] = useState(false);
-  const [examFocusSelectKey, setExamFocusSelectKey] = useState<string | null>(null);
   const [flyPhase, setFlyPhase] = useState<"idle" | "center" | "corner" | "fading">("idle");
   const [flyImg, setFlyImg] = useState<string>("");
   const [sidebarLoading, setSidebarLoading] = useState(false);
@@ -110,20 +106,15 @@ export default function App() {
   const subject = subjects.find(s => s.id === activeSubject) ?? subjects[0];
   const feedGroups = allFeedGroups[activeSubject] ?? [];
 
-  const examPlanItems = useMemo(() => {
-    if (isAllView || isPending) return [];
-    const groups = filterFeedGroupsByContentType(feedGroups, "exam").map(g => ({
-      ...g,
-      cards: g.cards.map(mergeExamPrepIntoCard),
-    }));
-    return groups.flatMap(g => g.cards.map(card => ({ card, date: g.date })));
-  }, [feedGroups, isAllView, isPending]);
+  const examNoteFeedGroups = useMemo(
+    () => filterNoteFeedGroups(feedGroups),
+    [feedGroups],
+  );
 
   const handleOpenAnnotation = (type: string) => setAnnotationType(type);
   const handleCloseAnnotation = () => setAnnotationType(null);
 
   const handleOpenCard = (card: CardData, date: string, subjectId?: string) => {
-    if (activeTopTab === "exam") return;
     setDrawerCard(card);
     setDrawerCardDate(date);
     setDrawerCardSubject(subjectId ?? activeSubject);
@@ -165,7 +156,6 @@ export default function App() {
     contentType?: CardContentType,
     homeworkTasks?: string[],
     taskDueDate?: string,
-    examSummary?: string,
   ) => {
     const now = new Date();
     const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
@@ -176,7 +166,6 @@ export default function App() {
       contentType: contentType ?? "note",
       homeworkTasks,
       taskDueDate,
-      examSummary,
       nextAction,
     });
 
@@ -190,7 +179,6 @@ export default function App() {
       contentType: surfaces.contentType,
       ...(surfaces.homeworkTasks?.length ? { homeworkTasks: surfaces.homeworkTasks } : {}),
       ...(surfaces.taskDueDate ? { taskDueDate: surfaces.taskDueDate } : {}),
-      ...(surfaces.examSummary ? { examSummary: surfaces.examSummary } : {}),
       overview, detailIntro, detailSections, aiKeyPoints, expandedKnowledge, knowledgeTree, nextAction,
       hasAnnotations,
       ...(skillRawSections ? { skillRawSections } as Partial<CardData> : {}),
@@ -248,12 +236,9 @@ export default function App() {
               r.contentType,
               r.homeworkTasks,
               r.taskDueDate || undefined,
-              r.examSummary || undefined,
             );
             if (r.openTab === "homework") {
               setActiveTopTab("homework");
-            } else if (r.openTab === "exam") {
-              setActiveTopTab("exam");
             } else {
               setActiveTopTab("notes");
             }
@@ -457,15 +442,13 @@ export default function App() {
           contentType: data.contentType,
           homeworkTasks: data.homeworkTasks,
           taskDueDate: data.taskDueDate,
-          examSummary: data.examSummary,
           nextAction: data.nextAction,
         });
         return {
           contentType: surfaces.contentType,
           homeworkTasks: surfaces.homeworkTasks,
           taskDueDate: surfaces.taskDueDate,
-          examSummary: surfaces.examSummary,
-          openTab: (data as { openTab?: "homework" | "exam" | null }).openTab ?? surfaces.openTab,
+          openTab: (data as { openTab?: "homework" | null }).openTab ?? surfaces.openTab,
         };
       })(),
     };
@@ -530,17 +513,13 @@ export default function App() {
       draft.contentType,
       draft.homeworkTasks,
       draft.taskDueDate,
-      draft.examSummary,
     );
     if (draft.openTab === "homework") setActiveTopTab("homework");
-    else if (draft.openTab === "exam") setActiveTopTab("exam");
     else setActiveTopTab("notes");
     const tabHint =
       draft.openTab === "homework"
         ? "已保存至笔记，并在作业中生成待办"
-        : draft.openTab === "exam"
-          ? "已保存至笔记，并同步至备考"
-          : "已保存至笔记";
+        : "已保存至笔记";
     showToast(`${tabHint}，AI 正在后台生成详情`);
 
     // 后台静默预生成详情页内容（DeepSeek），完成后回写卡片，用户下次打开即可直接查看
@@ -647,11 +626,6 @@ export default function App() {
                 onChangeTab={setActiveTopTab}
                 onOpenAnnotation={handleOpenAnnotation}
                 onOpenGenerate={() => { setGeneratePresetIds(undefined); setShowGenerateDrawer(true); }}
-                onOpenReviewPlan={
-                  activeTopTab === "exam"
-                    ? () => setShowExamReviewPlan(true)
-                    : undefined
-                }
               />
 
               {activeTopTab === "notes" && (
@@ -674,27 +648,10 @@ export default function App() {
               )}
 
               {activeTopTab === "exam" && (
-                <ExamView
+                <ExamPrepView
                   subject={subject}
-                  feedGroups={feedGroups}
-                  onUpdateCard={(cardId, date, updates) =>
-                    updateCard(activeSubject, date, cardId, updates)
-                  }
-                  newCardId={newCardId}
-                  focusSelectKey={examFocusSelectKey}
-                />
-              )}
-
-              {!isAllView && !isPending && (
-                <ExamReviewPlanModal
-                  open={showExamReviewPlan}
-                  subject={subject}
-                  items={examPlanItems}
-                  onClose={() => setShowExamReviewPlan(false)}
-                  onSelectCard={(card, date) => {
-                    setExamFocusSelectKey(`${date}:${card.id}`);
-                    setActiveTopTab("exam");
-                  }}
+                  feedGroups={examNoteFeedGroups}
+                  onOpenNote={(card, date) => handleOpenCard(card as CardData, date)}
                 />
               )}
             </>

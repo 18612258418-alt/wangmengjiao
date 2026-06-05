@@ -20,12 +20,10 @@ function buildPrompt(hasAnnotations: boolean) {
 7. 【价值升华】nextAction 字段必须给出具体可执行的"下一步行动建议"，告诉同学接下来该做什么（如：建议做哪类课后习题、结合哪个知识点深入阅读、参考哪类文献扩展、备考时优先复习哪个考点等）。
 8. 【重要交互规范】在 "overview", "detailSections" (中的 items 字符串里), 以及 "nextAction" 字段中，如果提到其他重要的、非当前主题的大学核心学术名词、公式或关联概念，请务必用双中括号 \`[[概念名]]\` 将其包裹起来（如：\`[[麦克斯韦方程组]]\`、\`[[惯性]]\` 等）。这些名词会被渲染为可点击跳转的蓝色内联链接。请自然穿插 1-3 个这样的双中括号。
 8b. 【公式 LaTeX】凡公式、符号、下标上标必须用 LaTeX：行内用 $...$（如 $r=mv/(qB)$），独立重要公式单独一行用 $$...$$；不要用 Unicode 拼凑复杂算式。
-9. 【内容归类】contentType 表示最主要意图（note / homework / exam 三选一）。页面可同时含多种信息：
+9. 【内容归类】contentType 表示最主要意图（note / homework 二选一）。页面可同时含多种信息：
    - 有作业/待办/截止时间/任务清单 → 必须填写 homeworkTasks（1-5 条）与 taskDueDate（有则 YYYYMMDD，无则 ""），contentType 可为 homework 或 note。
-   - 有试卷/习题/测验/题号与答题区 → 必须填写 examSummary（50字内），contentType 可为 exam 或 homework。
-   - 讲义/批注/概念整理 → contentType 一般为 note；若同时有作业或习题，以作业或习题为主类型并仍填对应字段。
-10. 【作业任务】只要有作业/待办意图就必须输出 homeworkTasks；无作业意图时 homeworkTasks 为 []、taskDueDate 为 ""。
-11. 【考试摘要】只要有习题/试卷意图就必须输出 examSummary；无则 ""。保存后会在「笔记」中展示，并在作业/备考 Tab 同步露出。`;
+   - 讲义/批注/概念整理/试卷习题 → contentType 一般为 note；若同时有作业，以作业为主类型并仍填对应字段。
+10. 【作业任务】只要有作业/待办意图就必须输出 homeworkTasks；无作业意图时 homeworkTasks 为 []、taskDueDate 为 ""。`;
 
   const userText = `请分两步处理这张学习批注图片：
 
@@ -35,10 +33,9 @@ function buildPrompt(hasAnnotations: boolean) {
 
 {
   "subjectId": "严格按以下规则归类，只输出英文标识符： physics（任何物理相关） / math（任何数学相关） / chemistry（任何化学相关） / english（任何外语相关） / other（专业课、人文社科、计算机、经济等）。判断时只看核心内容的学科本质，不要因为是大学场景就归为 other",
-  "contentType": "note、homework 或 exam 之一（主意图）",
+  "contentType": "note 或 homework 之一（主意图）",
   "homeworkTasks": ["有作业/待办意图时填写，否则 []"],
   "taskDueDate": "有作业意图时 YYYYMMDD，无则空字符串",
-  "examSummary": "有习题/试卷意图时50字内摘要，无则空字符串",
   "title": "记忆：[基于${hasAnnotations === false ? "整图核心知识点" : "圈选内容"}的中文知识点标题，不超过20字]",
   "summary": "[50字以内的摘要，只概括${hasAnnotations === false ? "整页的核心主题" : "圈选区域的核心内容"}]",
   "overview": "[约200字，对整张图片所有内容的全局概述：主题背景、页面知识结构、重要公式或核心论点，帮同学了解本页全貌]",
@@ -82,7 +79,7 @@ function buildPrompt(hasAnnotations: boolean) {
   "nextAction": "[50字以内，给出1-2条具体可执行的下一步学习建议，用第二人称'你']"
 }
 
-严格约束：①overview 描述全页，其余字段严格限定于分析主体；②所有字段必须用中文（contentType、subjectId、skill、taskDueDate 等英文枚举/日期格式除外）；③nextAction 必须给出具体行动；④skill 必须从给定选项中选择；⑤有作业意图必填 homeworkTasks；有习题意图必填 examSummary；无对应意图时 homeworkTasks 为 []、examSummary 为 ""。`;
+严格约束：①overview 描述全页，其余字段严格限定于分析主体；②所有字段必须用中文（contentType、subjectId、skill、taskDueDate 等英文枚举/日期格式除外）；③nextAction 必须给出具体行动；④skill 必须从给定选项中选择；⑤有作业意图必填 homeworkTasks；无作业意图时 homeworkTasks 为 []。`;
 
   return { systemContent, userText };
 }

@@ -42,8 +42,6 @@ export {
 import type { CardData, FeedGroup, SubjectData, DetailSection } from "../types";
 import { DEMO_SEED_PATCH } from "./demoSeedCards";
 import { mergeHomeworkSeedIntoFeeds } from "./homeworkSeedCards";
-import { mergeExamSeedIntoFeeds } from "./examSeedCards";
-import { mergeExamPrepIntoCard } from "./examPrepContent";
 import { BUILTIN_UNIFIED_DETAILS } from "./builtinUnifiedDetails";
 import { BUILTIN_CARD_META } from "./builtinCardMeta";
 import { BUILTIN_SYLLABUS_BY_CARD } from "./subjectSyllabi";
@@ -53,13 +51,13 @@ function injectBuiltinMeta(feeds: FeedGroup[]): FeedGroup[] {
     ...group,
     cards: group.cards.map(card => {
       const meta = BUILTIN_CARD_META[card.id];
-      return mergeExamPrepIntoCard({
+      return {
         ...card,
         unifiedDetail: card.unifiedDetail ?? BUILTIN_UNIFIED_DETAILS[card.id],
         skill: card.skill ?? meta?.skill,
         aiKeyPoints: card.aiKeyPoints ?? meta?.aiKeyPoints,
         syllabusEntryId: card.syllabusEntryId ?? BUILTIN_SYLLABUS_BY_CARD[card.id],
-      });
+      };
     }),
   }));
 }
@@ -113,8 +111,7 @@ const PHYSICS_FEEDS: FeedGroup[] = [
     summary: '本次学习梳理了三大核心考点：带电粒子圆周运动（核心公式 r=mv/qB）、光电效应（Ek=hν−W₀，光强只影响光电子数量）、机械能守恒（只有重力/弹力做功才守恒）。建议配合课后习题反复练习，三类题型各做10道找到解题规律。',
     cards: [
       { id: "c1", title: "记忆：带电粒子在匀强磁场中的圆周运动", img: imgPhysicsChargedParticle, source: "browser", time: "21:20",
-        contentType: "exam",
-        examSummary: "磁场中带电粒子圆周运动专题练习，含半径公式与几何找圆心",
+        contentType: "note",
         detailIntro: "洛伦兹力可是物理压轴大户，看到你在这里画了好多受力分析线。帮你把找圆心和算时间的套路总结好了，大题直接套用：",
         detailSections: [
           { title: "核心公式（必背）", items: ["半径 R = mv/(qB)：R 与速度 v 成正比，加速电压×4 → v×2 → R×2", "周期 T = 2πm/(qB)：与速度无关，粒子种类不变则转一圈时间相同"] },
@@ -205,8 +202,7 @@ const MATH_FEEDS: FeedGroup[] = [
         ]
       } as CardData,
       { id: "m2", title: "记忆：不定积分换元法", img: imgMathIntegralSub, source: "evernote", time: "14:20",
-        contentType: "exam",
-        examSummary: "不定积分换元法习题页，含第一、第二换元典型题型",
+        contentType: "note",
         detailIntro: "换元积分看起来麻烦，其实就两种套路，帮你整理了最高频的考法：",
         detailSections: [
           { title: "第一换元法（凑微分）", items: ["认出 f(g(x))·g'(x) 的形式，令 u=g(x) 直接套公式", "例：∫sin(2x)dx，令 u=2x，得 −½cos(2x)+C"] },
@@ -248,8 +244,7 @@ const MATH_FEEDS: FeedGroup[] = [
         ]
       } as CardData,
       { id: "m7", title: "记忆：定积分几何应用", img: imgMathIntegralGeo, source: "browser", time: "15:00",
-        contentType: "exam",
-        examSummary: "定积分求面积与旋转体相关计算题",
+        contentType: "note",
         detailIntro: "定积分求面积是压轴题常见考点，上下限搞清楚才不会算错：",
         detailSections: [
           { title: "面积公式", items: ["两曲线围成面积：∫[a,b]|f(x)−g(x)|dx", "先求交点定积分上下限，再判断哪个函数在上方"] },
@@ -280,8 +275,7 @@ const CHEMISTRY_FEEDS: FeedGroup[] = [
         ]
       } as CardData,
       { id: "c_c2", title: "记忆：电化学与电极反应", img: imgChemElectroChem, source: "browser", time: "13:20",
-        contentType: "exam",
-        examSummary: "原电池与电解池电极反应判断练习题",
+        contentType: "note",
         detailIntro: "电化学题目考验氧化还原反应理解，帮你把原电池和电解池的电极判断整理了：",
         detailSections: [
           { title: "原电池", items: ["负极：失去电子（氧化），较活泼金属", "正极：得到电子（还原），较不活泼或碳棒"] },
@@ -353,15 +347,9 @@ const OTHER_FEEDS: FeedGroup[] = [
 ];
 
 export const INITIAL_ALL_FEEDS: Record<string, FeedGroup[]> = {
-  physics: mergeExamSeedIntoFeeds(
-    mergeHomeworkSeedIntoFeeds(injectBuiltinMeta(PHYSICS_FEEDS), "physics"),
-    "physics",
-  ),
-  math: mergeExamSeedIntoFeeds(
-    mergeHomeworkSeedIntoFeeds(
-      [...DEMO_SEED_PATCH.math, ...injectBuiltinMeta(MATH_FEEDS)],
-      "math",
-    ),
+  physics: mergeHomeworkSeedIntoFeeds(injectBuiltinMeta(PHYSICS_FEEDS), "physics"),
+  math: mergeHomeworkSeedIntoFeeds(
+    [...DEMO_SEED_PATCH.math, ...injectBuiltinMeta(MATH_FEEDS)],
     "math",
   ),
   chemistry: mergeHomeworkSeedIntoFeeds(injectBuiltinMeta(CHEMISTRY_FEEDS), "chemistry"),

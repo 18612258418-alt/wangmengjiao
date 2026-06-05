@@ -7,8 +7,7 @@ export interface DeepSeekResult {
   contentType?: CardContentType;
   homeworkTasks?: string[];
   taskDueDate?: string;
-  examSummary?: string;
-  openTab?: "homework" | "exam" | null;
+  openTab?: "homework" | null;
   title: string;
   summary: string;
   overview: string;
@@ -172,7 +171,6 @@ export async function callDoubao(imageDataUrl: string, hasAnnotations?: boolean)
   parsed.contentType = surfaces.contentType;
   parsed.homeworkTasks = surfaces.homeworkTasks ?? [];
   parsed.taskDueDate = surfaces.taskDueDate ?? "";
-  parsed.examSummary = surfaces.examSummary ?? "";
   parsed.openTab = surfaces.openTab;
 
   return parsed as DeepSeekResult;

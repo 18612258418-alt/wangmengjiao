@@ -46,17 +46,15 @@ function normalizeResult(parsed: Record<string, unknown>, fallbackTitle: string,
     contentType: surfaces.contentType,
     homeworkTasks: surfaces.homeworkTasks,
     taskDueDate: surfaces.taskDueDate,
-    examSummary: surfaces.examSummary,
     openTab: surfaces.openTab,
   };
 }
 
 const OUTPUT_SCHEMA = `{
   "subjectId": "严格归类，只输出英文标识符：physics（任何物理相关）/ math（任何数学相关）/ chemistry（任何化学相关）/ english（任何外语相关）/ other（专业课、人文社科、计算机、经济等）。只看核心内容的学科本质",
-  "contentType": "最主要意图：note/homework/exam。有作业待办或试卷习题时也要填下方 homeworkTasks / examSummary",
+  "contentType": "最主要意图：note/homework。有作业待办时填下方 homeworkTasks",
   "homeworkTasks": ["有作业/待办意图时填写可执行 task，无则 []"],
   "taskDueDate": "有作业意图时最近截止 YYYYMMDD，无则空",
-  "examSummary": "有试卷/习题/测验意图时50字内摘要，无则空",
   "title": "记忆：基于核心内容的中文知识点标题，不超过20字",
   "summary": "50字以内摘要，概括整页核心主题",
   "overview": "约200字，对整份资料的全局概述：主题背景、知识结构、重要公式或核心论点，帮同学建立全貌。在其中自然穿插 1-2 个 [[学术名词]] 双中括号",
@@ -106,10 +104,9 @@ ${SHARED_RULES}`;
 // 后续在确认保存 / 详情页再二次补全。
 const VISION_OUTPUT_SCHEMA = `{
   "subjectId": "physics|math|chemistry|english|other 之一",
-  "contentType": "note|homework|exam 之一（主意图）",
+  "contentType": "note|homework 之一（主意图）",
   "homeworkTasks": [],
   "taskDueDate": "",
-  "examSummary": "",
   "title": "记忆：不超过18字的中文标题",
   "summary": "40字内摘要",
   "overview": "约80字概述，含1个[[学术名词]]",
@@ -124,7 +121,7 @@ const VISION_OUTPUT_SCHEMA = `{
 }`;
 
 const VISION_RULES =
-  "只输出 JSON，无 markdown。全中文（枚举字段除外）。有作业意图必填 homeworkTasks；有习题意图必填 examSummary。不要输出 knowledgeTree、expandedKnowledge。";
+  "只输出 JSON，无 markdown。全中文（枚举字段除外）。有作业意图必填 homeworkTasks。不要输出 knowledgeTree、expandedKnowledge。";
 
 function apiTimeouts() {
   const onVercel = !!process.env.VERCEL;

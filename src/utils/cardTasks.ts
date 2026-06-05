@@ -43,11 +43,3 @@ export function toggleHomeworkTaskCompletion(
   const sorted = [...indices].sort((a, b) => a - b);
   return { homeworkCompletedIndices: sorted.length > 0 ? sorted : [] };
 }
-
-export function getExamSummary(card: CardData): string {
-  if (card.examSummary?.trim()) return card.examSummary.trim();
-  if (card.summary?.trim()) return card.summary.trim();
-  const items = (card.detailSections ?? []).flatMap(s => s.items ?? []);
-  if (items.length > 0) return items[0].slice(0, 100);
-  return card.title.replace(/^记忆[:：]\s*/, "").trim();
-}

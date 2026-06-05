@@ -10,9 +10,6 @@ import { BUILTIN_SUBJECT_LABELS, INITIAL_ALL_FEEDS, INITIAL_SUBJECTS } from "../
 import { BUILTIN_SYLLABUS_BY_CARD } from "../data/subjectSyllabi";
 import { DEMO_SEED_PATCH, DEMO_SEED_PATCH_KEY } from "../data/demoSeedCards";
 import { HOMEWORK_SEED_PATCH, HOMEWORK_SEED_PATCH_KEY } from "../data/homeworkSeedCards";
-import { EXAM_SEED_PATCH, EXAM_SEED_PATCH_KEY } from "../data/examSeedCards";
-import { BUILTIN_EXAM_PREP, EXAM_PREP_PATCH_KEY, mergeExamPrepIntoCard } from "../data/examPrepContent";
-import { hasExamIntent } from "../utils/cardSurfaces";
 import { BUILTIN_CARD_META } from "../data/builtinCardMeta";
 
 const CARD_META_PATCH_KEY = "card_meta_patch_v1";
@@ -90,11 +87,6 @@ export function useMemoryDB(): MemoryDBHook {
           localStorage.setItem(HOMEWORK_SEED_PATCH_KEY, "1");
         }
 
-        if (!localStorage.getItem(EXAM_SEED_PATCH_KEY)) {
-          await applySeedPatch(EXAM_SEED_PATCH, INITIAL_SUBJECTS);
-          localStorage.setItem(EXAM_SEED_PATCH_KEY, "1");
-        }
-
         // Back-fill skill + aiKeyPoints for existing built-in cards (one-time migration)
         if (!localStorage.getItem(CARD_META_PATCH_KEY)) {
           await applyCardMetaPatch(BUILTIN_CARD_META);
@@ -114,10 +106,10 @@ export function useMemoryDB(): MemoryDBHook {
         if (!localStorage.getItem(CONTENT_TYPE_V2_KEY)) {
           const cards = await getAllCards();
           const metaById: Record<string, Partial<import("../types").CardData>> = {
-            c1: { contentType: "exam", examSummary: "磁场中带电粒子圆周运动专题练习" },
-            m2: { contentType: "exam", examSummary: "不定积分换元法习题" },
-            m7: { contentType: "exam", examSummary: "定积分几何应用计算题" },
-            c_c2: { contentType: "exam", examSummary: "电化学电极反应练习题" },
+            c1: { contentType: "note" },
+            m2: { contentType: "note" },
+            m7: { contentType: "note" },
+            c_c2: { contentType: "note" },
             e2: { contentType: "note" },
           };
           await Promise.all(
@@ -149,23 +141,6 @@ export function useMemoryDB(): MemoryDBHook {
               ),
           );
           localStorage.setItem(SYLLABUS_ENTRY_PATCH_KEY, "1");
-        }
-
-        if (!localStorage.getItem(EXAM_PREP_PATCH_KEY)) {
-          const cards = await getAllCards();
-          await Promise.all(
-            cards
-              .filter(card => hasExamIntent(card) && BUILTIN_EXAM_PREP[card.id])
-              .map(card => {
-                const bundle = BUILTIN_EXAM_PREP[card.id];
-                return putCard({
-                  ...card,
-                  examSolutionSteps: card.examSolutionSteps ?? bundle.solutionSteps,
-                  examPracticeQuestions: card.examPracticeQuestions ?? bundle.practiceQuestions,
-                });
-              }),
-          );
-          localStorage.setItem(EXAM_PREP_PATCH_KEY, "1");
         }
 
         const [cards, fgMetas, storedExerciseSets] = await Promise.all([getAllCards(), getAllFeedGroups(), getAllExerciseSets()]);

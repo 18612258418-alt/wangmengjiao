@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { BookOpen, FileText, ClipboardList, Plus, Sparkles, Calendar } from "lucide-react";
+import { BookOpen, FileText, ClipboardList, Plus, Sparkles } from "lucide-react";
 
 export type TopTabId = "notes" | "homework" | "exam";
 
@@ -20,14 +20,11 @@ export function TopTabs({
   onChangeTab,
   onOpenAnnotation,
   onOpenGenerate,
-  onOpenReviewPlan,
 }: {
   activeTab: TopTabId;
   onChangeTab: (id: TopTabId) => void;
   onOpenAnnotation: (type: string) => void;
   onOpenGenerate: () => void;
-  /** 打开备考复习计划（艾宾浩斯周视图） */
-  onOpenReviewPlan?: () => void;
 }) {
   const [showAnnotationDropdown, setShowAnnotationDropdown] = useState(false);
 
@@ -66,18 +63,6 @@ export function TopTabs({
 
       {/* Right: Generate + Annotation */}
       <div className="flex items-center gap-2">
-        {onOpenReviewPlan && (
-          <button
-            type="button"
-            onClick={onOpenReviewPlan}
-            className="flex items-center gap-1.5 bg-white text-[#E67E22] px-3.5 py-2 rounded-xl border border-[#FDE68A] hover:bg-[#FFFBEB] transition-colors"
-            style={{ fontWeight: 600 }}
-            title="复习计划"
-          >
-            <Calendar size={14} />
-            <span className="text-[13px]">复习计划</span>
-          </button>
-        )}
         <button
           onClick={onOpenGenerate}
           className="flex items-center gap-1.5 bg-white text-[#4D5CFF] px-3.5 py-2 rounded-xl border border-[#D6DBFF] hover:bg-[#EEF0FF] transition-colors"

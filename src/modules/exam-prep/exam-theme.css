@@ -1,0 +1,20 @@
+/* 备考知识图谱主题变量 — 合并到目标项目全局 CSS */
+:root {
+  --exam-node-basic-fill: #D1FAE5;
+  --exam-node-basic-stroke: #34D399;
+  --exam-node-advanced-fill: #EEF0FF;
+  --exam-node-advanced-stroke: #4D5CFF;
+  --exam-node-challenge-fill: #FFF7ED;
+  --exam-node-challenge-stroke: #F97316;
+  --exam-node-active-stroke: #4D5CFF;
+  --exam-edge: #EAEDF2;
+  --exam-edge-active: #A5B4FC;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}

@@ -12,23 +12,7 @@ export type SkillType =
   | "literature_essay"; // core argument + rhetoric + critical questions
 
 /** 卡片内容类型 — 由豆包视觉模型自动判断 */
-export type CardContentType = "note" | "homework" | "exam";
-
-export type ExamMasteryStatus = "mastered" | "review";
-
-export interface ExamSolutionStep {
-  title: string;
-  content: string;
-}
-
-export interface ExamPracticeQuestion {
-  id: string;
-  type: "single_choice" | "true_false";
-  stem: string;
-  options: string[];
-  answer: string;
-  explanation: string;
-}
+export type CardContentType = "note" | "homework";
 
 export interface CardData {
   id: string;
@@ -47,18 +31,6 @@ export interface CardData {
   taskDueDate?: string;
   /** 作业模块：已标记完成的 task 下标（对应 homeworkTasks） */
   homeworkCompletedIndices?: number[];
-  /** 备考模块：试卷/习题集一句话摘要（仅 exam） */
-  examSummary?: string;
-  /** 备考：题目分步解析 */
-  examSolutionSteps?: ExamSolutionStep[];
-  /** 备考：配套练习（单选/判断） */
-  examPracticeQuestions?: ExamPracticeQuestion[];
-  /** 备考：掌握状态（配套题全部答对→已掌握，有错→待复习） */
-  examMasteryStatus?: ExamMasteryStatus;
-  /** 备考：最近一次复习/测验完成时间（毫秒时间戳） */
-  examLastReviewedAt?: number;
-  /** 备考：艾宾浩斯复习阶段（0=刚掌握，越大间隔越长） */
-  examReviewStage?: number;
   overview?: string;
   detailIntro?: string;
   detailSections?: DetailSection[];
