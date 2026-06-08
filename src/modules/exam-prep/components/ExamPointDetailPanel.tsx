@@ -1,9 +1,11 @@
-import { useMemo } from "react";
-import { GitBranch, Lightbulb, ListChecks, BookOpen, X, StickyNote } from "lucide-react";
-import type { CardData, ExamKnowledgeGraph, ExamKnowledgePoint, FeedGroup } from "../types";
+import { useMemo, useState } from "react";
+import { GitBranch, Lightbulb, ListChecks, BookOpen, X, StickyNote, Eye, EyeOff } from "lucide-react";
+import type { CardData, ExamKnowledgeGraph, ExamKnowledgePoint, ExamReferenceQuestion, FeedGroup } from "../types";
+import { MathContent } from "../../../shared/MathContent";
 import { getRelatedNotesForExamPoint } from "../utils/examPointNotes";
 import { SourceIcon, sourceLabel } from "../shared/SourceIcon";
 import { getPointById } from "../data/examKnowledgeGraphs";
+import { isUserExamPointId } from "../data/userExamPoints";
 import {
   DIFFICULTY_FILL,
   DIFFICULTY_LABEL,
@@ -104,6 +106,63 @@ function RelatedNoteItem({
   );
 }
 
+function ReferenceQuestionCard({
+  question,
+  index,
+}: {
+  question: ExamReferenceQuestion;
+  index: number;
+}) {
+  const [showAnswer, setShowAnswer] = useState(false);
+
+  return (
+    <div className="rounded-xl border border-[#EAEDF2] bg-white px-3 py-3">
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <span className="text-[11px] text-[#7B8291]">第 {index + 1} 题</span>
+        <span
+          className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#FFF7ED] text-[#F97316]"
+          style={{ fontWeight: 600 }}
+        >
+          {difficultyLabel(question.difficulty)}
+        </span>
+      </div>
+      <p className="text-[12px] text-[#020418] leading-5" style={{ fontWeight: 600 }}>
+        {question.stem}
+      </p>
+      {question.hint && (
+        <p className="text-[11px] text-[#7B8291] mt-1.5">提示：{question.hint}</p>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setShowAnswer(v => !v)}
+        className={`mt-2.5 inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-lg transition-colors ${
+          showAnswer
+            ? "bg-[#EEF0FF] text-[#4D5CFF]"
+            : "bg-[#F5F6FA] text-[#41464F] hover:bg-[#EEF0FF] hover:text-[#4D5CFF]"
+        }`}
+        style={{ fontWeight: 600 }}
+      >
+        {showAnswer ? <EyeOff size={12} /> : <Eye size={12} />}
+        {showAnswer ? "隐藏答案" : "查看答案"}
+      </button>
+
+      {showAnswer && (
+        <div className="mt-2 rounded-lg bg-[#F8F9FF] border border-[#E4E8FF] px-2.5 py-2">
+          <p className="text-[10px] text-[#4D5CFF] mb-1" style={{ fontWeight: 700 }}>
+            参考答案 · 思路
+          </p>
+          <MathContent
+            mathMode="explicit"
+            text={question.answerOutline}
+            className="text-[11px] text-[#41464F] leading-5"
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ExamPointDetailPanel({
   graph,
   point,
@@ -172,6 +231,15 @@ export function ExamPointDetailPanel({
             />
             {DIFFICULTY_LABEL[pointDifficulty]}
           </span>
+          {isUserExamPointId(point.id) && (
+            <span
+              className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-[#DCFCE7] text-[#16A34A]"
+              style={{ fontWeight: 600 }}
+            >
+              <span className="w-2 h-2 rounded-full" style={{ background: "#16A34A" }} />
+              由你的笔记扩展
+            </span>
+          )}
         </div>
         <h2 className="text-[16px] text-[#020418] mt-2" style={{ fontWeight: 700 }}>
           {point.label}
@@ -267,30 +335,7 @@ export function ExamPointDetailPanel({
         </h3>
         <div className="space-y-3">
           {point.referenceQuestions.map((q, i) => (
-            <div
-              key={i}
-              className="rounded-xl border border-[#EAEDF2] bg-white px-3 py-3"
-            >
-              <div className="flex items-center justify-between gap-2 mb-1.5">
-                <span className="text-[11px] text-[#7B8291]">第 {i + 1} 题</span>
-                <span
-                  className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#FFF7ED] text-[#F97316]"
-                  style={{ fontWeight: 600 }}
-                >
-                  {difficultyLabel(q.difficulty)}
-                </span>
-              </div>
-              <p className="text-[12px] text-[#020418] leading-5" style={{ fontWeight: 600 }}>
-                {q.stem}
-              </p>
-              {q.hint && (
-                <p className="text-[11px] text-[#7B8291] mt-1.5">提示：{q.hint}</p>
-              )}
-              <p className="text-[11px] text-[#4D5CFF] mt-2 leading-5">
-                <span style={{ fontWeight: 600 }}>思路：</span>
-                {q.answerOutline}
-              </p>
-            </div>
+            <ReferenceQuestionCard key={i} question={q} index={i} />
           ))}
         </div>
       </section>

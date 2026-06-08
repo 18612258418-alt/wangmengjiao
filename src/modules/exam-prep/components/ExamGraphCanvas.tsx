@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Minus, Plus } from "lucide-react";
 import type { ExamKnowledgeGraph } from "../types";
 import { layoutExamGraph, NODE_R } from "../utils/examGraphLayout";
+import { isUserExamPointId } from "../data/userExamPoints";
 import {
   DIFFICULTY_FILL,
   DIFFICULTY_FILL_VAR,
@@ -78,6 +79,12 @@ export function ExamGraphCanvas({
     startY: 0,
     base: { x: 0, y: 0, scale: 1 },
   });
+  /**
+   * 单指按在节点上时记录「待选中」候选。因为容器在 pointerdown 时调用了 setPointerCapture，
+   * 浏览器会把随后的 click 重定向到容器（而非节点 <g>），导致节点 onClick 不触发。
+   * 这里改为在 pointerup 时根据 pointerdown 记下的候选完成选中，绕开 click 重定向。
+   */
+  const clickCandidateRef = useRef<{ id: string; x: number; y: number } | null>(null);
   /** 双指捏合缩放状态：记录起始间距、起始 transform，以及捏合中点对应的图坐标 */
   const pinchRef = useRef<{ active: boolean; startDist: number; base: Transform; gx: number; gy: number }>({
     active: false,
@@ -143,6 +150,8 @@ export function ExamGraphCanvas({
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
+    // 缩放按钮等浮层控件：不要在容器上捕获指针，否则会把后续 click 重定向到容器，导致按钮失效
+    if ((e.target as Element).closest?.("[data-graph-control]")) return;
     const el = containerRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -154,6 +163,7 @@ export function ExamGraphCanvas({
     // 第二根手指落下 → 进入双指缩放，并取消单指平移
     if (pointersRef.current.size === 2) {
       panRef.current.active = false;
+      clickCandidateRef.current = null;
       panRef.current.moved = true; // 抑制本次手势结束后的误触选中
       const [a, b] = [...pointersRef.current.values()];
       const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
@@ -169,10 +179,19 @@ export function ExamGraphCanvas({
       return;
     }
 
-    // 单指：在空白处开始平移（点击节点交给节点自身的 onClick）
+    // 单指：按在节点上记为待选中候选；在空白处则开始平移
     if (pointersRef.current.size === 1) {
-      const target = e.target as SVGElement;
-      if (target.closest?.("[data-graph-node]")) return;
+      const target = e.target as Element;
+      const nodeEl = target.closest?.("[data-node-id]");
+      if (nodeEl) {
+        clickCandidateRef.current = {
+          id: nodeEl.getAttribute("data-node-id") ?? "",
+          x: e.clientX,
+          y: e.clientY,
+        };
+        return;
+      }
+      clickCandidateRef.current = null;
       panRef.current = {
         active: true,
         moved: false,
@@ -207,6 +226,12 @@ export function ExamGraphCanvas({
       return;
     }
 
+    // 在节点上按下后若发生明显拖动，取消「待选中」（视为拖拽而非点击）
+    const cand = clickCandidateRef.current;
+    if (cand && Math.hypot(e.clientX - cand.x, e.clientY - cand.y) > DRAG_THRESHOLD) {
+      clickCandidateRef.current = null;
+    }
+
     const pan = panRef.current;
     if (!pan.active) return;
     const dx = e.clientX - pan.startX;
@@ -221,12 +246,15 @@ export function ExamGraphCanvas({
   }, []);
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    // 浮层控件（缩放按钮）上的抬起：交给按钮自身 onClick，不要触发画布的取消选中
+    if ((e.target as Element).closest?.("[data-graph-control]")) return;
     pointersRef.current.delete(e.pointerId);
     const wasPan = panRef.current.moved;
 
     // 双指缩放结束（抬起一根手指）
     if (pinchRef.current.active && pointersRef.current.size < 2) {
       pinchRef.current.active = false;
+      clickCandidateRef.current = null;
       // 若仍剩一根手指，平滑地接管为单指平移，避免跳变
       if (pointersRef.current.size === 1) {
         const [remaining] = [...pointersRef.current.values()];
@@ -249,18 +277,19 @@ export function ExamGraphCanvas({
 
     panRef.current.active = false;
     setTimeout(() => { panRef.current.moved = false; }, 0);
-    if (!wasPan && pointersRef.current.size === 0 && !(e.target as Element).closest?.("[data-graph-node]")) {
-      onSelect(null);
+    const candidate = clickCandidateRef.current;
+    clickCandidateRef.current = null;
+    if (!wasPan && pointersRef.current.size === 0) {
+      if (candidate?.id) {
+        onSelect(candidate.id);
+      } else {
+        onSelect(null);
+      }
     }
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
     } catch { /* ignore */ }
   }, [onSelect, transform]);
-
-  const handleNodeClick = useCallback((nodeId: string) => {
-    if (panRef.current.moved) return;
-    onSelect(nodeId);
-  }, [onSelect]);
 
   const renderNode = (node: typeof nodes[0]) => {
     const active = selectedId === node.id;
@@ -268,17 +297,15 @@ export function ExamGraphCanvas({
     const dimmed = selectedId !== null && !related;
     const fill = DIFFICULTY_FILL_VAR[node.difficulty];
     const ring = DIFFICULTY_RING_VAR[node.difficulty];
+    const fromNote = isUserExamPointId(node.id);
 
     return (
       <g
         key={node.id}
         data-graph-node
+        data-node-id={node.id}
         className="cursor-pointer"
         style={{ opacity: dimmed ? 0.35 : 1, transition: "opacity 0.15s" }}
-        onClick={e => {
-          e.stopPropagation();
-          handleNodeClick(node.id);
-        }}
       >
         {active && (
           <circle
@@ -300,6 +327,16 @@ export function ExamGraphCanvas({
           stroke={active ? "var(--exam-node-active-stroke)" : ring}
           strokeWidth={active ? 1.25 : 0.75}
         />
+        {fromNote && (
+          <circle
+            cx={node.x + NODE_R * 0.8}
+            cy={node.y - NODE_R * 0.8}
+            r={2.4}
+            fill="#16A34A"
+            stroke="#fff"
+            strokeWidth={0.8}
+          />
+        )}
         <text
           x={node.x}
           y={node.y + NODE_R + 7}
@@ -311,7 +348,7 @@ export function ExamGraphCanvas({
         >
           {node.label}
         </text>
-        <title>{`${node.label} · ${DIFFICULTY_LABEL[node.difficulty]}`}</title>
+        <title>{`${node.label} · ${DIFFICULTY_LABEL[node.difficulty]}${fromNote ? " · 由你的笔记扩展" : ""}`}</title>
       </g>
     );
   };
@@ -386,7 +423,7 @@ export function ExamGraphCanvas({
           </svg>
         )}
 
-        <div className="absolute top-3 right-3 flex flex-col gap-1.5">
+        <div data-graph-control className="absolute top-3 right-3 flex flex-col gap-1.5">
           <button
             type="button"
             onClick={() => {
@@ -416,7 +453,7 @@ export function ExamGraphCanvas({
         </div>
       </div>
 
-      <div className="flex-shrink-0 px-4 py-2.5 border-t border-[#EAEDF2] flex flex-wrap items-center justify-end gap-2">
+      <div className="flex-shrink-0 px-4 py-2.5 border-t border-[#EAEDF2] flex flex-wrap items-center justify-end gap-3">
         <div className="flex items-center gap-3">
           {(["basic", "advanced", "challenge"] as const).map(d => (
             <span key={d} className="flex items-center gap-1.5 text-[10px] text-[#7B8291]">
@@ -428,6 +465,10 @@ export function ExamGraphCanvas({
             </span>
           ))}
         </div>
+        <span className="flex items-center gap-1.5 text-[10px] text-[#7B8291]">
+          <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: "#16A34A", border: "1.5px solid #fff", boxShadow: "0 0 0 1px #16A34A" }} />
+          笔记扩展
+        </span>
       </div>
     </div>
   );

@@ -58,10 +58,13 @@ export function HomeworkView({
   subject,
   feedGroups,
   onUpdateCard,
+  onUploadCheck,
 }: {
   subject: SubjectData;
   feedGroups: FeedGroup[];
   onUpdateCard?: (cardId: string, date: string, updates: Partial<CardData>) => void;
+  /** 「上传检查」按钮：打开上传入口 */
+  onUploadCheck?: () => void;
 }) {
   const days = useMemo(() => buildHomeworkByDay(feedGroups), [feedGroups]);
   const totalTasks = days.reduce((n, d) => n + d.items.length, 0);
@@ -223,11 +226,11 @@ export function HomeworkView({
         <HomeworkTaskPanel
           task={selected.task}
           breakdown={breakdown}
+          subjectShort={subject.short}
           sourceTitle={selected.card.title}
           sourceImage={selected.card.img}
           sourceImageAlt={selected.card.title}
-          isCompleted={isHomeworkTaskCompleted(selected.card, selected.taskIndex)}
-          onComplete={onUpdateCard ? () => handleToggleComplete(selected) : undefined}
+          onUploadCheck={onUploadCheck}
         />
       ) : (
         <div className="flex-1 flex items-center justify-center text-[14px] text-[#B0B5C0]">

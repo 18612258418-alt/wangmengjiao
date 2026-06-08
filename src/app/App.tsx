@@ -1,27 +1,29 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 
-import type { CardContentType, DetailSection, ExpandedKnowledge, KnowledgeNode, CardData, ExerciseSet, FeedGroup as FeedGroupType } from "../types";
+import type { CardContentType, DetailSection, ExpandedKnowledge, KnowledgeNode, CardData, FeedGroup as FeedGroupType } from "../types";
 import {
   INITIAL_SUBJECTS,
   TYPE_SOURCE, TYPE_BG,
   imgLoadingSpinner, imgNotesBg,
   FALLBACK_CLASSIFY, FALLBACK_DETAILS, FALLBACK_TITLES,
 } from "../data/initialData";
-import { callDoubao, compressImageForApi, streamText } from "../utils/api";
+import { callDoubao, callText, callTextStreamed, compressImageForApi, streamText } from "../utils/api";
 import { classifyCardSurfaces } from "../utils/cardSurfaces";
+import { classifyNoteSyllabusEntry } from "../utils/syllabusLink";
+import { extractHomeworkFromNote } from "../utils/homeworkExtract";
+import { cardsForSyllabusEntry } from "../utils/syllabusNotes";
+import { linkOrProposeExamPoints } from "../modules/exam-prep";
 import { useMemoryDB } from "../hooks/useMemoryDB";
 import { buildDetailPagePrompt } from "../prompts";
 import { ApiConfigProvider } from "../context/ApiConfigContext";
 import { AnnotationModal } from "../features/annotation/AnnotationModal";
-import { AllCardsView } from "../features/all/AllCardsView";
 import { SyllabusNotesView } from "../features/feed/SyllabusNotesView";
 import { TopTabs, type TopTabId } from "../features/feed/TopTabs";
+import { AnnotationMenu } from "../features/feed/AnnotationMenu";
 import { HomeworkView } from "../features/feed/HomeworkView";
 import { ExamPrepView } from "../modules/exam-prep";
 import { filterNoteFeedGroups } from "../utils/feedFilters";
 import { EditableSubjectName } from "../features/feed/EditableSubjectName";
-import { GenerateDrawer } from "../features/generate/GenerateDrawer";
-import { ExerciseDetailDrawer } from "../features/exercise/ExerciseDetailDrawer";
 import { RightDrawer } from "../features/drawer/RightDrawer";
 import { SearchOverlay } from "../features/search/SearchOverlay";
 import { Sidebar } from "../features/sidebar/Sidebar";
@@ -44,8 +46,8 @@ function pickMostRecentSubject(allFeedGroups: Record<string, FeedGroupType[]>): 
 
 export default function App() {
   const {
-    allFeedGroups, exerciseSets, subjects, isLoading: dbLoading,
-    toast, addCard, addExerciseSet, removeCard, updateCard, addSubject, updateSubject, moveCardToSubject, showToast,
+    allFeedGroups, subjects, isLoading: dbLoading,
+    toast, addCard, removeCard, updateCard, addSubject, updateSubject, moveCardToSubject, showToast,
   } = useMemoryDB();
 
   const [activeSubject, setActiveSubject] = useState<string>("__pending__");
@@ -54,9 +56,6 @@ export default function App() {
   const [drawerCard, setDrawerCard] = useState<CardData | null>(null);
   const [drawerCardDate, setDrawerCardDate] = useState<string>("");
   const [drawerCardSubject, setDrawerCardSubject] = useState<string>("");
-  const [showGenerateDrawer, setShowGenerateDrawer] = useState(false);
-  const [generatePresetIds, setGeneratePresetIds] = useState<string[] | undefined>(undefined);
-  const [drawerExerciseSet, setDrawerExerciseSet] = useState<ExerciseSet | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [showAddSource, setShowAddSource] = useState(false);
   const [flyPhase, setFlyPhase] = useState<"idle" | "center" | "corner" | "fading">("idle");
@@ -100,9 +99,6 @@ export default function App() {
     }
   }, [subjects]);
 
-  const totalCount = subjects.reduce((sum, s) => sum + s.count, 0);
-  const isAllView = activeSubject === "all";
-  const isPending = activeSubject === "__pending__";
   const subject = subjects.find(s => s.id === activeSubject) ?? subjects[0];
   const feedGroups = allFeedGroups[activeSubject] ?? [];
 
@@ -118,6 +114,15 @@ export default function App() {
     setDrawerCard(card);
     setDrawerCardDate(date);
     setDrawerCardSubject(subjectId ?? activeSubject);
+  };
+
+  /** 用户点击某个大纲条目：清除该条目下所有笔记的"新增未读"红点 */
+  const handleOpenSyllabusEntry = (entryId: string) => {
+    const unreadCards = cardsForSyllabusEntry(feedGroups, entryId).filter(({ card }) => card.unread);
+    if (unreadCards.length === 0) return;
+    for (const { card, date } of unreadCards) {
+      updateCard(activeSubject, date, card.id, { unread: false });
+    }
   };
 
   const buildFallbackCardPayload = (aType: string) => {
@@ -190,6 +195,87 @@ export default function App() {
 
     const subjectShort = INITIAL_SUBJECTS.find(s => s.id === targetSubjectId)?.short ?? "社会科学";
     addCard({ targetSubjectId, card: newCard, date: todayKey, aiSummary, subjectShort });
+
+    // 后台静默：把新笔记自动归类到教学大纲条目，让它进入对应目录并打"新增"红点。
+    // 失败/无把握时保持 syllabusEntryId 为空 → 仍留在「最近上传与批注」兜底。
+    if (newCard.contentType !== "homework") {
+      classifyNoteSyllabusEntry(
+        {
+          subjectId: targetSubjectId,
+          contentType: newCard.contentType,
+          title: newCard.title,
+          overview: newCard.overview,
+          detailIntro: newCard.detailIntro,
+          detailSections: newCard.detailSections,
+          aiKeyPoints: newCard.aiKeyPoints,
+          unifiedDetail: newCard.unifiedDetail,
+        },
+        (prompt) => callText(prompt, { maxTokens: 512 }),
+      )
+        .then(entryId => {
+          if (entryId) {
+            updateCard(targetSubjectId, todayKey, newId, { syllabusEntryId: entryId, unread: true });
+            setDrawerCard(prev => prev && prev.id === newId ? { ...prev, syllabusEntryId: entryId, unread: true } : prev);
+          }
+        })
+        .catch(err => console.warn("[import] 大纲自动归类失败，留在最近上传", err));
+    }
+
+    // 后台静默：若导入时没识别出作业，再用专项链从笔记正文抽取夹带的作业/待办，
+    // 让上传的笔记自动在「作业」Tab 生成可勾选 task（note-backed 闭环）。
+    if (newCard.contentType !== "homework" && !(newCard.homeworkTasks?.length)) {
+      extractHomeworkFromNote(
+        {
+          contentType: newCard.contentType,
+          title: newCard.title,
+          overview: newCard.overview,
+          detailIntro: newCard.detailIntro,
+          detailSections: newCard.detailSections,
+          aiKeyPoints: newCard.aiKeyPoints,
+          nextAction: newCard.nextAction,
+          unifiedDetail: newCard.unifiedDetail,
+        },
+        todayKey,
+        (prompt) => callText(prompt, { maxTokens: 700 }),
+      )
+        .then(({ tasks, dueDate }) => {
+          if (tasks.length > 0) {
+            updateCard(targetSubjectId, todayKey, newId, {
+              homeworkTasks: tasks,
+              ...(dueDate ? { taskDueDate: dueDate } : {}),
+            });
+            setDrawerCard(prev => prev && prev.id === newId
+              ? { ...prev, homeworkTasks: tasks, ...(dueDate ? { taskDueDate: dueDate } : {}) }
+              : prev);
+          }
+        })
+        .catch(err => console.warn("[import] 作业抽取失败", err));
+    }
+
+    // 后台静默：把新笔记挂靠到备考考点图谱（挂不上就反向抽取新考点补图谱），
+    // 让它出现在对应考点的「相关笔记」里（备考闭环）。
+    if (newCard.contentType !== "homework") {
+      linkOrProposeExamPoints(
+        {
+          subjectId: targetSubjectId,
+          contentType: newCard.contentType,
+          title: newCard.title,
+          overview: newCard.overview,
+          detailIntro: newCard.detailIntro,
+          detailSections: newCard.detailSections,
+          aiKeyPoints: newCard.aiKeyPoints,
+          unifiedDetail: newCard.unifiedDetail,
+        },
+        (prompt) => callText(prompt, { maxTokens: 700 }),
+      )
+        .then(ids => {
+          if (ids.length > 0) {
+            updateCard(targetSubjectId, todayKey, newId, { linkedExamPointIds: ids });
+            setDrawerCard(prev => prev && prev.id === newId ? { ...prev, linkedExamPointIds: ids } : prev);
+          }
+        })
+        .catch(err => console.warn("[import] 备考考点挂靠失败", err));
+    }
 
     if (activeSubject !== "all") {
       setActiveSubject(targetSubjectId);
@@ -590,42 +676,33 @@ export default function App() {
         )}
 
         <Sidebar
-          activeSubject={isPending ? "all" : activeSubject}
+          activeSubject={activeSubject}
           onSelectSubject={(id) => { didInitSubjectRef.current = true; setActiveSubject(id); }}
           isLoading={sidebarLoading}
           subjects={sortedSubjects}
           onOpenSearch={() => setShowSearch(true)}
           onUploadFile={() => setShowAddSource(true)}
           onCreateSubject={() => setShowCreateSubject(true)}
-          totalCount={totalCount}
         />
 
         <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#F5F6FA]">
-          {isAllView ? (
-            <AllCardsView
-              allFeedGroups={allFeedGroups}
-              subjects={sortedSubjects}
-              onOpenCard={handleOpenCard}
-              newCardId={newCardId}
-            />
-          ) : (
+          {subject ? (
             <>
               {/* 学科头部 */}
-              <div className="flex items-start justify-between px-6 pt-6 pb-2 flex-shrink-0">
-                <div>
+              <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-2 flex-shrink-0">
+                <div className="min-w-0">
                   <EditableSubjectName
                     name={subject?.name ?? ""}
                     onRename={(next) => { if (subject) updateSubject({ ...subject, name: next }); }}
                   />
                   <p className="text-[13px] text-[#7B8291] mt-1">{subject?.extra ?? ""}</p>
                 </div>
+                <AnnotationMenu onOpenAnnotation={handleOpenAnnotation} />
               </div>
 
               <TopTabs
                 activeTab={activeTopTab}
                 onChangeTab={setActiveTopTab}
-                onOpenAnnotation={handleOpenAnnotation}
-                onOpenGenerate={() => { setGeneratePresetIds(undefined); setShowGenerateDrawer(true); }}
               />
 
               {activeTopTab === "notes" && (
@@ -633,6 +710,7 @@ export default function App() {
                   subject={subject}
                   feedGroups={feedGroups}
                   onOpenCard={handleOpenCard}
+                  onOpenEntry={handleOpenSyllabusEntry}
                   newCardId={newCardId}
                 />
               )}
@@ -644,6 +722,7 @@ export default function App() {
                   onUpdateCard={(cardId, date, updates) =>
                     updateCard(activeSubject, date, cardId, updates)
                   }
+                  onUploadCheck={() => setShowAddSource(true)}
                 />
               )}
 
@@ -652,10 +731,11 @@ export default function App() {
                   subject={subject}
                   feedGroups={examNoteFeedGroups}
                   onOpenNote={(card, date) => handleOpenCard(card as CardData, date)}
+                  onAskLlm={(prompt) => callTextStreamed(prompt, { maxTokens: 4000 })}
                 />
               )}
             </>
-          )}
+          ) : null}
         </main>
 
         {annotationType && (
@@ -678,28 +758,6 @@ export default function App() {
           subjects={subjects}
           currentSubjectId={drawerCardSubject}
           onMoveSubject={handleMoveDrawerCard}
-          onGenerateFromCard={cardId => {
-            setDrawerCard(null);
-            setGeneratePresetIds([cardId]);
-            if (drawerCardSubject && drawerCardSubject !== "all") setActiveSubject(drawerCardSubject);
-            setShowGenerateDrawer(true);
-          }}
-        />
-
-        {!isAllView && subject && (
-          <GenerateDrawer
-            isOpen={showGenerateDrawer}
-            subject={subject}
-            feedGroups={feedGroups}
-            presetSelectedIds={generatePresetIds}
-            onClose={() => setShowGenerateDrawer(false)}
-            onCreateExerciseSet={addExerciseSet}
-          />
-        )}
-
-        <ExerciseDetailDrawer
-          exerciseSet={drawerExerciseSet}
-          onClose={() => setDrawerExerciseSet(null)}
         />
 
         <SearchOverlay

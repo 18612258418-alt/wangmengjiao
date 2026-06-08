@@ -18,7 +18,6 @@ export function Sidebar({
   onOpenSearch,
   onUploadFile,
   onCreateSubject,
-  totalCount,
 }: {
   activeSubject: string;
   onSelectSubject: (id: string) => void;
@@ -27,10 +26,7 @@ export function Sidebar({
   onOpenSearch: () => void;
   onUploadFile: () => void;
   onCreateSubject?: () => void;
-  totalCount: number;
 }) {
-  const isAllActive = activeSubject === "all";
-
   return (
     <aside className="flex-shrink-0 bg-[#F5F6FA] h-full flex flex-col z-10" style={{ width: "clamp(200px, 22%, 320px)" }}>
       <div className="px-6 pt-6 pb-4">
@@ -107,25 +103,6 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 overflow-y-auto px-6 pb-4 space-y-1.5">
-        {/* 全部 entry */}
-        <button
-          onClick={() => onSelectSubject("all")}
-          className={`w-full text-left rounded-2xl px-4 py-3 transition-all duration-200 border ${
-            isAllActive
-              ? "border-[#4D5CFF] bg-[#EEF0FF]"
-              : "border-[#E4E7EF] bg-white hover:bg-[#F5F6FA]"
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className={`text-[15px] ${isAllActive ? "text-[#4D5CFF]" : "text-[#020418]"}`} style={{ fontWeight: 600 }}>
-              全部
-            </span>
-            <span className={`text-[12px] ${isAllActive ? "text-[#4D5CFF]" : "text-[#7B8291]"}`}>
-              {totalCount} 条记忆
-            </span>
-          </div>
-        </button>
-
         {subjects.map((s, index) => {
           const isActive = activeSubject === s.id;
           const color = ["#4D5CFF", "#10B981", "#F59E0B", "#EC4899", "#8B5CF6", "#0EA5E9"][index % 6];

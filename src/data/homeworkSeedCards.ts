@@ -408,6 +408,13 @@ export const HOMEWORK_SEED_PATCH: Record<string, FeedGroup[]> = {
 
 export const HOMEWORK_SEED_PATCH_KEY = "homework-seed-patch-v2";
 
+/**
+ * 是否注入内置「作业」演示数据。
+ * 闭环目标：作业 Tab 的内容应来自「从上传笔记里实时抽取」（见 utils/homeworkExtract.ts），
+ * 内置 seed 仅作为空库时的演示兜底。把此开关设为 false，作业 Tab 将只展示用户笔记中抽取到的真实待办。
+ */
+export const ENABLE_HOMEWORK_DEMO_SEED = true;
+
 /** 将作业演示卡合并进学科 feed（按 date 合并，同 id 不重复） */
 export function mergeHomeworkSeedIntoFeeds(
   feeds: FeedGroup[],

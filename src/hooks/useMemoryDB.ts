@@ -9,7 +9,7 @@ import type { StoredCard } from "../utils/db";
 import { BUILTIN_SUBJECT_LABELS, INITIAL_ALL_FEEDS, INITIAL_SUBJECTS } from "../data/initialData";
 import { BUILTIN_SYLLABUS_BY_CARD } from "../data/subjectSyllabi";
 import { DEMO_SEED_PATCH, DEMO_SEED_PATCH_KEY } from "../data/demoSeedCards";
-import { HOMEWORK_SEED_PATCH, HOMEWORK_SEED_PATCH_KEY } from "../data/homeworkSeedCards";
+import { ENABLE_HOMEWORK_DEMO_SEED, HOMEWORK_SEED_PATCH, HOMEWORK_SEED_PATCH_KEY } from "../data/homeworkSeedCards";
 import { BUILTIN_CARD_META } from "../data/builtinCardMeta";
 
 const CARD_META_PATCH_KEY = "card_meta_patch_v1";
@@ -82,7 +82,7 @@ export function useMemoryDB(): MemoryDBHook {
           storedSubjects = await getAllSubjects();
         }
 
-        if (!localStorage.getItem(HOMEWORK_SEED_PATCH_KEY)) {
+        if (ENABLE_HOMEWORK_DEMO_SEED && !localStorage.getItem(HOMEWORK_SEED_PATCH_KEY)) {
           await applySeedPatch(HOMEWORK_SEED_PATCH, INITIAL_SUBJECTS);
           localStorage.setItem(HOMEWORK_SEED_PATCH_KEY, "1");
         }

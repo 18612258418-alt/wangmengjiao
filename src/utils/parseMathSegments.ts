@@ -57,9 +57,19 @@ export function normalizeLooseLatex(raw: string): string {
   return s;
 }
 
+/** 自然语言句子（含填空下划线）不应被当成独立公式行 */
+function looksLikeProse(line: string): boolean {
+  const t = line.trim();
+  if (t.split(/\s+/).length >= 5) return true;
+  if (/_{2,}/.test(t) && /[a-zA-Z]{3,}/.test(t)) return true;
+  if (/[.,;:!?]/.test(t) && /\b(the|is|are|was|were|a|an|to|of|in|for)\b/i.test(t)) return true;
+  return false;
+}
+
 function isFormulaOnlyLine(line: string): boolean {
   const t = line.trim();
   if (t.length < 2 || t.length > 200) return false;
+  if (looksLikeProse(t)) return false;
   if (!FORMULA_LINE_RE.test(t)) return false;
   return MATH_INDICATOR.test(t);
 }
@@ -119,6 +129,35 @@ function parseExplicitMath(input: string, out: MathSegment[]) {
   if (last < input.length) {
     out.push({ type: "text", content: input.slice(last) });
   }
+}
+
+/** 仅解析显式 $…$ / $$…$$ 定界符，不做「整行猜公式」（适合试卷题干、选项等自然语言文本） */
+export function parseMathSegmentsExplicit(input: string): MathSegment[] {
+  const text = input ?? "";
+  if (!text.trim()) return [{ type: "text", content: text }];
+
+  const out: MathSegment[] = [];
+  let last = 0;
+  EXPLICIT_MATH_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+
+  while ((m = EXPLICIT_MATH_RE.exec(text)) !== null) {
+    if (m.index > last) {
+      out.push({ type: "text", content: text.slice(last, m.index) });
+    }
+    const latex = (m[1] ?? m[2] ?? m[3] ?? m[4] ?? "").trim();
+    const display = m[1] !== undefined || m[3] !== undefined;
+    if (latex) {
+      out.push({ type: display ? "display" : "inline", content: latex });
+    }
+    last = m.index + m[0].length;
+  }
+
+  if (last < text.length) {
+    out.push({ type: "text", content: text.slice(last) });
+  }
+
+  return out.length > 0 ? out : [{ type: "text", content: text }];
 }
 
 /** 将文本拆成普通文字 / 行内公式 / 独立展示公式（维基百科式分块） */

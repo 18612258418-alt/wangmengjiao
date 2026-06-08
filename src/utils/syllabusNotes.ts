@@ -57,6 +57,11 @@ export function syllabusEntryHasCards(feedGroups: FeedGroup[], entryId: string):
   return cardsForSyllabusEntry(feedGroups, entryId).length > 0;
 }
 
+/** 该大纲条目下是否存在「新增未读」笔记（用于红点角标） */
+export function syllabusEntryHasUnread(feedGroups: FeedGroup[], entryId: string): boolean {
+  return cardsForSyllabusEntry(feedGroups, entryId).some(({ card }) => card.unread === true);
+}
+
 export function countSyllabusEntriesWithCards(
   feedGroups: FeedGroup[],
   topicIds: string[],

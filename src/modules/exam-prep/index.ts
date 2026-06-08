@@ -16,6 +16,13 @@ export {
 export { getRelatedNotesForExamPoint } from "./utils/examPointNotes";
 export type { ExamRelatedNote } from "./utils/examPointNotes";
 
+export { linkOrProposeExamPoints } from "./utils/examPointAutoLink";
+export {
+  getMergedExamGraph,
+  getUserExamPoints,
+  isUserExamPointId,
+} from "./data/userExamPoints";
+
 export {
   resolveExamPointSelection,
   saveExamPointSelection,

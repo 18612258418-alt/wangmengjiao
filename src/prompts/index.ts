@@ -445,6 +445,43 @@ export function buildSkillDeepPrompt(
   }
 }
 
+// ── Homework answer + per-step worked examples (作业「查看答案」与每步样例) ──────
+export function buildHomeworkAnswerPrompt(params: {
+  task: string;
+  subjectShort: string;
+  approachTitle: string;
+  steps: Array<{ title: string; detail: string }>;
+}): string {
+  const { task, subjectShort, approachTitle, steps } = params;
+  const stepLines = steps
+    .map((s, i) => `${i + 1}. ${s.title}：${s.detail}`)
+    .join("\n");
+
+  return `你是一位${subjectShort}学科的资深辅导老师。下面是一条学生作业任务，以及把它拆好的解题步骤。
+请为它给出「每一步的具体样例」和「整题参考答案/范例」，帮助学生照着做。
+
+【作业任务】
+${task}
+
+【解题思路】${approachTitle}
+
+【已拆解的步骤】
+${stepLines}
+
+【输出要求】
+1. stepExamples 数组：为上面每一步给一个**具体、可照搬**的样例（不是复述步骤，而是真正示范"这一步做出来长什么样"，如一句示范文字、一行公式代入、一个示范句子）。数量必须与步骤数一致（${steps.length} 条），第 i 条对应第 i 步。
+2. answer：给出这道作业的「参考答案/示范成品」——一段完整、可直接对照的示范（如完整解题过程、范文片段、填空答案与理由）。要具体到位，不要泛泛而谈。
+3. 涉及公式、符号、单位时一律用 LaTeX：行内用单美元符号包裹（如 $R=mv/(qB)$）。
+4. 每条样例和答案都要完整成句，不要半句话。
+
+【输出格式】
+仅输出一个严格 JSON 对象，不要 markdown 代码块、不要多余文字：
+{
+  "stepExamples": ["第1步样例", "第2步样例"],
+  "answer": "整题参考答案/示范成品"
+}`;
+}
+
 // ── Card quiz on-the-fly (单个记忆卡片底部专属互动自测) ──────────────────────────
 export function buildCardQuizPrompt(title: string, intro: string): string {
   return `根据以下大学生的学习记忆卡片，生成 1 道高质量的、能真正测试对本知识点核心原理理解的选择题。

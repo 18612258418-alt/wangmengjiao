@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import katex from "katex";
 import { renderTextWithLinks } from "../components/ConceptPage";
-import { parseMathSegments } from "../utils/parseMathSegments";
+import { parseMathSegments, parseMathSegmentsExplicit } from "../utils/parseMathSegments";
 
 function renderKatexHtml(latex: string, displayMode: boolean): string {
   try {
@@ -46,13 +46,16 @@ export function MathContent({
   onLinkClick,
   className,
   style,
+  mathMode = "auto",
 }: {
   text: string;
   onLinkClick?: (word: string) => void;
   className?: string;
   style?: CSSProperties;
+  /** auto：智能识别整行公式；explicit：仅渲染 $…$ 定界符（试卷题干等自然语言场景） */
+  mathMode?: "auto" | "explicit";
 }) {
-  const segments = parseMathSegments(text);
+  const segments = mathMode === "explicit" ? parseMathSegmentsExplicit(text) : parseMathSegments(text);
 
   return (
     <span className={className} style={{ ...style, whiteSpace: "pre-wrap" }}>

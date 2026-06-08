@@ -25,6 +25,10 @@ export interface CardData {
   contentType?: CardContentType;
   /** 笔记 Tab：对应学科教学大纲条目 id */
   syllabusEntryId?: string;
+  /** 笔记 Tab：新增后未被查看（用于大纲条目的"新增"红点角标，点击条目后清除） */
+  unread?: boolean;
+  /** 备考 Tab：本笔记实质涵盖的考点图谱节点 id（上传时由大模型挂靠，用于「相关笔记」） */
+  linkedExamPointIds?: string[];
   /** 作业模块：整理后的可执行文字 task（仅 homework） */
   homeworkTasks?: string[];
   /** 作业截止日 YYYYMMDD，用于按天归档（可选） */

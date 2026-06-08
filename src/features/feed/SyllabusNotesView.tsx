@@ -9,6 +9,7 @@ import {
   collectUnmappedNoteCards,
   countSyllabusEntriesWithCards,
   syllabusEntryHasCards,
+  syllabusEntryHasUnread,
 } from "../../utils/syllabusNotes";
 import { MemoryCard } from "./MemoryCard";
 
@@ -28,11 +29,13 @@ export function SyllabusNotesView({
   subject,
   feedGroups,
   onOpenCard,
+  onOpenEntry,
   newCardId,
 }: {
   subject: SubjectData;
   feedGroups: FeedGroup[];
   onOpenCard: (card: CardData, date: string) => void;
+  onOpenEntry?: (entryId: string) => void;
   newCardId: string | null;
 }) {
   const syllabus = getSubjectSyllabus(subject.id);
@@ -102,7 +105,7 @@ export function SyllabusNotesView({
               <button
                 key={RECENT_NOTES_ENTRY_ID}
                 type="button"
-                onClick={() => setSelectedEntryId(RECENT_NOTES_ENTRY_ID)}
+                onClick={() => { setSelectedEntryId(RECENT_NOTES_ENTRY_ID); onOpenEntry?.(RECENT_NOTES_ENTRY_ID); }}
                 className={`w-full text-left rounded-xl px-3 py-2.5 flex items-center gap-2 transition-colors mb-1 ${
                   active
                     ? "bg-[#4D5CFF]/10 text-[#4D5CFF]"
@@ -144,13 +147,14 @@ export function SyllabusNotesView({
 
             const lit = syllabusEntryHasCards(feedGroups, node.id);
             const active = selectedEntryId === node.id;
+            const hasUnread = lit && syllabusEntryHasUnread(feedGroups, node.id);
 
             return (
               <button
                 key={node.id}
                 type="button"
                 disabled={!lit}
-                onClick={() => lit && setSelectedEntryId(node.id)}
+                onClick={() => { if (lit) { setSelectedEntryId(node.id); onOpenEntry?.(node.id); } }}
                 className={`w-full text-left rounded-xl px-3 py-2.5 flex items-center gap-2 transition-colors ${
                   !lit
                     ? "cursor-not-allowed opacity-45"
@@ -172,6 +176,14 @@ export function SyllabusNotesView({
                 >
                   {node.title}
                 </span>
+                {hasUnread && (
+                  <span
+                    className="flex-shrink-0 text-[10px] leading-none text-white rounded-full px-1.5 py-0.5"
+                    style={{ background: "#FF5A5F", fontWeight: 700 }}
+                  >
+                    新
+                  </span>
+                )}
                 {lit && (
                   <ChevronRight
                     size={14}
