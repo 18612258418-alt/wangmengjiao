@@ -20,6 +20,7 @@ import { AnnotationModal } from "../features/annotation/AnnotationModal";
 import { SyllabusNotesView } from "../features/feed/SyllabusNotesView";
 import { TopTabs, type TopTabId } from "../features/feed/TopTabs";
 import { AnnotationMenu } from "../features/feed/AnnotationMenu";
+import { PdfReaderModal } from "../features/pdf-reader/PdfReaderModal";
 import { HomeworkView } from "../features/feed/HomeworkView";
 import { ExamPrepView } from "../modules/exam-prep";
 import { filterNoteFeedGroups } from "../utils/feedFilters";
@@ -27,7 +28,7 @@ import { EditableSubjectName } from "../features/feed/EditableSubjectName";
 import { RightDrawer } from "../features/drawer/RightDrawer";
 import { SearchOverlay } from "../features/search/SearchOverlay";
 import { Sidebar } from "../features/sidebar/Sidebar";
-import { AddSourceModal, type SourceDraft } from "../features/source/AddSourceModal";
+import { AddSourceModal, type SourceDraft, isAudioFile } from "../features/source/AddSourceModal";
 import { FlyThumbnail } from "../shared/FlyThumbnail";
 
 /** 选出最近更新的学科：扫描 allFeedGroups 取出最大日期对应的 subjectId */
@@ -58,6 +59,7 @@ export default function App() {
   const [drawerCardSubject, setDrawerCardSubject] = useState<string>("");
   const [showSearch, setShowSearch] = useState(false);
   const [showAddSource, setShowAddSource] = useState(false);
+  const [pdfReaderFile, setPdfReaderFile] = useState<File | null>(null);
   const [flyPhase, setFlyPhase] = useState<"idle" | "center" | "corner" | "fading">("idle");
   const [flyImg, setFlyImg] = useState<string>("");
   const [sidebarLoading, setSidebarLoading] = useState(false);
@@ -416,6 +418,46 @@ export default function App() {
     reader.readAsArrayBuffer(file);
   });
 
+  /** 读取文件为纯 Base64 字符串（不含 data URI 前缀） */
+  const readFileAsBase64 = async (file: File): Promise<string> => {
+    const dataUrl = await readFileAsDataUrl(file);
+    return dataUrl.split(",")[1] ?? "";
+  };
+
+  /**
+   * 调用 /api/audio 进行火山引擎 ASR 转录，返回转录文本。
+   * onProgress 用于在转录完成后、分析开始前更新 UI 提示。
+   */
+  const transcribeAudio = async (
+    file: File,
+    onProgress: (update: Partial<SourceDraft>) => void,
+  ): Promise<string> => {
+    const audioBase64 = await readFileAsBase64(file);
+    const format = file.name.split(".").pop()?.toLowerCase() ?? "mp3";
+
+    onProgress({ summary: "🎙 正在识别语音（约 20–60 秒），请稍候..." });
+
+    const res = await fetch("/api/audio", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ audioBase64, format, fileName: file.name }),
+    });
+
+    if (!res.ok) {
+      let errMsg = `语音转录失败 (${res.status})`;
+      try {
+        const errData = await res.json() as { error?: string };
+        if (errData.error) errMsg = errData.error;
+      } catch { /* ignore */ }
+      throw new Error(errMsg);
+    }
+
+    const data = await res.json() as { transcript?: string; error?: string };
+    if (data.error) throw new Error(data.error);
+    if (!data.transcript) throw new Error("语音转录返回空内容，请检查音频文件。");
+    return data.transcript;
+  };
+
   const extractPdfText = async (file: File) => {
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
     pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.mjs", import.meta.url).toString();
@@ -545,7 +587,19 @@ export default function App() {
     return sourceDraftFromImport(data, kind, kind === "link" ? value : "粘贴文本");
   };
 
-  const analyzeSourceFile = async (file: File): Promise<SourceDraft> => {
+  const analyzeSourceFile = async (
+    file: File,
+    onProgress: (update: Partial<SourceDraft>) => void = () => undefined,
+  ): Promise<SourceDraft> => {
+    // 音频：先转录，再分析
+    if (isAudioFile(file)) {
+      const transcript = await transcribeAudio(file, onProgress);
+      onProgress({ summary: "🔍 转录完成，正在分析内容..." });
+      const prefix = `[来源：语音录音]\n文件名：${file.name}\n\n`;
+      const draft = await analyzeTextSource("text", `${prefix}${transcript}`);
+      return { ...draft, sourceKind: "audio", transcript };
+    }
+
     if (file.type.startsWith("image/")) {
       const imageDataUrl = await readFileAsDataUrl(file);
       const compressedImage = await compressImageForApi(imageDataUrl);
@@ -570,7 +624,7 @@ export default function App() {
       return analyzeTextSource("text", text);
     }
 
-    throw new Error("当前演示版先支持图片、PDF、txt、md；Word 下一步接服务端解析。");
+    throw new Error("当前演示版先支持图片、PDF、txt、md 及音频；Word 下一步接服务端解析。");
   };
 
   const confirmSourceDraft = (draft: SourceDraft) => {
@@ -697,7 +751,10 @@ export default function App() {
                   />
                   <p className="text-[13px] text-[#7B8291] mt-1">{subject?.extra ?? ""}</p>
                 </div>
-                <AnnotationMenu onOpenAnnotation={handleOpenAnnotation} />
+                <AnnotationMenu
+                  onOpenAnnotation={handleOpenAnnotation}
+                  onOpenPdfReader={(file) => setPdfReaderFile(file)}
+                />
               </div>
 
               <TopTabs
@@ -777,6 +834,16 @@ export default function App() {
         />
 
         <FlyThumbnail phase={flyPhase} imgSrc={flyImg} />
+
+        {pdfReaderFile && (
+          <PdfReaderModal
+            file={pdfReaderFile}
+            onClose={() => setPdfReaderFile(null)}
+            onSavePage={(imageDataUrl, hasAnnotations) => {
+              processImage(imageDataUrl, hasAnnotations, "notes");
+            }}
+          />
+        )}
 
         {showCreateSubject && (
           <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/35" onClick={() => setShowCreateSubject(false)}>
