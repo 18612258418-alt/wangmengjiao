@@ -169,7 +169,7 @@ export function AnnotationModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="fixed inset-0 z-[600]">
       <div
         className="absolute inset-0"
         style={{

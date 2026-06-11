@@ -21,6 +21,10 @@ import { SyllabusNotesView } from "../features/feed/SyllabusNotesView";
 import { TopTabs, type TopTabId } from "../features/feed/TopTabs";
 import { AnnotationMenu } from "../features/feed/AnnotationMenu";
 import { PdfReaderModal } from "../features/pdf-reader/PdfReaderModal";
+import { CameraModal } from "../features/camera/CameraModal";
+import { ScreenshotModeModal } from "../features/screenshot/ScreenshotModeModal";
+import { VoiceModal } from "../features/voice/VoiceModal";
+import { OnboardingScreen } from "../features/onboarding/OnboardingScreen";
 import { HomeworkView } from "../features/feed/HomeworkView";
 import { ExamPrepView } from "../modules/exam-prep";
 import { filterNoteFeedGroups } from "../utils/feedFilters";
@@ -60,6 +64,12 @@ export default function App() {
   const [showSearch, setShowSearch] = useState(false);
   const [showAddSource, setShowAddSource] = useState(false);
   const [pdfReaderFile, setPdfReaderFile] = useState<File | null>(null);
+  const [showCamera, setShowCamera] = useState(false);
+  const [showScreenshot, setShowScreenshot] = useState(false);
+  const [showVoice, setShowVoice] = useState(false);
+  const [onboardingMode, setOnboardingMode] = useState<"first" | "demo" | null>(
+    () => localStorage.getItem("imemo_onboarded") ? null : "first",
+  );
   const [flyPhase, setFlyPhase] = useState<"idle" | "center" | "corner" | "fading">("idle");
   const [flyImg, setFlyImg] = useState<string>("");
   const [sidebarLoading, setSidebarLoading] = useState(false);
@@ -68,6 +78,7 @@ export default function App() {
   const [newSubjectName, setNewSubjectName] = useState("");
   const flyTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const didInitSubjectRef = useRef(false);
+  const demoPdfInputRef = useRef<HTMLInputElement>(null);
 
   const sortedSubjects = useMemo(() => {
     return [...subjects].sort((a, b) => {
@@ -754,6 +765,10 @@ export default function App() {
                 <AnnotationMenu
                   onOpenAnnotation={handleOpenAnnotation}
                   onOpenPdfReader={(file) => setPdfReaderFile(file)}
+                  onOpenCamera={() => setShowCamera(true)}
+                  onOpenScreenshot={() => setShowScreenshot(true)}
+                  onOpenVoice={() => setShowVoice(true)}
+                  onOpenDemo={() => setOnboardingMode("demo")}
                 />
               </div>
 
@@ -795,14 +810,6 @@ export default function App() {
           ) : null}
         </main>
 
-        {annotationType && (
-          <AnnotationModal
-            type={annotationType}
-            onClose={handleCloseAnnotation}
-            onSave={handleSave}
-          />
-        )}
-
         <RightDrawer
           card={drawerCard}
           onClose={() => setDrawerCard(null)}
@@ -832,18 +839,6 @@ export default function App() {
           onAnalyzeFile={analyzeSourceFile}
           onConfirmDraft={confirmSourceDraft}
         />
-
-        <FlyThumbnail phase={flyPhase} imgSrc={flyImg} />
-
-        {pdfReaderFile && (
-          <PdfReaderModal
-            file={pdfReaderFile}
-            onClose={() => setPdfReaderFile(null)}
-            onSavePage={(imageDataUrl, hasAnnotations) => {
-              processImage(imageDataUrl, hasAnnotations, "notes");
-            }}
-          />
-        )}
 
         {showCreateSubject && (
           <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/35" onClick={() => setShowCreateSubject(false)}>
@@ -886,6 +881,107 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {/* 引导页：首次加载（first）或点"场景 Demo"（demo）时出现 */}
+      {onboardingMode && (
+        <OnboardingScreen
+          mode={onboardingMode}
+          onEnter={() => {
+            if (onboardingMode === "first") {
+              localStorage.setItem("imemo_onboarded", "1");
+            }
+            setOnboardingMode(null);
+          }}
+          onOpenCircle={() => demoPdfInputRef.current?.click()}
+          onOpenScreenshot={() => setShowScreenshot(true)}
+          onOpenCamera={() => setShowCamera(true)}
+          onOpenVoice={() => setShowVoice(true)}
+        />
+      )}
+
+      {/* ── 功能 Modal：放在 OnboardingScreen 之后，确保在引导页之上 ── */}
+      {annotationType && (
+        <AnnotationModal
+          type={annotationType}
+          onClose={handleCloseAnnotation}
+          onSave={handleSave}
+        />
+      )}
+
+      {pdfReaderFile && (
+        <PdfReaderModal
+          file={pdfReaderFile}
+          onClose={() => setPdfReaderFile(null)}
+          onSavePage={(imageDataUrl, hasAnnotations) => {
+            processImage(imageDataUrl, hasAnnotations, "notes");
+          }}
+        />
+      )}
+
+      {showCamera && (
+        <CameraModal
+          onClose={() => setShowCamera(false)}
+          onSave={(imageDataUrl) => {
+            processImage(imageDataUrl, false, "notes");
+          }}
+        />
+      )}
+
+      {showScreenshot && (
+        <ScreenshotModeModal
+          onClose={() => setShowScreenshot(false)}
+          onSave={(imageDataUrl) => {
+            processImage(imageDataUrl, false, "notes");
+          }}
+        />
+      )}
+
+      {showVoice && (
+        <VoiceModal
+          onClose={() => setShowVoice(false)}
+          onSave={(transcript) => {
+            // 不关闭录音页面，让 FlyThumbnail 浮现在录音页上方
+            const now = new Date();
+            const dateStr = `${now.getFullYear()}/${(now.getMonth()+1).toString().padStart(2,"0")}/${now.getDate().toString().padStart(2,"0")}`;
+            analyzeTextSource("text", `[来源：实时录音 ${dateStr}]\n\n${transcript}`)
+              .then(draft => confirmSourceDraft(draft))
+              .catch(err => {
+                console.warn("[voice] import failed, saving as plain note", err);
+                applyNewCard(
+                  activeSubject !== "all" && activeSubject !== "__pending__" ? activeSubject : "other",
+                  "语音记录：" + transcript.slice(0, 20) + "…",
+                  transcript.slice(0, 80),
+                  "notes", imgNotesBg,
+                  transcript, undefined, [], [], [], [], undefined,
+                  "theory_concept", undefined, false, undefined, transcript,
+                );
+              });
+            setFlyImg(imgNotesBg);
+            setFlyPhase("center");
+            const t1 = setTimeout(() => setFlyPhase("corner"), 80);
+            const t2 = setTimeout(() => setFlyPhase("fading"), 5200);
+            const t3 = setTimeout(() => setFlyPhase("idle"), 5800);
+            flyTimers.current.forEach(clearTimeout);
+            flyTimers.current = [t1, t2, t3];
+          }}
+        />
+      )}
+
+      {/* FlyThumbnail 必须放在所有 Modal 之后才能浮在最顶层 */}
+      <FlyThumbnail phase={flyPhase} imgSrc={flyImg} />
+
+      {/* 圈注 Demo 的 PDF 文件选择器（隐藏） */}
+      <input
+        ref={demoPdfInputRef}
+        type="file"
+        accept=".pdf"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) setPdfReaderFile(file);
+          e.target.value = "";
+        }}
+      />
     </ApiConfigProvider>
   );
 }

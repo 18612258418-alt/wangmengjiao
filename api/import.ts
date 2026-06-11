@@ -6,22 +6,91 @@ declare const process: {
   env: Record<string, string | undefined>;
 };
 
+import {
+  buildCircleRegionPrompt,
+  type CircleRegionResult,
+  type CircleRegionSection,
+} from "../src/prompts/circleRegion";
+import { classifyCardSurfaces } from "../src/utils/cardSurfaces";
+
 type ImportKind = "image" | "text" | "link";
+type ImportMode = "default" | "circle_region";
 
 interface ImportRequest {
   kind: ImportKind;
+  mode?: ImportMode;
   value?: string;
   imageDataUrl?: string;
   fileName?: string;
+  pdfTitle?: string;
+  pageNum?: number;
+  /** circle = 闭合圈选；ink = 下划线/问号/手写字等开放笔迹 */
+  markKind?: "circle" | "ink";
+  /** 用户对澄清提问的回复 */
+  userIntent?: string;
+  /** 本地学习到的用户偏好画像 */
+  userProfile?: string;
+}
+
+// 以这些字母开头的反斜杠序列几乎必然是 LaTeX 命令而非 JSON 转义
+// （覆盖 \theta \frac \nabla 等会被误认为 \t \f \n 合法转义的情况）
+const LATEX_CMD_RE = /(?<!\\)\\(?=(?:frac|sqrt|sin|cos|tan|cot|sec|csc|log|ln|exp|lim|sum|prod|int|infty|cdot|times|div|pm|mp|leq?|geq?|neq?|approx|equiv|propto|to|rightarrow|leftarrow|Rightarrow|Leftarrow|left|right|begin|end|text|mathrm|mathbf|mathcal|vec|hat|bar|dot|ddot|tilde|overline|underline|partial|nabla|delta|Delta|theta|Theta|alpha|beta|gamma|Gamma|lambda|Lambda|omega|Omega|sigma|Sigma|phi|Phi|varphi|psi|Psi|pi|Pi|mu|nu|tau|rho|kappa|chi|xi|Xi|zeta|eta|epsilon|varepsilon|ell|hbar|degree|prime|ldots|cdots|dots|quad|qquad)\b)/g;
+
+/** 把模型输出里不合法的 JSON 转义（多为单反斜杠 LaTeX）翻倍修复 */
+function repairModelJson(json: string): string {
+  let s = json.replace(LATEX_CMD_RE, "\\\\");
+  // 成对的 \\ 整体跳过，避免把已正确转义的 \\delta、\\( 再次改坏
+  s = s.replace(/\\\\|\\(?!["\\/bfnrtu])/g, m => (m === "\\\\" ? m : "\\\\"));
+  return s;
+}
+
+/** 输出被 max_tokens 截断时，补齐未闭合的字符串/括号，尽量抢救已生成内容 */
+function closeTruncatedJson(json: string): string {
+  let inStr = false;
+  let esc = false;
+  const stack: string[] = [];
+  for (const ch of json) {
+    if (esc) { esc = false; continue; }
+    if (ch === "\\") { esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (ch === "{") stack.push("}");
+    else if (ch === "[") stack.push("]");
+    else if (ch === "}" || ch === "]") stack.pop();
+  }
+  let out = json;
+  if (inStr) out += '"';
+  out = out.replace(/,\s*$/, "");
+  while (stack.length) out += stack.pop();
+  return out;
 }
 
 function extractJson(text: string): Record<string, unknown> {
-  const json = text.match(/\{[\s\S]*\}/)?.[0];
-  if (!json) throw new Error("No JSON in model response");
-  return JSON.parse(json) as Record<string, unknown>;
-}
+  let cleaned = text.trim();
+  const fenced = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenced) cleaned = fenced[1].trim();
+  // 截断的输出可能没有结尾 }，从第一个 { 取到末尾
+  let json = cleaned.match(/\{[\s\S]*\}/)?.[0];
+  if (!json) {
+    const start = cleaned.indexOf("{");
+    if (start === -1) throw new Error("No JSON in model response");
+    json = cleaned.slice(start);
+  }
 
-import { classifyCardSurfaces } from "../src/utils/cardSurfaces";
+  for (const candidate of [json, repairModelJson(json)]) {
+    try {
+      return JSON.parse(candidate) as Record<string, unknown>;
+    } catch { /* try next */ }
+    try {
+      return JSON.parse(closeTruncatedJson(candidate)) as Record<string, unknown>;
+    } catch { /* try next */ }
+  }
+  console.warn(
+    "[import] extractJson failed. head:", json.slice(0, 300).replace(/\n/g, "\\n"),
+    "| tail:", json.slice(-200).replace(/\n/g, "\\n"),
+  );
+  throw new Error("模型返回格式异常，请重新圈选");
+}
 
 function normalizeResult(parsed: Record<string, unknown>, fallbackTitle: string, imageDataUrl?: string) {
   const validSubjects = ["physics", "math", "chemistry", "english", "other"];
@@ -178,10 +247,126 @@ async function callDeepSeek(prompt: string) {
   return String(data.choices?.[0]?.message?.content ?? "");
 }
 
-async function callDoubao(imageDataUrl: string, fileName?: string) {
+const SKIP_SECTION = new Set([
+  "本圈选内容不涉及",
+  "不涉及",
+  "无",
+  "暂无",
+  "N/A",
+  "n/a",
+]);
+
+function isRealSectionContent(content: string): boolean {
+  const t = content.trim();
+  return t.length > 0 && !SKIP_SECTION.has(t);
+}
+
+function normalizeCircleSection(raw: unknown): CircleRegionSection | null {
+  if (!raw || typeof raw !== "object") return null;
+  const s = raw as { title?: unknown; content?: unknown; items?: unknown };
+  const title = typeof s.title === "string" ? s.title.trim() : "";
+  let content = typeof s.content === "string" ? s.content.trim() : "";
+  if (!content && Array.isArray(s.items)) {
+    content = s.items
+      .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      .join("\n");
+  }
+  if (!title || !content) return null;
+  return { title, content };
+}
+
+function detailSectionsToCircleSections(detailSections: unknown): CircleRegionSection[] {
+  if (!Array.isArray(detailSections)) return [];
+  return detailSections
+    .map(normalizeCircleSection)
+    .filter((s): s is CircleRegionSection => !!s && isRealSectionContent(s.content));
+}
+
+function normalizeCircleResult(parsed: Record<string, unknown>): CircleRegionResult {
+  const validSkills = ["theory_concept", "math_problem", "language", "experiment_lab", "code_cs", "literature_essay"];
+  const skill = typeof parsed.skill === "string" && validSkills.includes(parsed.skill)
+    ? parsed.skill
+    : "theory_concept";
+
+  const clarifyQuestion = typeof parsed.clarifyQuestion === "string" ? parsed.clarifyQuestion.trim() : "";
+  if (parsed.needClarify === true && clarifyQuestion) {
+    return {
+      intent: typeof parsed.intent === "string" ? parsed.intent.trim() : "",
+      skill,
+      sections: [],
+      warnings: [],
+      needClarify: true,
+      clarifyQuestion,
+    };
+  }
+
+  const defaultSections: CircleRegionSection[] = [
+    { title: "概念讲清楚", content: "本圈选内容不涉及" },
+    { title: "公式推导", content: "本圈选内容不涉及" },
+    { title: "解题步骤", content: "本圈选内容不涉及" },
+  ];
+
+  let sections = Array.isArray(parsed.sections)
+    ? parsed.sections.map(normalizeCircleSection).filter((s): s is CircleRegionSection => !!s)
+    : [];
+
+  if (!sections.some(s => isRealSectionContent(s.content))) {
+    const fromDetail = detailSectionsToCircleSections(parsed.detailSections);
+    if (fromDetail.length) sections = fromDetail;
+  }
+
+  const warnings = Array.isArray(parsed.warnings)
+    ? parsed.warnings.filter((w): w is string => typeof w === "string" && w.trim().length > 0)
+    : [];
+
+  let intent = typeof parsed.intent === "string" ? parsed.intent.trim() : "";
+  if (!intent) {
+    const fallbackIntent = [parsed.detailIntro, parsed.overview, parsed.summary]
+      .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+      .join("\n\n");
+    intent = fallbackIntent || "正在理解你圈选的内容…";
+  }
+
+  // 若仍无实质 section，把 intent 长文拆成「解析正文」避免右侧空白
+  if (!sections.some(s => isRealSectionContent(s.content)) && intent.length > 40) {
+    sections = [{ title: "解析正文", content: intent }];
+  }
+
+  return {
+    intent,
+    skill,
+    sections: sections.some(s => isRealSectionContent(s.content)) ? sections : defaultSections,
+    warnings: warnings.length ? warnings : ["⚠ 圈选范围较小时，建议把题干和所求一并圈入，解析会更准确。"],
+  };
+}
+
+async function callDoubao(
+  imageDataUrl: string,
+  options?: {
+    fileName?: string;
+    mode?: ImportMode;
+    pdfTitle?: string;
+    pageNum?: number;
+    markKind?: "circle" | "ink";
+    userIntent?: string;
+    userProfile?: string;
+  },
+) {
   const apiKey = process.env.DOUBAO_API_KEY || process.env.VITE_DOUBAO_API_KEY;
   const model = process.env.DOUBAO_MODEL_ID || process.env.VITE_DOUBAO_MODEL_ID || "doubao-seed-1-6-vision-250815";
   if (!apiKey) throw new Error("DOUBAO_API_KEY not configured");
+
+  const isCircle = options?.mode === "circle_region";
+  const promptText = isCircle
+    ? buildCircleRegionPrompt({
+      pdfTitle: options?.pdfTitle,
+      pageNum: options?.pageNum,
+      fileName: options?.fileName,
+      markKind: options?.markKind,
+      userIntent: options?.userIntent,
+      userProfile: options?.userProfile,
+    })
+    : buildVisionPrompt(options?.fileName);
 
   const res = await fetchWithTimeout("https://ark.cn-beijing.volces.com/api/v3/chat/completions", {
     method: "POST",
@@ -191,15 +376,21 @@ async function callDoubao(imageDataUrl: string, fileName?: string) {
     },
     body: JSON.stringify({
       model,
-      // 限制输出长度，避免视觉模型生成过长 JSON 拖过 Edge 25s 墙钟。
-      max_tokens: 1600,
+      max_tokens: isCircle ? 3000 : 1600,
+      // 关闭深度思考：开启时单次请求 100s+ 且消耗数千 reasoning token，交互场景无法接受
+      thinking: { type: "disabled" },
       messages: [
-        { role: "system", content: "输出紧凑 JSON，避免冗长。" },
+        {
+          role: "system",
+          content: isCircle
+            ? "你是大学学长辅导助手。根据圈选区域推断用户意图，讲清概念、推导公式、补齐解题步骤。严格输出 JSON。"
+            : "输出紧凑 JSON，避免冗长。",
+        },
         {
           role: "user",
           content: [
             { type: "image_url", image_url: { url: imageDataUrl } },
-            { type: "text", text: buildVisionPrompt(fileName) },
+            { type: "text", text: promptText },
           ],
         },
       ],
@@ -221,7 +412,22 @@ export default async function handler(req: Request): Promise<Response> {
 
     if (body.kind === "image") {
       if (!body.imageDataUrl) throw new Error("imageDataUrl is required");
-      const raw = await callDoubao(body.imageDataUrl, body.fileName);
+      const raw = await callDoubao(body.imageDataUrl, {
+        fileName: body.fileName,
+        mode: body.mode,
+        pdfTitle: body.pdfTitle,
+        pageNum: body.pageNum,
+        markKind: body.markKind,
+        userIntent: body.userIntent,
+        userProfile: body.userProfile,
+      });
+
+      if (body.mode === "circle_region") {
+        return new Response(JSON.stringify(normalizeCircleResult(extractJson(raw))), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
       return new Response(JSON.stringify(normalizeResult(extractJson(raw), fallbackTitle, body.imageDataUrl)), {
         headers: { "Content-Type": "application/json" },
       });

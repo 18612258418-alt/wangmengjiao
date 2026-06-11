@@ -14,17 +14,17 @@ function pathLength(pts: Point[]): number {
  * closed shape (circle, loop, freehand selection), or null if it is an open stroke.
  *
  * Heuristic: the distance from the last point back to the first point must be
- * less than 25% of the total path length, and the path must be at least 40px long.
+ * less than 32% of the total path length, and the path must be at least 40px long.
  */
 export function detectClosedShape(pts: Point[]): BoundingBox | null {
-  if (pts.length < 8) return null;
+  if (pts.length < 6) return null;
 
   const first = pts[0];
   const last = pts[pts.length - 1];
   const closeDist = Math.hypot(last.x - first.x, last.y - first.y);
   const total = pathLength(pts);
 
-  if (total < 40 || closeDist > total * 0.25) return null;
+  if (total < 40 || closeDist > total * 0.32) return null;
 
   const xs = pts.map(p => p.x);
   const ys = pts.map(p => p.y);

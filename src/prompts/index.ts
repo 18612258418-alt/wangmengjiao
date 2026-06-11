@@ -483,6 +483,13 @@ ${stepLines}
 }
 
 // ── Card quiz on-the-fly (单个记忆卡片底部专属互动自测) ──────────────────────────
+export {
+  buildCircleRegionPrompt,
+  formatCircleRegionAnswer,
+  type CircleRegionResult,
+  type CircleRegionSection,
+} from "./circleRegion";
+
 export function buildCardQuizPrompt(title: string, intro: string): string {
   return `根据以下大学生的学习记忆卡片，生成 1 道高质量的、能真正测试对本知识点核心原理理解的选择题。
 

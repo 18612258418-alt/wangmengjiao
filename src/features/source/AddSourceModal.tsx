@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { CardContentType, DetailSection, ExpandedKnowledge, KnowledgeNode, SubjectData } from "../../types";
 
-export type SourceKind = "image" | "file" | "link" | "text";
+export type SourceKind = "image" | "file" | "link" | "text" | "audio";
 export type SourceStatus = "analyzing" | "ready" | "failed" | "saved";
 
 export interface SourceDraft {
@@ -13,6 +13,8 @@ export interface SourceDraft {
   summary: string;
   targetSubjectId: string;
   img?: string;
+  /** 音频转录原文，仅 sourceKind==="audio" 时存在 */
+  transcript?: string;
   overview?: string;
   detailIntro?: string;
   detailSections?: DetailSection[];
@@ -29,7 +31,18 @@ export interface SourceDraft {
   error?: string;
 }
 
+const AUDIO_EXTS = ["mp3", "m4a", "mp4", "wav", "ogg", "flac", "opus", "aac", "webm", "amr", "wma"];
+
+export function isAudioFile(file: File): boolean {
+  if (file.type.startsWith("audio/")) return true;
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  return AUDIO_EXTS.includes(ext);
+}
+
 function getSourceVisual(item: Pick<SourceDraft, "sourceKind" | "originalName">) {
+  if (item.sourceKind === "audio") {
+    return { label: "AUDIO", icon: "🎙", bg: "#FFF7ED", color: "#EA580C" };
+  }
   const lowerName = item.originalName.toLowerCase();
   if (item.sourceKind === "image") {
     return { label: "IMG", icon: "I", bg: "#EFF6FF", color: "#2563EB" };
@@ -46,6 +59,31 @@ function getSourceVisual(item: Pick<SourceDraft, "sourceKind" | "originalName">)
   return { label: "FILE", icon: "F", bg: "#F1F5F9", color: "#475569" };
 }
 
+/** 音频转录原文可展开/收起 */
+function TranscriptPreview({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const preview = text.slice(0, 120);
+  const hasMore = text.length > 120;
+  return (
+    <div className="mt-2 rounded-xl bg-[#FFF7ED] border border-[#FED7AA] px-3 py-2">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[10px] text-[#EA580C]" style={{ fontWeight: 700 }}>🎙 转录原文</span>
+        {hasMore && (
+          <button
+            onClick={() => setExpanded(v => !v)}
+            className="text-[10px] text-[#EA580C] hover:underline"
+          >
+            {expanded ? "收起" : "展开全文"}
+          </button>
+        )}
+      </div>
+      <p className="text-[11px] text-[#92400E] leading-relaxed whitespace-pre-wrap break-words">
+        {expanded ? text : (hasMore ? `${preview}…` : text)}
+      </p>
+    </div>
+  );
+}
+
 export function AddSourceModal({
   isOpen,
   subjects,
@@ -56,7 +94,10 @@ export function AddSourceModal({
   isOpen: boolean;
   subjects: SubjectData[];
   onClose: () => void;
-  onAnalyzeFile: (file: File) => Promise<SourceDraft>;
+  onAnalyzeFile: (
+    file: File,
+    onProgress: (update: Partial<SourceDraft>) => void,
+  ) => Promise<SourceDraft>;
   onConfirmDraft: (draft: SourceDraft) => void;
 }) {
   const [items, setItems] = useState<SourceDraft[]>([]);
@@ -68,15 +109,19 @@ export function AddSourceModal({
   };
 
   const addAnalyzingItem = (sourceKind: SourceKind, originalName: string) => {
+    const isAudio = sourceKind === "audio";
+    const isImage = sourceKind === "image" || originalName.toLowerCase().endsWith(".pdf");
+    let summary = "AI 正在解析资料内容...";
+    if (isAudio) summary = "🎙 正在识别语音（约 20–60 秒），请稍候...";
+    else if (isImage) summary = "AI 正在解析（视觉模型约需 30–90 秒，请稍候）...";
+
     const item: SourceDraft = {
       id: `source_${Date.now()}_${Math.random().toString(36).slice(2)}`,
       status: "analyzing",
       sourceKind,
       originalName,
       title: originalName,
-      summary: sourceKind === "image" || originalName.toLowerCase().endsWith(".pdf")
-        ? "AI 正在解析（视觉模型约需 30–90 秒，请稍候）..."
-        : "AI 正在解析资料内容...",
+      summary,
       targetSubjectId: subjects[0]?.id ?? "other",
     };
     setItems(prev => [item, ...prev]);
@@ -86,8 +131,23 @@ export function AddSourceModal({
   const handleFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
     Array.from(files).forEach(file => {
-      const id = addAnalyzingItem(file.type.startsWith("image/") ? "image" : "file", file.name);
-      onAnalyzeFile(file)
+      const audio = isAudioFile(file);
+
+      // 文件大小警告（音频超 20 MB 很可能触发 Vercel 4.5 MB 请求体限制）
+      if (audio && file.size > 20 * 1024 * 1024) {
+        const id = addAnalyzingItem("audio", file.name);
+        updateItem(id, {
+          status: "failed",
+          summary: "文件过大（超过 20 MB）。",
+          error: `课堂录音（${(file.size / 1024 / 1024).toFixed(1)} MB）超出单次上传限制。建议：① 在录音 App 导出 64 kbps 版本（约 7 分钟内可上传）；② 将录音分成 10 分钟左右的片段分别上传。`,
+        });
+        return;
+      }
+
+      const kind: SourceKind = audio ? "audio" : file.type.startsWith("image/") ? "image" : "file";
+      const id = addAnalyzingItem(kind, file.name);
+
+      onAnalyzeFile(file, (update) => updateItem(id, update))
         .then(draft => updateItem(id, { ...draft, id, status: "ready" }))
         .catch(err => updateItem(id, {
           status: "failed",
@@ -102,13 +162,31 @@ export function AddSourceModal({
     updateItem(item.id, { status: "saved" });
   };
 
+  const acceptTypes = [
+    "image/*",
+    ".pdf",
+    ".txt",
+    ".md",
+    ".mp3",
+    ".m4a",
+    ".mp4",
+    ".wav",
+    ".ogg",
+    ".flac",
+    ".opus",
+    ".aac",
+    ".webm",
+    ".amr",
+    ".wma",
+  ].join(",");
+
   return (
     <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/35" onClick={onClose}>
       <div className="w-[720px] max-h-[86vh] rounded-3xl bg-white shadow-2xl overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-5 border-b border-[#EAEDF2] flex items-start justify-between">
           <div>
             <p className="text-[18px] text-[#020418]" style={{ fontWeight: 800 }}>添加资料</p>
-            <p className="text-[12px] text-[#7B8291] mt-1">先解析成预览卡，确认后再保存为记忆，避免污染你的资料库。</p>
+            <p className="text-[12px] text-[#7B8291] mt-1">支持图片、PDF、文本及音频；先解析成预览卡，确认后再保存，避免污染资料库。</p>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-[#F0F2F5] hover:bg-[#E5E7EB] text-[#020418]">×</button>
         </div>
@@ -118,15 +196,22 @@ export function AddSourceModal({
             <input
               type="file"
               multiple
-              accept="image/*,.pdf,.txt,.md"
+              accept={acceptTypes}
               className="hidden"
               onChange={e => {
                 handleFiles(e.target.files);
                 e.currentTarget.value = "";
               }}
             />
-            <p className="text-[15px] text-[#020418]" style={{ fontWeight: 800 }}>选择图片、PDF 或文本文件</p>
-            <p className="text-[12px] text-[#7B8291] mt-1">支持多选；每个资料会独立解析，失败不会影响其他资料。</p>
+            <p className="text-[15px] text-[#020418]" style={{ fontWeight: 800 }}>
+              选择图片、PDF、文本或音频文件
+            </p>
+            <p className="text-[12px] text-[#7B8291] mt-1">
+              支持多选；音频（mp3 / m4a / wav 等）将自动语音转录后再分析。
+            </p>
+            <p className="text-[11px] text-[#EA580C] mt-1">
+              🎙 音频上传限制 ≈ 20 MB（约 7 分钟 64 kbps，或 3 分钟 128 kbps）
+            </p>
           </label>
         </div>
 
@@ -147,7 +232,7 @@ export function AddSourceModal({
                     className="w-[74px] h-[58px] rounded-xl flex flex-col items-center justify-center flex-shrink-0"
                     style={{ background: visual.bg, color: visual.color }}
                   >
-                    <span style={{ fontSize: visual.icon.length === 1 ? 18 : 16, fontWeight: 900, lineHeight: 1 }}>{visual.icon}</span>
+                    <span style={{ fontSize: visual.icon.length === 1 ? 18 : 20, fontWeight: 900, lineHeight: 1 }}>{visual.icon}</span>
                     <span className="text-[10px] mt-1" style={{ fontWeight: 900, letterSpacing: 0.3 }}>{visual.label}</span>
                   </div>
                 )}
@@ -160,13 +245,16 @@ export function AddSourceModal({
                       className="min-w-0 flex-1 bg-transparent text-[14px] text-[#020418] outline-none disabled:opacity-100"
                       style={{ fontWeight: 800 }}
                     />
-                    <span className={`text-[11px] ${item.status === "failed" ? "text-[#EF4444]" : item.status === "saved" ? "text-[#10B981]" : "text-[#7B8291]"}`}>
-                      {item.status === "analyzing" ? "解析中" : item.status === "ready" ? "待确认" : item.status === "saved" ? "已保存" : "失败"}
+                    <span className={`text-[11px] flex-shrink-0 ${item.status === "failed" ? "text-[#EF4444]" : item.status === "saved" ? "text-[#10B981]" : "text-[#7B8291]"}`}>
+                      {item.status === "analyzing" ? (item.sourceKind === "audio" ? "识别中" : "解析中") : item.status === "ready" ? "待确认" : item.status === "saved" ? "已保存" : "失败"}
                     </span>
                   </div>
                   <p className={`text-[12px] mt-1 line-clamp-2 ${item.status === "failed" ? "text-[#E11D48]" : "text-[#7B8291]"}`}>
                     {item.error || item.summary}
                   </p>
+                  {item.transcript && item.status === "ready" && (
+                    <TranscriptPreview text={item.transcript} />
+                  )}
                   {item.status === "ready" && (
                     <div className="mt-3 flex items-center justify-between gap-3">
                       <select
