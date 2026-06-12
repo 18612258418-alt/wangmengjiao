@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { X, Mic, Square, Loader2, BookmarkCheck } from "lucide-react";
+import { DEMO_TRANSCRIPT } from "./demoTranscript";
 
 interface Props {
   onClose: () => void;
@@ -9,16 +10,11 @@ interface Props {
 
 type Phase = "idle" | "recording" | "transcribing" | "done" | "saved";
 
-// Demo 降级文本（API 未配置时使用）
-const DEMO_TRANSCRIPT = `好的，今天我们继续讲第十二章机械振动与机械波。
+/** 演示版固定走示例文稿，不等待 ASR 上传 */
+const USE_DEMO_TRANSCRIPT =
+  import.meta.env.VITE_VOICE_DEMO !== "false";
 
-上节课我们介绍了简谐振动的基本方程 x(t) = A·cos(ωt + φ₀)，今天重点讲旋转矢量法和多振动的叠加。
-
-旋转矢量法的核心思想是用一个匀速旋转的矢量来表示简谐振动，矢量的长度等于振幅，矢量在 x 轴上的投影就是位移。
-
-当 N 个同频等幅振动叠加时，相邻振动的相位差为 δ，合振幅公式为 R = A·sin(Nδ/2) / sin(δ/2)。
-
-下课前布置一道题：两列振幅相同、频率相同但相位相差 π/3 的振动叠加，求合振幅和初相位。`;
+const DEMO_SPINNER_MS = 180;
 
 // 随机波形柱高度（录音时动态更新）
 function useWaveform(active: boolean) {
@@ -41,9 +37,19 @@ function useWaveform(active: boolean) {
   return bars;
 }
 
-// 格式化秒数 → mm:ss
 function fmt(s: number) {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function showDemoTranscript(
+  setPhase: (p: Phase) => void,
+  setTranscript: (t: string) => void,
+) {
+  setPhase("transcribing");
+  window.setTimeout(() => {
+    setTranscript(DEMO_TRANSCRIPT);
+    setPhase("done");
+  }, DEMO_SPINNER_MS);
 }
 
 export function VoiceModal({ onClose, onSave }: Props) {
@@ -61,7 +67,6 @@ export function VoiceModal({ onClose, onSave }: Props) {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
   };
 
-  // 清理
   useEffect(() => () => {
     stopTimer();
     streamRef.current?.getTracks().forEach(t => t.stop());
@@ -70,62 +75,54 @@ export function VoiceModal({ onClose, onSave }: Props) {
   const handleSave = useCallback(() => {
     if (!transcript) return;
     setPhase("saved");
-    onSave(transcript); // → App.tsx 触发 FlyThumbnail，保持录音页面不关闭
+    onSave(transcript);
   }, [transcript, onSave]);
+
+  const finishTranscription = useCallback(() => {
+    showDemoTranscript(setPhase, setTranscript);
+  }, []);
 
   const startRecording = useCallback(async () => {
     chunksRef.current = [];
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      const mr = new MediaRecorder(stream);
-      mediaRecorderRef.current = mr;
-      mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      mr.start(100);
-      setPhase("recording");
-      setSeconds(0);
-      timerRef.current = setInterval(() => setSeconds(s => s + 1), 1000);
-    } catch {
-      // 麦克风权限被拒 → 直接用 demo
-      setPhase("transcribing");
-      setTimeout(() => { setTranscript(DEMO_TRANSCRIPT); setPhase("done"); }, 1200);
+    if (!USE_DEMO_TRANSCRIPT) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        streamRef.current = stream;
+        const mr = new MediaRecorder(stream);
+        mediaRecorderRef.current = mr;
+        mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+        mr.start(100);
+        setPhase("recording");
+        setSeconds(0);
+        timerRef.current = setInterval(() => setSeconds(s => s + 1), 1000);
+        return;
+      } catch {
+        finishTranscription();
+        return;
+      }
     }
-  }, []);
+
+    // 演示模式：不采集麦克风，模拟录音 1.5s 后直接出示例文稿
+    setPhase("recording");
+    setSeconds(0);
+    timerRef.current = setInterval(() => setSeconds(s => s + 1), 1000);
+  }, [finishTranscription]);
 
   const stopRecording = useCallback(() => {
     stopTimer();
+    if (USE_DEMO_TRANSCRIPT) {
+      finishTranscription();
+      return;
+    }
+
     const mr = mediaRecorderRef.current;
     if (!mr) return;
-
-    mr.onstop = async () => {
+    mr.onstop = () => {
       streamRef.current?.getTracks().forEach(t => t.stop());
-      setPhase("transcribing");
-
-      const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" });
-      const ext = mr.mimeType?.includes("ogg") ? "ogg"
-        : mr.mimeType?.includes("mp4") ? "mp4" : "webm";
-
-      try {
-        const base64 = await blobToBase64(blob);
-        const res = await fetch("/api/audio", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ audioBase64: base64, format: ext, fileName: `recording.${ext}` }),
-        });
-        if (res.ok) {
-          const data = await res.json() as { transcript?: string; error?: string };
-          setTranscript(data.transcript || DEMO_TRANSCRIPT);
-        } else {
-          setTranscript(DEMO_TRANSCRIPT);
-        }
-      } catch {
-        setTranscript(DEMO_TRANSCRIPT);
-      }
-      setPhase("done");
+      finishTranscription();
     };
-
     mr.stop();
-  }, []);
+  }, [finishTranscription]);
 
   const toggleRecord = () => {
     if (phase === "idle") startRecording();
@@ -134,7 +131,6 @@ export function VoiceModal({ onClose, onSave }: Props) {
 
   return (
     <div className="fixed inset-0 z-[600] bg-[#0A0A10] flex flex-col">
-      {/* 顶栏 */}
       <div className="flex items-center justify-between px-4 pt-12 pb-4 flex-shrink-0">
         <button
           onClick={onClose}
@@ -152,10 +148,7 @@ export function VoiceModal({ onClose, onSave }: Props) {
         <div className="w-10" />
       </div>
 
-      {/* 主体 */}
       <div className="flex-1 flex flex-col items-center justify-center gap-8 px-6">
-
-        {/* 波形 */}
         <div className="flex items-center gap-[3px] h-16">
           {bars.map((h, i) => (
             <div
@@ -172,15 +165,13 @@ export function VoiceModal({ onClose, onSave }: Props) {
           ))}
         </div>
 
-        {/* 计时器 */}
-        {(phase === "recording") && (
+        {phase === "recording" && (
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
             <span className="text-white font-mono text-[20px]">{fmt(seconds)}</span>
           </div>
         )}
 
-        {/* 大按钮 */}
         {(phase === "idle" || phase === "recording") && (
           <button
             onClick={toggleRecord}
@@ -200,15 +191,13 @@ export function VoiceModal({ onClose, onSave }: Props) {
           </button>
         )}
 
-        {/* 识别中 */}
         {phase === "transcribing" && (
           <div className="flex flex-col items-center gap-3">
             <Loader2 size={36} className="animate-spin text-[#6366F1]" />
-            <span className="text-white/60 text-[14px]">正在将语音转为文字…</span>
+            <span className="text-white/60 text-[14px]">正在生成文稿…</span>
           </div>
         )}
 
-        {/* 识别结果 + 手动保存 */}
         {(phase === "done" || phase === "saved") && transcript && (
           <div className="w-full max-w-md flex flex-col gap-4">
             <div
@@ -238,10 +227,9 @@ export function VoiceModal({ onClose, onSave }: Props) {
           </div>
         )}
 
-        {/* 底部提示 */}
         {phase === "idle" && (
           <p className="text-white/30 text-[12px] text-center">
-            支持普通话、英语混合识别<br />最长 7 分钟
+            演示模式：展示示例课堂文稿<br />点击录音后停止即可查看
           </p>
         )}
         {phase === "recording" && (
@@ -250,16 +238,4 @@ export function VoiceModal({ onClose, onSave }: Props) {
       </div>
     </div>
   );
-}
-
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.split(",")[1] ?? "");
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
 }

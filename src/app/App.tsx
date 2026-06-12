@@ -24,6 +24,7 @@ import { PdfReaderModal } from "../features/pdf-reader/PdfReaderModal";
 import { CameraModal } from "../features/camera/CameraModal";
 import { ScreenshotModeModal } from "../features/screenshot/ScreenshotModeModal";
 import { VoiceModal } from "../features/voice/VoiceModal";
+import { isDemoTranscript } from "../features/voice/demoTranscript";
 import { OnboardingScreen } from "../features/onboarding/OnboardingScreen";
 import { HomeworkView } from "../features/feed/HomeworkView";
 import { ExamPrepView } from "../modules/exam-prep";
@@ -946,23 +947,47 @@ export default function App() {
         <VoiceModal
           onClose={() => setShowVoice(false)}
           onSave={(transcript) => {
-            // 不关闭录音页面，让 FlyThumbnail 浮现在录音页上方
             const now = new Date();
             const dateStr = `${now.getFullYear()}/${(now.getMonth()+1).toString().padStart(2,"0")}/${now.getDate().toString().padStart(2,"0")}`;
+            const subjectId = activeSubject !== "all" && activeSubject !== "__pending__" ? activeSubject : "physics";
+
+            // 演示文稿：跳过 import API，直接落卡，避免二次长时间 loading
+            if (isDemoTranscript(transcript)) {
+              applyNewCard(
+                subjectId,
+                "记忆：机械振动课堂录音",
+                "简谐振动、旋转矢量法与同频振动叠加。",
+                "notes", imgNotesBg,
+                "课堂录音已转为文字，涵盖简谐振动方程、旋转矢量法与多振动叠加公式。",
+                `来源：实时录音 ${dateStr}`,
+                [
+                  { title: "简谐振动方程", content: "位移满足 x(t) = A·cos(ωt + φ₀)，振幅 A、角频率 ω、初相 φ₀ 决定运动形态。" },
+                  { title: "旋转矢量法", content: "用匀速旋转矢量在 x 轴上的投影描述简谐振动，矢量长度等于振幅。" },
+                  { title: "同频振动叠加", content: "N 个等幅同频振动叠加时，合振幅 R = A·sin(Nδ/2) / sin(δ/2)，δ 为相邻相位差。" },
+                ],
+                ["旋转矢量法把圆周运动投影到直线", "同频叠加可用相位差求合振幅", "课后题：π/3 相位差的两列振动求合成"],
+                [], [],
+                "可继续圈注课件或生成练习题巩固叠加公式。",
+                "theory_concept", undefined, false, undefined, transcript,
+              );
+              showToast("演示录音已保存至笔记");
+              return;
+            }
+
             analyzeTextSource("text", `[来源：实时录音 ${dateStr}]\n\n${transcript}`)
               .then(draft => confirmSourceDraft(draft))
               .catch(err => {
                 console.warn("[voice] import failed, saving as plain note", err);
                 applyNewCard(
-                  activeSubject !== "all" && activeSubject !== "__pending__" ? activeSubject : "other",
+                  subjectId,
                   "语音记录：" + transcript.slice(0, 20) + "…",
                   transcript.slice(0, 80),
                   "notes", imgNotesBg,
                   transcript, undefined, [], [], [], [], undefined,
                   "theory_concept", undefined, false, undefined, transcript,
                 );
+                showToast("已保存语音文字，AI 分析暂不可用");
               });
-            // 录音保存：页面内显示"已保存"即可，不触发飞入动画
           }}
         />
       )}

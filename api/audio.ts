@@ -23,9 +23,28 @@ export const config = { maxDuration: 60 };
 declare const process: { env: Record<string, string | undefined> };
 
 interface AudioRequestBody {
-  audioBase64: string;
+  audioBase64?: string;
   format?: string;
   fileName?: string;
+  /** 轻量探测：不接收音频，仅检查 ASR 是否可用 */
+  probe?: boolean;
+}
+
+const DEMO_TRANSCRIPT = `好的，今天我们继续讲第十二章机械振动与机械波。
+
+上节课我们介绍了简谐振动的基本方程 x(t) = A·cos(ωt + φ₀)，今天重点讲旋转矢量法和多振动的叠加。
+
+旋转矢量法的核心思想是用一个匀速旋转的矢量来表示简谐振动，矢量的长度等于振幅，矢量在 x 轴上的投影就是位移。
+
+当 N 个同频等幅振动叠加时，相邻振动的相位差为 δ，合振幅公式为 R = A·sin(Nδ/2) / sin(δ/2)。
+
+下课前布置一道题：两列振幅相同、频率相同但相位相差 π/3 的振动叠加，求合振幅和初相位。`;
+
+function demoResponse(): Response {
+  return new Response(
+    JSON.stringify({ transcript: DEMO_TRANSCRIPT, demo: true }),
+    { headers: { "Content-Type": "application/json" } },
+  );
 }
 
 interface VolcAsrResult {
@@ -56,15 +75,6 @@ export default async function handler(req: Request): Promise<Response> {
   const appId = process.env.VOLC_ASR_APP_ID;
   const token = process.env.VOLC_ASR_TOKEN;
 
-  if (!appId || !token) {
-    return new Response(
-      JSON.stringify({
-        error: "语音识别尚未配置。请前往火山引擎控制台 → 智能语音技术 → 应用管理，获取 AppID 和 Access Token，然后在项目环境变量中添加 VOLC_ASR_APP_ID 和 VOLC_ASR_TOKEN。",
-      }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
-    );
-  }
-
   let body: AudioRequestBody;
   try {
     body = await req.json() as AudioRequestBody;
@@ -73,6 +83,18 @@ export default async function handler(req: Request): Promise<Response> {
       JSON.stringify({ error: "请求体格式错误，应为 JSON。" }),
       { status: 400, headers: { "Content-Type": "application/json" } },
     );
+  }
+
+  if (body.probe) {
+    if (!appId || !token) return demoResponse();
+    return new Response(
+      JSON.stringify({ available: true }),
+      { headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  if (!appId || !token) {
+    return demoResponse();
   }
 
   if (!body.audioBase64) {
