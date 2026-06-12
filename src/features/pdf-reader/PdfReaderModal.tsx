@@ -452,19 +452,37 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
   }, []);
 
   // ─── Save current page to memory pocket ────────────────────────────────────
-  const saveCurrentPage = useCallback((pageNum = currentPageRef.current) => {
+  const saveCurrentPage = useCallback((
+    pageNum = currentPageRef.current,
+    opts?: { manual?: boolean },
+  ) => {
     const state = getPageState(pageNum);
-    if (!state.hasStrokes || !state.dirtySinceSave) return;
+    if (!state.hasStrokes) {
+      if (opts?.manual) showToast("当前页没有可存入的批注");
+      return;
+    }
+    if (!state.dirtySinceSave) {
+      if (opts?.manual) showToast("当前页批注已存入记忆");
+      return;
+    }
     const composite = getComposite();
-    if (!composite) return;
+    if (!composite) {
+      if (opts?.manual) showToast("页面渲染中，请稍后再试");
+      return;
+    }
     onSavePage(composite, true);
     setPageState(pageNum, { saved: true, dirtySinceSave: false });
     if (pageNum === currentPageRef.current) {
       setPageDirty(false);
-      setSaveFlash(true);
-      setTimeout(() => setSaveFlash(false), 1200);
     }
-  }, [onSavePage]);
+    if (opts?.manual) {
+      setSaveFlash(true);
+      showToast("已存入记忆");
+      setTimeout(() => setSaveFlash(false), 1200);
+    } else if (autoSaveRef.current) {
+      showToast("已自动存入记忆");
+    }
+  }, [onSavePage, showToast]);
 
   // ─── Page navigation ─────────────────────────────────────────────────────────
   const cachePageUiState = useCallback((pageNum: number) => {
@@ -1004,7 +1022,11 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
             type="button"
             role="switch"
             aria-checked={autoSave}
-            onClick={() => setAutoSave(v => !v)}
+            onClick={() => setAutoSave(v => {
+              const next = !v;
+              autoSaveRef.current = next;
+              return next;
+            })}
             className="flex items-center gap-2 rounded-xl px-2.5 py-2 hover:bg-[#F5F6FA] transition-colors"
             title={autoSave ? "翻页时自动存入记忆口袋" : "关闭自动保存，需手动存入"}
           >
@@ -1024,18 +1046,18 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
 
           {!autoSave && (
             <button
-              onClick={() => saveCurrentPage()}
-              disabled={!hasAnnotations || !pageDirty}
+              onClick={() => saveCurrentPage(currentPageRef.current, { manual: true })}
+              disabled={!hasAnnotations}
               title="手动存入记忆口袋"
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] transition-all disabled:opacity-30"
               style={{
                 background: saveFlash ? "#34C759" : hasAnnotations && pageDirty ? "#4D5CFF" : "#F5F6FA",
-                color: hasAnnotations && pageDirty ? "#fff" : "#7B8291",
+                color: hasAnnotations ? (pageDirty || saveFlash ? "#fff" : "#7B8291") : "#7B8291",
                 fontWeight: 600,
               }}
             >
               <Save size={13} />
-              {saveFlash ? "已存入" : "存入口袋"}
+              {saveFlash ? "已存入" : "存入记忆"}
             </button>
           )}
         </div>

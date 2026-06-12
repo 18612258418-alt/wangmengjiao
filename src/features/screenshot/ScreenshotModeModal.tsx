@@ -37,18 +37,37 @@ function renderCourseCanvas(w: number, h: number): string {
     for (const ch of words) {
       const test = line + ch;
       if (ctx.measureText(test).width > maxW) {
-        ctx.fillText(line, pad, y); y += 20; line = ch;
+        ctx.fillText(line, pad, y); y += 22; line = ch;
       } else { line = test; }
     }
-    if (line) { ctx.fillText(line, pad, y); y += 20; }
-    y += 4;
+    if (line) { ctx.fillText(line, pad, y); y += 22; }
+    y += 6;
   };
   const box = (text: string, bg: string, color = "#333") => {
+    const boxW = w - pad * 2;
+    const innerPad = 12;
+    const lineH = 18;
+    ctx.font = "500 13px 'Courier New',monospace";
+    const lines: string[] = [];
+    let line = "";
+    for (const ch of text) {
+      const test = line + ch;
+      if (ctx.measureText(test).width > boxW - innerPad * 2) {
+        if (line) lines.push(line);
+        line = ch;
+      } else {
+        line = test;
+      }
+    }
+    if (line) lines.push(line);
+    const boxH = Math.max(36, lines.length * lineH + innerPad * 2);
     ctx.fillStyle = bg;
-    ctx.beginPath(); (ctx as CanvasRenderingContext2D & { roundRect?: Function }).roundRect?.(pad, y, w - pad * 2, 36, 8) ?? ctx.rect(pad, y, w - pad * 2, 36);
+    ctx.beginPath();
+    (ctx as CanvasRenderingContext2D & { roundRect?: Function }).roundRect?.(pad, y, boxW, boxH, 8) ?? ctx.rect(pad, y, boxW, boxH);
     ctx.fill();
-    ctx.fillStyle = color; ctx.font = "500 13px 'Courier New',monospace";
-    ctx.fillText(text, pad + 12, y + 23); y += 48;
+    ctx.fillStyle = color;
+    lines.forEach((ln, i) => ctx.fillText(ln, pad + innerPad, y + innerPad + 14 + i * lineH));
+    y += boxH + 12;
   };
   const divider = () => {
     ctx.strokeStyle = "#EAEDF2"; ctx.lineWidth = 1;
@@ -321,19 +340,52 @@ export function ScreenshotModeModal({ onClose, onSave }: Props) {
     isRunning.current = true;
     setShowGuide(false);
 
-    // 白光闪烁效果
     setFlash(true);
     await new Promise(r => setTimeout(r, 80));
     setFlash(false);
     await new Promise(r => requestAnimationFrame(r));
 
     setCapturing(true);
-    await new Promise(r => setTimeout(r, 300)); // 给用户一点处理感
-    const url = renderCourseCanvas(el.clientWidth, el.clientHeight);
-    setCapturing(false);
-    isRunning.current = false;
+    let url: string | null = null;
+    const visW = el.clientWidth;
+    const visH = el.clientHeight;
+    const scrollTop = el.scrollTop;
 
-    onSave(url);
+    try {
+      await document.fonts.ready;
+      const { default: html2canvas } = await import("html2canvas");
+      const scale = Math.min(window.devicePixelRatio || 1, 1.5);
+      const fullCanvas = await html2canvas(el, {
+        backgroundColor: "#ffffff",
+        scale,
+        useCORS: true,
+        logging: false,
+        allowTaint: true,
+      });
+
+      const cropped = document.createElement("canvas");
+      cropped.width = Math.floor(visW * scale);
+      cropped.height = Math.floor(visH * scale);
+      cropped.getContext("2d")!.drawImage(
+        fullCanvas,
+        0, Math.floor(scrollTop * scale),
+        Math.floor(visW * scale), Math.floor(visH * scale),
+        0, 0,
+        Math.floor(visW * scale), Math.floor(visH * scale),
+      );
+
+      const sample = cropped.getContext("2d")!.getImageData(0, 0, Math.min(cropped.width, 120), Math.min(cropped.height, 120));
+      const mostlyWhite = sample.data.every((v, i) => i % 4 === 3 || v > 245);
+      url = mostlyWhite ? renderCourseCanvas(visW, visH) : cropped.toDataURL("image/jpeg", 0.88);
+    } catch (err) {
+      console.warn("[screenshot] html2canvas failed, native fallback", err);
+      url = renderCourseCanvas(visW, visH);
+    } finally {
+      setCapturing(false);
+      isRunning.current = false;
+    }
+
+    if (url) onSave(url);
   }, [onSave]);
 
   // 始终用最新的 triggerCapture 更新 ref

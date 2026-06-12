@@ -297,16 +297,22 @@ export default function App() {
   };
 
   /** Core image processing pipeline — calls server-side proxies, no keys in browser */
-  const processImage = (imageDataUrl: string, hasAnnotations: boolean, aType: string) => {
+  const processImage = (
+    imageDataUrl: string,
+    hasAnnotations: boolean,
+    aType: string,
+    options?: { skipFly?: boolean },
+  ) => {
     setSidebarLoading(true);
-    setFlyImg(imageDataUrl);
-    setFlyPhase("center");
-
-    const t1 = setTimeout(() => setFlyPhase("corner"), 80);
-    const t2 = setTimeout(() => setFlyPhase("fading"), 5200);
-    const t3 = setTimeout(() => setFlyPhase("idle"), 5800);
-    flyTimers.current.forEach(clearTimeout);
-    flyTimers.current = [t1, t2, t3];
+    if (!options?.skipFly) {
+      setFlyImg(imageDataUrl);
+      setFlyPhase("center");
+      const t1 = setTimeout(() => setFlyPhase("corner"), 80);
+      const t2 = setTimeout(() => setFlyPhase("fading"), 5200);
+      const t3 = setTimeout(() => setFlyPhase("idle"), 5800);
+      flyTimers.current.forEach(clearTimeout);
+      flyTimers.current = [t1, t2, t3];
+    }
 
     const loadStart = Date.now();
     const applyWithMinDelay = (fn: () => void) => {
@@ -394,9 +400,11 @@ export default function App() {
             "note",
           );
           setSidebarLoading(false);
-          setFlyPhase("fading");
-          setTimeout(() => setFlyPhase("idle"), 600);
-          flyTimers.current.forEach(clearTimeout);
+          if (!options?.skipFly) {
+            setFlyPhase("fading");
+            setTimeout(() => setFlyPhase("idle"), 600);
+            flyTimers.current.forEach(clearTimeout);
+          }
           showToast("AI 接口暂不可用，已用演示内容保存");
         });
       });
@@ -913,7 +921,7 @@ export default function App() {
           file={pdfReaderFile}
           onClose={() => setPdfReaderFile(null)}
           onSavePage={(imageDataUrl, hasAnnotations) => {
-            processImage(imageDataUrl, hasAnnotations, "notes");
+            processImage(imageDataUrl, hasAnnotations, "notes", { skipFly: true });
           }}
         />
       )}
@@ -956,13 +964,7 @@ export default function App() {
                   "theory_concept", undefined, false, undefined, transcript,
                 );
               });
-            setFlyImg(imgNotesBg);
-            setFlyPhase("center");
-            const t1 = setTimeout(() => setFlyPhase("corner"), 80);
-            const t2 = setTimeout(() => setFlyPhase("fading"), 5200);
-            const t3 = setTimeout(() => setFlyPhase("idle"), 5800);
-            flyTimers.current.forEach(clearTimeout);
-            flyTimers.current = [t1, t2, t3];
+            // 录音保存：页面内显示"已保存"即可，不触发飞入动画
           }}
         />
       )}
