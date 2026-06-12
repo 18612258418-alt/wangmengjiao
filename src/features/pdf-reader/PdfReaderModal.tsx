@@ -3,6 +3,7 @@ import { X, ChevronLeft, ChevronRight, Save, Pen, Eraser } from "lucide-react";
 import { detectClosedShape, type Point } from "./circleDetect";
 import { AiAnalysisPanel, type AiEntry } from "./AiAnalysisPanel";
 import { compressImageForApi } from "../../utils/api";
+import { isImageFile, openPdfDocument } from "../../utils/pdfjs";
 import { formatCircleRegionAnswer, type CircleRegionResult } from "../../prompts/circleRegion";
 import { recordAnalysis, recordClarification, summarizeProfile } from "./userProfile";
 
@@ -92,11 +93,15 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
   const [autoSave, setAutoSave] = useState(true);
   const [tool, setTool] = useState<Tool>("pen");
   const [toast, setToast] = useState("");
+  const [loadError, setLoadError] = useState("");
 
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
   const annotCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const pdfDocRef = useRef<any>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const isImageModeRef = useRef(false);
+  const imageObjectUrlRef = useRef<string | null>(null);
   const renderScaleRef = useRef(1);
   const currentPageRef = useRef(1);
   const autoSaveRef = useRef(true);
@@ -225,30 +230,62 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
     redrawPage(pageNum);
   }, [redrawPage]);
 
-  // ─── Load PDF ───────────────────────────────────────────────────────────────
+  // ─── Load PDF / 图片 ─────────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
+    setLoadError("");
+    setTotalPages(0);
+    setPageSize(null);
+    pdfDocRef.current = null;
+    imageRef.current = null;
+    isImageModeRef.current = isImageFile(file);
+
+    const cleanupImageUrl = () => {
+      if (imageObjectUrlRef.current) {
+        URL.revokeObjectURL(imageObjectUrlRef.current);
+        imageObjectUrlRef.current = null;
+      }
+    };
+
     (async () => {
-      const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-      pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-        "pdfjs-dist/legacy/build/pdf.worker.mjs",
-        import.meta.url,
-      ).toString();
-      const buf = await file.arrayBuffer();
-      const pdf = await pdfjs.getDocument({ data: buf }).promise;
-      if (cancelled) return;
-      pdfDocRef.current = pdf;
-      setTotalPages(pdf.numPages);
       try {
-        const meta = await pdf.getMetadata();
-        const title = (meta?.info as { Title?: string } | undefined)?.Title;
-        setPdfTitle(pdfDisplayTitle(file, title));
-      } catch {
-        setPdfTitle(pdfDisplayTitle(file));
+        if (isImageModeRef.current) {
+          const url = URL.createObjectURL(file);
+          imageObjectUrlRef.current = url;
+          const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+            const el = new Image();
+            el.onload = () => resolve(el);
+            el.onerror = () => reject(new Error("图片加载失败，请换一张试试"));
+            el.src = url;
+          });
+          if (cancelled) return;
+          imageRef.current = img;
+          setPdfTitle(file.name.replace(/\.[^.]+$/i, "") || "图片");
+          setTotalPages(1);
+          return;
+        }
+
+        const pdf = await openPdfDocument(file);
+        if (cancelled) return;
+        pdfDocRef.current = pdf;
+        setTotalPages(pdf.numPages);
+        try {
+          const meta = await pdf.getMetadata();
+          const title = (meta?.info as { Title?: string } | undefined)?.Title;
+          setPdfTitle(pdfDisplayTitle(file, title));
+        } catch {
+          setPdfTitle(pdfDisplayTitle(file));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setLoadError(err instanceof Error ? err.message : "文件加载失败");
+        }
       }
     })();
+
     return () => {
       cancelled = true;
+      cleanupImageUrl();
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       if (inkTimerRef.current) clearTimeout(inkTimerRef.current);
     };
@@ -268,9 +305,8 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
 
   // ─── Render page ────────────────────────────────────────────────────────────
   const renderPage = useCallback(async (pageNum: number) => {
-    const pdf = pdfDocRef.current;
     const container = containerRef.current;
-    if (!pdf || !container) return;
+    if (!container) return;
 
     const pdfCanvas = pdfCanvasRef.current;
     const annotCanvas = annotCanvasRef.current;
@@ -288,26 +324,50 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
 
     setIsRendering(true);
     try {
-      const page = await pdf.getPage(pageNum);
-      const baseVp = page.getViewport({ scale: 1 });
-      const scale = Math.min((cW - 16) / baseVp.width, (cH - 16) / baseVp.height, 2);
-      renderScaleRef.current = scale;
-      const vp = page.getViewport({ scale });
-      const w = Math.floor(vp.width);
-      const h = Math.floor(vp.height);
+      let w = 0;
+      let h = 0;
 
-      pdfCanvas.width = w;
-      pdfCanvas.height = h;
-      annotCanvas.width = w;
-      annotCanvas.height = h;
-      setPageSize({ w, h });
+      if (isImageModeRef.current) {
+        const img = imageRef.current;
+        if (!img || pageNum !== 1) return;
+        const scale = Math.min((cW - 16) / img.naturalWidth, (cH - 16) / img.naturalHeight, 2);
+        renderScaleRef.current = scale;
+        w = Math.max(1, Math.floor(img.naturalWidth * scale));
+        h = Math.max(1, Math.floor(img.naturalHeight * scale));
+        pdfCanvas.width = w;
+        pdfCanvas.height = h;
+        annotCanvas.width = w;
+        annotCanvas.height = h;
+        setPageSize({ w, h });
+        const ctx = pdfCanvas.getContext("2d")!;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+      } else {
+        const pdf = pdfDocRef.current;
+        if (!pdf) return;
+        const page = await pdf.getPage(pageNum);
+        const baseVp = page.getViewport({ scale: 1 });
+        const scale = Math.min((cW - 16) / baseVp.width, (cH - 16) / baseVp.height, 2);
+        renderScaleRef.current = scale;
+        const vp = page.getViewport({ scale });
+        w = Math.floor(vp.width);
+        h = Math.floor(vp.height);
+        pdfCanvas.width = w;
+        pdfCanvas.height = h;
+        annotCanvas.width = w;
+        annotCanvas.height = h;
+        setPageSize({ w, h });
+        const ctx = pdfCanvas.getContext("2d")!;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, w, h);
+        await page.render({ canvas: pdfCanvas, canvasContext: ctx, viewport: vp }).promise;
+      }
 
-      const ctx = pdfCanvas.getContext("2d")!;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, w, h);
-      await page.render({ canvas: pdfCanvas, canvasContext: ctx, viewport: vp }).promise;
       redrawPage(pageNum);
       pendingRenderPageRef.current = null;
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "页面渲染失败");
     } finally {
       setIsRendering(false);
     }
@@ -330,14 +390,25 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
     const container = containerRef.current;
     if (!container) return;
 
-    const ro = new ResizeObserver(() => {
-      const pending = pendingRenderPageRef.current;
-      if (pending !== null && totalPages > 0) {
-        void renderPage(pending);
-      }
-    });
+    const retryRender = () => {
+      const pending = pendingRenderPageRef.current ?? currentPageRef.current;
+      if (totalPages > 0 && pending > 0) void renderPage(pending);
+    };
+
+    const ro = new ResizeObserver(retryRender);
     ro.observe(container);
-    return () => ro.disconnect();
+
+    // 部分安卓 Pad 首帧布局高度为 0，ResizeObserver 不一定触发
+    const retryId = window.setInterval(() => {
+      if (pendingRenderPageRef.current !== null && totalPages > 0) retryRender();
+    }, 250);
+    const stopRetryId = window.setTimeout(() => clearInterval(retryId), 4000);
+
+    return () => {
+      ro.disconnect();
+      clearInterval(retryId);
+      clearTimeout(stopRetryId);
+    };
   }, [totalPages, renderPage]);
 
   // ─── Canvas utilities ────────────────────────────────────────────────────────
@@ -383,8 +454,22 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
     regionCtx.fillRect(0, 0, outW, outH);
 
     let rendered = false;
+    if (isImageModeRef.current) {
+      const img = imageRef.current;
+      if (img) {
+        regionCtx.drawImage(
+          img,
+          bbox.x / renderScaleRef.current,
+          bbox.y / renderScaleRef.current,
+          bbox.w / renderScaleRef.current,
+          bbox.h / renderScaleRef.current,
+          0, 0, outW, outH,
+        );
+        rendered = true;
+      }
+    }
     const pdf = pdfDocRef.current;
-    if (pdf) {
+    if (!rendered && pdf) {
       try {
         const page = await pdf.getPage(currentPageRef.current);
         const vp = page.getViewport({
@@ -949,7 +1034,7 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
     }`;
 
   return (
-    <div className="fixed inset-0 z-[600] flex flex-col bg-[#F5F6FA]">
+    <div className="fixed inset-0 z-[600] flex flex-col bg-[#F5F6FA] h-[100dvh]">
 
       {/* ── Header ── */}
       <div className="flex items-center justify-between gap-3 px-4 py-3 flex-shrink-0 bg-white border-b border-[#EAEDF2]">
@@ -1064,12 +1149,26 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
       </div>
 
       {/* ── Body ── */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden min-h-0">
         <div
           ref={containerRef}
           className="flex-1 flex items-center justify-center overflow-hidden min-h-0 min-w-0"
-          style={{ position: "relative" }}
+          style={{ position: "relative", height: "100%" }}
         >
+          {loadError && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center z-20">
+              <p className="text-[15px] text-[#020418]" style={{ fontWeight: 600 }}>无法加载文件</p>
+              <p className="text-[13px] text-[#7B8291] leading-6">{loadError}</p>
+              <button
+                onClick={onClose}
+                className="mt-2 px-5 py-2.5 rounded-xl bg-[#4D5CFF] text-white text-[13px]"
+                style={{ fontWeight: 600 }}
+              >
+                返回
+              </button>
+            </div>
+          )}
+
           {isRendering && (
             <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
               <span className="text-[13px] text-[#7B8291]">渲染中...</span>

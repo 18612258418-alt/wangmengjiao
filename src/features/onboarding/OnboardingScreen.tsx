@@ -1,11 +1,24 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Pen, MonitorDown, Camera, Mic, ChevronRight } from "lucide-react";
 
+/** 移动端（尤其 Android）拒绝 display:none 的 input，需用视觉隐藏 */
+const HIDDEN_FILE_INPUT_STYLE: React.CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
 interface Props {
   onEnter: () => void;
   /** "first"：首次加载淡入，scale+fade退出；"demo"：从底部滑入，向下滑出 */
   mode?: "first" | "demo";
-  onOpenCircle?: () => void;
+  onPdfSelected?: (file: File) => void;
   onOpenScreenshot?: () => void;
   onOpenCamera?: () => void;
   onOpenVoice?: () => void;
@@ -144,7 +157,7 @@ function Tooltip({ text, visible }: { text: string; visible: boolean }) {
 }
 
 // ───── 主组件 ─────
-export function OnboardingScreen({ onEnter, mode = "first", onOpenCircle, onOpenScreenshot, onOpenCamera, onOpenVoice }: Props) {
+export function OnboardingScreen({ onEnter, mode = "first", onPdfSelected, onOpenScreenshot, onOpenCamera, onOpenVoice }: Props) {
   const now = useClock();
   // demo 模式：先从屏幕底部平移进入，再向下滑出
   // first 模式：直接显示，退出时 scale+fade
@@ -186,12 +199,6 @@ export function OnboardingScreen({ onEnter, mode = "first", onOpenCircle, onOpen
   const dateStr = `${WEEKDAYS[now.getDay()]}, ${MONTHS[now.getMonth()]} ${now.getDate()}`;
 
   const icons: DockIconProps[] = [
-    {
-      label: "圈注",
-      gradient: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
-      icon: <Pen size={26} color="#fff" />,
-      onClick: () => { showTip("圈画重点，AI 自动解析知识点"); onOpenCircle?.(); },
-    },
     {
       label: "截图",
       gradient: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
@@ -281,6 +288,38 @@ export function OnboardingScreen({ onEnter, mode = "first", onOpenCircle, onOpen
           gap: 24,
           alignItems: "flex-start",
         }}>
+          {/* 圈注：label 直连 file input，避免 Android 拦截 programmatic click */}
+          <label
+            htmlFor="onboarding-pdf-input"
+            className="flex flex-col items-center gap-2 select-none active:scale-90 transition-transform duration-150 cursor-pointer"
+            onClick={() => showTip("圈画重点，AI 自动解析知识点")}
+          >
+            <div
+              style={{
+                width: 60, height: 60,
+                borderRadius: 14,
+                background: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >
+              <Pen size={26} color="#fff" />
+            </div>
+            <span style={{ color: "rgba(255,255,255,0.82)", fontSize: 12, fontWeight: 500, letterSpacing: 0.1 }}>
+              圈注
+            </span>
+            <input
+              id="onboarding-pdf-input"
+              type="file"
+              accept="application/pdf,.pdf,image/*"
+              style={HIDDEN_FILE_INPUT_STYLE}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onPdfSelected?.(file);
+                e.target.value = "";
+              }}
+            />
+          </label>
+
           {icons.map((ic) => (
             <DockIcon key={ic.label} {...ic} />
           ))}

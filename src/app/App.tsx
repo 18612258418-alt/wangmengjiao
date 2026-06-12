@@ -78,7 +78,6 @@ export default function App() {
   const [newSubjectName, setNewSubjectName] = useState("");
   const flyTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const didInitSubjectRef = useRef(false);
-  const demoPdfInputRef = useRef<HTMLInputElement>(null);
 
   const sortedSubjects = useMemo(() => {
     return [...subjects].sort((a, b) => {
@@ -478,10 +477,8 @@ export default function App() {
   };
 
   const extractPdfText = async (file: File) => {
-    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.mjs", import.meta.url).toString();
-    const data = await readFileAsArrayBuffer(file);
-    const pdf = await pdfjs.getDocument({ data }).promise;
+    const { openPdfDocument } = await import("../utils/pdfjs");
+    const pdf = await openPdfDocument(file);
     const pageTexts: string[] = [];
     const maxPages = Math.min(pdf.numPages, 20);
     for (let pageNo = 1; pageNo <= maxPages; pageNo += 1) {
@@ -500,10 +497,8 @@ export default function App() {
   };
 
   const renderPdfFirstPageImage = async (file: File) => {
-    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.mjs", import.meta.url).toString();
-    const data = await readFileAsArrayBuffer(file);
-    const pdf = await pdfjs.getDocument({ data }).promise;
+    const { openPdfDocument } = await import("../utils/pdfjs");
+    const pdf = await openPdfDocument(file);
     const page = await pdf.getPage(1);
     const baseViewport = page.getViewport({ scale: 1 });
     const scale = Math.min(1.5, 1200 / Math.max(baseViewport.width, 1));
@@ -900,7 +895,10 @@ export default function App() {
             }
             setOnboardingMode(null);
           }}
-          onOpenCircle={() => demoPdfInputRef.current?.click()}
+          onPdfSelected={(file) => {
+            setOnboardingMode(null);
+            setPdfReaderFile(file);
+          }}
           onOpenScreenshot={() => setShowScreenshot(true)}
           onOpenCamera={() => setShowCamera(true)}
           onOpenVoice={() => setShowVoice(true)}
@@ -972,18 +970,6 @@ export default function App() {
       {/* FlyThumbnail 必须放在所有 Modal 之后才能浮在最顶层 */}
       <FlyThumbnail phase={flyPhase} imgSrc={flyImg} />
 
-      {/* 圈注 Demo 的 PDF 文件选择器（隐藏） */}
-      <input
-        ref={demoPdfInputRef}
-        type="file"
-        accept=".pdf"
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) setPdfReaderFile(file);
-          e.target.value = "";
-        }}
-      />
     </ApiConfigProvider>
   );
 }
