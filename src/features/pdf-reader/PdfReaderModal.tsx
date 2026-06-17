@@ -4,8 +4,7 @@ import { detectClosedShape, type Point } from "./circleDetect";
 import { AiAnalysisPanel, type AiEntry } from "./AiAnalysisPanel";
 import { compressImageForApi } from "../../utils/api";
 import { isImageFile, openPdfDocument } from "../../utils/pdfjs";
-import { formatCircleRegionAnswer, type CircleRegionResult } from "../../prompts/circleRegion";
-import { DEMO_CIRCLE_RESULT } from "./demoCircleResult";
+import { formatCircleRegionAnswer, DEMO_CIRCLE_RESULT, type CircleRegionResult } from "../../prompts/circleRegion";
 import { recordAnalysis, recordClarification, summarizeProfile } from "./userProfile";
 
 interface Props {

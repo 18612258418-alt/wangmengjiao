@@ -8,10 +8,10 @@ declare const process: {
 
 import {
   buildCircleRegionPrompt,
+  DEMO_CIRCLE_RESULT,
   type CircleRegionResult,
   type CircleRegionSection,
 } from "../src/prompts/circleRegion";
-import { DEMO_CIRCLE_RESULT } from "../src/features/pdf-reader/demoCircleResult";
 import { classifyCardSurfaces } from "../src/utils/cardSurfaces";
 
 type ImportKind = "image" | "text" | "link";
