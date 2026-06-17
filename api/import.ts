@@ -1,5 +1,5 @@
 export const config = {
-  runtime: "edge",
+  maxDuration: 60,
 };
 
 declare const process: {
@@ -11,6 +11,7 @@ import {
   type CircleRegionResult,
   type CircleRegionSection,
 } from "../src/prompts/circleRegion";
+import { DEMO_CIRCLE_RESULT } from "../src/features/pdf-reader/demoCircleResult";
 import { classifyCardSurfaces } from "../src/utils/cardSurfaces";
 
 type ImportKind = "image" | "text" | "link";
@@ -191,6 +192,16 @@ const VISION_OUTPUT_SCHEMA = `{
 
 const VISION_RULES =
   "只输出 JSON，无 markdown。全中文（枚举字段除外）。有作业意图必填 homeworkTasks。不要输出 knowledgeTree、expandedKnowledge。";
+
+function isCircleApiUnavailable(message: string): boolean {
+  return /not configured|429|SetLimitExceeded|TooManyRequests|InvalidEndpointOrModel|Doubao 5\d\d|Doubao 4\d\d/i.test(message);
+}
+
+function circleDemoFallbackResponse(): Response {
+  return new Response(JSON.stringify({ ...DEMO_CIRCLE_RESULT, demo: true }), {
+    headers: { "Content-Type": "application/json" },
+  });
+}
 
 function apiTimeouts() {
   const onVercel = !!process.env.VERCEL;
@@ -406,8 +417,9 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response("Method not allowed", { status: 405 });
   }
 
+  let body: ImportRequest | null = null;
   try {
-    const body = await req.json() as ImportRequest;
+    body = await req.json() as ImportRequest;
     const fallbackTitle = body.fileName ? `记忆：${body.fileName.replace(/\.[^.]+$/, "").slice(0, 20)}` : "记忆：导入资料整理";
 
     if (body.kind === "image") {
@@ -447,6 +459,13 @@ export default async function handler(req: Request): Promise<Response> {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (
+      body?.kind === "image"
+      && body.mode === "circle_region"
+      && isCircleApiUnavailable(message)
+    ) {
+      return circleDemoFallbackResponse();
+    }
     const isTimeout = message.includes("超时");
     return new Response(JSON.stringify({ error: message }), {
       status: isTimeout ? 504 : 500,

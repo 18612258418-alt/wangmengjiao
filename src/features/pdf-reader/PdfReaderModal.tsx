@@ -5,6 +5,7 @@ import { AiAnalysisPanel, type AiEntry } from "./AiAnalysisPanel";
 import { compressImageForApi } from "../../utils/api";
 import { isImageFile, openPdfDocument } from "../../utils/pdfjs";
 import { formatCircleRegionAnswer, type CircleRegionResult } from "../../prompts/circleRegion";
+import { DEMO_CIRCLE_RESULT } from "./demoCircleResult";
 import { recordAnalysis, recordClarification, summarizeProfile } from "./userProfile";
 
 interface Props {
@@ -107,11 +108,36 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
   const autoSaveRef = useRef(true);
   const toolRef = useRef<Tool>("pen");
   const pendingRenderPageRef = useRef<number | null>(null);
+  const pdfRenderTaskRef = useRef<{ cancel: () => void; promise: Promise<void> } | null>(null);
+  const renderSeqRef = useRef(0);
+
+  const cancelActivePdfRender = useCallback(() => {
+    const task = pdfRenderTaskRef.current;
+    if (!task) return;
+    try {
+      task.cancel();
+    } catch {
+      // ignore
+    }
+    pdfRenderTaskRef.current = null;
+  }, []);
+
+  const isRenderCancelled = (err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    return /cancel/i.test(msg);
+  };
 
   const isDrawingRef = useRef(false);
   const isErasingRef = useRef(false);
   const currentPointsRef = useRef<Point[]>([]);
-  const touchTrackRef = useRef<{ y: number; time: number } | null>(null);
+  const renderReadyRef = useRef(false);
+  const touchTrackRef = useRef<{
+    x: number;
+    y: number;
+    time: number;
+    mode: "pending" | "draw" | "swipe";
+    startPos?: Point;
+  } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingInkRef = useRef<{ page: number; ids: string[] }>({ page: 1, ids: [] });
@@ -285,11 +311,12 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
 
     return () => {
       cancelled = true;
+      cancelActivePdfRender();
       cleanupImageUrl();
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       if (inkTimerRef.current) clearTimeout(inkTimerRef.current);
     };
-  }, [file]);
+  }, [file, cancelActivePdfRender]);
 
   useEffect(() => {
     currentPageRef.current = currentPage;
@@ -322,7 +349,11 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
       return;
     }
 
+    const seq = ++renderSeqRef.current;
+    cancelActivePdfRender();
+    renderReadyRef.current = false;
     setIsRendering(true);
+
     try {
       let w = 0;
       let h = 0;
@@ -338,6 +369,7 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
         pdfCanvas.height = h;
         annotCanvas.width = w;
         annotCanvas.height = h;
+        if (seq !== renderSeqRef.current) return;
         setPageSize({ w, h });
         const ctx = pdfCanvas.getContext("2d")!;
         ctx.fillStyle = "#ffffff";
@@ -347,6 +379,7 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
         const pdf = pdfDocRef.current;
         if (!pdf) return;
         const page = await pdf.getPage(pageNum);
+        if (seq !== renderSeqRef.current) return;
         const baseVp = page.getViewport({ scale: 1 });
         const scale = Math.min((cW - 16) / baseVp.width, (cH - 16) / baseVp.height, 2);
         renderScaleRef.current = scale;
@@ -357,21 +390,30 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
         pdfCanvas.height = h;
         annotCanvas.width = w;
         annotCanvas.height = h;
+        if (seq !== renderSeqRef.current) return;
         setPageSize({ w, h });
         const ctx = pdfCanvas.getContext("2d")!;
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, w, h);
-        await page.render({ canvas: pdfCanvas, canvasContext: ctx, viewport: vp }).promise;
+        const task = page.render({ canvas: pdfCanvas, canvasContext: ctx, viewport: vp });
+        pdfRenderTaskRef.current = task;
+        await task.promise;
+        pdfRenderTaskRef.current = null;
+        if (seq !== renderSeqRef.current) return;
       }
 
       redrawPage(pageNum);
       pendingRenderPageRef.current = null;
+      setLoadError("");
+      renderReadyRef.current = true;
     } catch (err) {
+      if (isRenderCancelled(err) || seq !== renderSeqRef.current) return;
+      renderReadyRef.current = false;
       setLoadError(err instanceof Error ? err.message : "页面渲染失败");
     } finally {
-      setIsRendering(false);
+      if (seq === renderSeqRef.current) setIsRendering(false);
     }
-  }, [redrawPage]);
+  }, [redrawPage, cancelActivePdfRender]);
 
   useEffect(() => {
     if (totalPages <= 0) return;
@@ -383,16 +425,20 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
     };
     // 等布局完成后再渲染，避免容器宽高为 0
     requestAnimationFrame(() => requestAnimationFrame(run));
-    return () => { cancelled = true; };
-  }, [currentPage, totalPages, renderPage, syncUiFromPage]);
+    return () => {
+      cancelled = true;
+      cancelActivePdfRender();
+    };
+  }, [currentPage, totalPages, renderPage, syncUiFromPage, cancelActivePdfRender]);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     const retryRender = () => {
-      const pending = pendingRenderPageRef.current ?? currentPageRef.current;
-      if (totalPages > 0 && pending > 0) void renderPage(pending);
+      const pending = pendingRenderPageRef.current;
+      // 仅在首帧容器尺寸为 0 时重试，避免 setPageSize 触发 ResizeObserver 后重复 render 同一 canvas
+      if (pending !== null && totalPages > 0) void renderPage(pending);
     };
 
     const ro = new ResizeObserver(retryRender);
@@ -408,8 +454,9 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
       ro.disconnect();
       clearInterval(retryId);
       clearTimeout(stopRetryId);
+      cancelActivePdfRender();
     };
-  }, [totalPages, renderPage]);
+  }, [totalPages, renderPage, cancelActivePdfRender]);
 
   // ─── Canvas utilities ────────────────────────────────────────────────────────
   const getComposite = (): string => {
@@ -507,7 +554,7 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
     }
 
     const strokePoints = opts.maskPoints ?? [];
-    if (strokePoints.length < 6) return region.toDataURL("image/jpeg", 0.9);
+    if (strokePoints.length < 5) return region.toDataURL("image/jpeg", 0.9);
 
     // 圈外涂白：沿笔迹闭合路径裁剪，路径略向外扩，避免切掉压线文字
     const cx = strokePoints.reduce((s, p) => s + p.x, 0) / strokePoints.length;
@@ -607,6 +654,18 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
     };
   };
 
+  const isCircleApiUnavailable = (err: unknown): boolean => {
+    const msg = err instanceof Error ? err.message : String(err);
+    return /not configured|429|SetLimitExceeded|TooManyRequests|InvalidEndpointOrModel|Doubao 5\d\d|Doubao 4\d\d|API 404|API 500|API 502|API 503/i.test(msg);
+  };
+
+  const isDrawingIssue = (err: unknown): boolean => {
+    const msg = err instanceof Error ? err.message : String(err);
+    return msg === "empty analysis"
+      || msg.includes("too small")
+      || msg.includes("格式异常");
+  };
+
   const circleFailureMessage = (err: unknown): string => {
     if (err instanceof TypeError) {
       return "AI 服务未连接，请确认已用 pnpm dev 或 vercel dev 启动";
@@ -616,17 +675,29 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
       if (msg.includes("404")) {
         return "AI 服务未连接，请确认已用 pnpm dev 或 vercel dev 启动";
       }
+      if (msg.includes("429") || msg.includes("SetLimitExceeded") || msg.includes("TooManyRequests")) {
+        return "AI 视觉模型额度已用尽，请联系管理员在火山引擎控制台调整";
+      }
+      if (msg.includes("InvalidEndpointOrModel")) {
+        return "AI 视觉模型未开通，请检查 DOUBAO_MODEL_ID 配置";
+      }
       if (msg.includes("too small") || msg.includes("dimensions are too small")) {
         return "圈选范围太小，请把题干和所求一并圈大一些";
       }
       if (msg.includes("超时") || msg.includes("timeout") || msg.includes("504")) {
         return "AI 分析超时，请稍后重试或缩小圈选范围";
       }
-      if (msg.includes("格式异常") || msg === "empty analysis") {
-        return "未能识别圈选内容，请重新圈选";
+      if (msg.includes("页面渲染中")) {
+        return "页面还在渲染，请稍等片刻再圈选";
       }
       if (msg.includes("not configured")) {
         return "API Key 未配置，请检查 .env.local";
+      }
+      if (msg.includes("格式异常") || msg === "empty analysis") {
+        return "未能识别圈选内容，请重新圈选";
+      }
+      if (/Doubao 5\d\d|Doubao 4\d\d/.test(msg)) {
+        return "AI 服务暂时不可用，请稍后重试";
       }
     }
     return "未能识别圈选内容，请重新圈选";
@@ -705,7 +776,10 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
   }, []);
 
   const applyResultToEntry = useCallback((pageNum: number, entryId: string, data: CircleRegionResult) => {
-    const formatted = formatCircleRegionAnswer(data);
+    let formatted = formatCircleRegionAnswer(data);
+    if (!formatted.trim() && data.intent?.trim()) {
+      formatted = data.intent.trim();
+    }
     if (!formatted.trim()) throw new Error("empty analysis");
 
     updateEntries(pageNum, prev => prev.map(e => e.id === entryId
@@ -752,6 +826,15 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
     });
   }, [updateEntries]);
 
+  const waitForPageReady = useCallback(async () => {
+    for (let i = 0; i < 40; i++) {
+      const canvas = pdfCanvasRef.current;
+      if (renderReadyRef.current && canvas && canvas.width > 1 && canvas.height > 1) return true;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return false;
+  }, []);
+
   // ─── Circle → AI analysis ────────────────────────────────────────────────────
   const triggerCircleAnalysis = useCallback(async (stroke: Stroke) => {
     const pageNum = currentPageRef.current;
@@ -761,6 +844,7 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
     pushLoadingEntry(pageNum, entryId, "circle");
 
     try {
+      if (!(await waitForPageReady())) throw new Error("页面渲染中，请稍后再圈选");
       const regionImg = await cropRegionHiRes(bbox, { maskPoints: stroke.points });
       if (!regionImg) throw new Error("empty analysis");
       const compressed = await compressImageForApi(regionImg);
@@ -768,17 +852,23 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
       const data = await callCircleApi(compressed, { markKind: "circle" });
       applyResultToEntry(pageNum, entryId, data);
     } catch (err) {
-      // 若分析期间笔迹已被擦除，不再回滚画布，仅清掉 loading 条目
+      if (isCircleApiUnavailable(err)) {
+        applyResultToEntry(pageNum, entryId, DEMO_CIRCLE_RESULT);
+        return;
+      }
+      // 仅圈选/截图本身有问题时撤销笔迹；API 故障保留笔迹
       const stillExists = getStrokes(pageNum).some(s => s.id === stroke.id);
-      if (stillExists) {
+      if (stillExists && isDrawingIssue(err)) {
         circleCountRef.current = Math.max(0, circleCountRef.current - 1);
         pageCircleCountRef.current.set(pageNum, circleCountRef.current);
         removeStrokes(pageNum, new Set([stroke.id]));
         showToast(circleFailureMessage(err));
+      } else if (stillExists) {
+        showToast(circleFailureMessage(err));
       }
       removeEntry(pageNum, entryId);
     }
-  }, [pushLoadingEntry, cropRegionHiRes, callCircleApi, applyResultToEntry, removeStrokes, removeEntry, showToast]);
+  }, [pushLoadingEntry, cropRegionHiRes, callCircleApi, applyResultToEntry, removeStrokes, removeEntry, showToast, waitForPageReady]);
 
   // ─── Ink marks (underline / question mark / handwriting) → AI ────────────────
   const analyzeInkMarks = useCallback(async () => {
@@ -895,6 +985,21 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
     }
   }, [aiEntries, updateEntries, callCircleApi, applyResultToEntry, showToast]);
 
+  const drawPenSegment = (prev: Point, pos: Point) => {
+    const canvas = annotCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d")!;
+    ctx.beginPath();
+    ctx.globalCompositeOperation = "source-over";
+    ctx.strokeStyle = "#EF4444";
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.moveTo(prev.x, prev.y);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+  };
+
   const finishPenStroke = useCallback(() => {
     if (!isDrawingRef.current) return;
     isDrawingRef.current = false;
@@ -918,16 +1023,56 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
       addStroke(pageNum, stroke);
       redrawPage(pageNum);
       void triggerCircleAnalysis(stroke);
+    } else if (totalPathLength(points) >= 28) {
+      showToast("请画一个闭合的圈，把要解析的内容包在里面");
+      addStroke(pageNum, { id: strokeId, points, kind: "ink" });
+      scheduleInkAnalysis(pageNum, strokeId);
     } else {
       addStroke(pageNum, { id: strokeId, points, kind: "ink" });
       scheduleInkAnalysis(pageNum, strokeId);
     }
-  }, [addStroke, redrawPage, triggerCircleAnalysis, scheduleInkAnalysis]);
+  }, [addStroke, redrawPage, triggerCircleAnalysis, scheduleInkAnalysis, showToast]);
+
+  function totalPathLength(pts: Point[]): number {
+    let len = 0;
+    for (let i = 1; i < pts.length; i++) {
+      len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    }
+    return len;
+  }
+
+  const TOUCH_DRAW_THRESHOLD = 14;
+  const TOUCH_SWIPE_MIN_DY = 60;
+  const TOUCH_SWIPE_MAX_DX = 28;
+
+  const beginTouchInteraction = (
+    e: React.PointerEvent<HTMLCanvasElement>,
+    startPos: Point,
+  ) => {
+    const track = touchTrackRef.current;
+    if (!track) return;
+    touchTrackRef.current = { ...track, mode: "draw" };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    if (toolRef.current === "eraser") {
+      isErasingRef.current = true;
+      eraseAt(startPos);
+      return;
+    }
+    isDrawingRef.current = true;
+    currentPointsRef.current = [startPos];
+  };
 
   // ─── Pen / touch handlers ────────────────────────────────────────────────────
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.pointerType === "touch") {
-      touchTrackRef.current = { y: e.clientY, time: Date.now() };
+      const pos = getCanvasPos(e);
+      touchTrackRef.current = {
+        x: e.clientX,
+        y: e.clientY,
+        time: Date.now(),
+        mode: "pending",
+        startPos: pos,
+      };
       return;
     }
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -941,7 +1086,46 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.pointerType === "touch") return;
+    if (e.pointerType === "touch") {
+      const track = touchTrackRef.current;
+      if (!track) return;
+
+      const dx = e.clientX - track.x;
+      const dy = e.clientY - track.y;
+      const dist = Math.hypot(dx, dy);
+
+      if (track.mode === "pending") {
+        if (dist < TOUCH_DRAW_THRESHOLD) return;
+        if (
+          Math.abs(dy) >= TOUCH_SWIPE_MIN_DY
+          && Math.abs(dx) <= TOUCH_SWIPE_MAX_DX
+        ) {
+          touchTrackRef.current = { ...track, mode: "swipe" };
+          return;
+        }
+        beginTouchInteraction(e, track.startPos!);
+        const pos = getCanvasPos(e);
+        if (isDrawingRef.current) {
+          currentPointsRef.current.push(pos);
+          drawPenSegment(track.startPos!, pos);
+        }
+        return;
+      }
+
+      if (track.mode === "swipe") return;
+
+      if (isErasingRef.current) {
+        eraseAt(getCanvasPos(e));
+        return;
+      }
+      if (!isDrawingRef.current) return;
+
+      const pos = getCanvasPos(e);
+      const prev = currentPointsRef.current[currentPointsRef.current.length - 1];
+      currentPointsRef.current.push(pos);
+      drawPenSegment(prev, pos);
+      return;
+    }
 
     if (isErasingRef.current) {
       eraseAt(getCanvasPos(e));
@@ -949,34 +1133,29 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
     }
     if (!isDrawingRef.current) return;
 
-    const canvas = annotCanvasRef.current!;
-    const ctx = canvas.getContext("2d")!;
     const pos = getCanvasPos(e);
     const prev = currentPointsRef.current[currentPointsRef.current.length - 1];
-
     currentPointsRef.current.push(pos);
-
-    ctx.beginPath();
-    ctx.globalCompositeOperation = "source-over";
-    ctx.strokeStyle = "#EF4444";
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.moveTo(prev.x, prev.y);
-    ctx.lineTo(pos.x, pos.y);
-    ctx.stroke();
+    drawPenSegment(prev, pos);
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.pointerType === "touch") {
-      const t = touchTrackRef.current;
-      if (!t) return;
-      const dy = t.y - e.clientY;
-      const dt = Date.now() - t.time;
-      touchTrackRef.current = null;
-      if (Math.abs(dy) > 55 && dt < 450) {
-        goToPage(dy > 0 ? currentPageRef.current + 1 : currentPageRef.current - 1);
+      const track = touchTrackRef.current;
+      if (!track) return;
+
+      if (track.mode === "swipe") {
+        const dy = track.y - e.clientY;
+        const dt = Date.now() - track.time;
+        if (Math.abs(dy) > 55 && dt < 450) {
+          goToPage(dy > 0 ? currentPageRef.current + 1 : currentPageRef.current - 1);
+        }
+      } else if (track.mode === "draw") {
+        isErasingRef.current = false;
+        finishPenStroke();
       }
+
+      touchTrackRef.current = null;
       return;
     }
 
@@ -985,7 +1164,15 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
   };
 
   const handlePointerLeave = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.pointerType === "touch") return;
+    if (e.pointerType === "touch") {
+      const track = touchTrackRef.current;
+      if (track?.mode === "draw") {
+        isErasingRef.current = false;
+        finishPenStroke();
+      }
+      touchTrackRef.current = null;
+      return;
+    }
     isErasingRef.current = false;
     finishPenStroke();
   };
@@ -1215,7 +1402,7 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
           {!hasAnnotations && !isRendering && totalPages > 0 && (
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 pointer-events-none">
               <div className="bg-white/95 backdrop-blur-sm text-[#7B8291] text-[12px] px-5 py-3 rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.08)] border border-[#EAEDF2] text-center leading-5">
-                触控笔圈选 / 划线 / 写问号 → AI 即时解析 · 手指上下滑动翻页
+                手指/触控笔圈选 · 上下滑动翻页 → AI 即时解析
               </div>
             </div>
           )}

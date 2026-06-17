@@ -11,6 +11,7 @@
     }
   ],
   "functions": {
-    "api/audio.ts": { "maxDuration": 60 }
+    "api/audio.ts": { "maxDuration": 60 },
+    "api/import.ts": { "maxDuration": 60 }
   }
 }
