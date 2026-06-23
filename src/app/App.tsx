@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 
 import type { CardContentType, DetailSection, ExpandedKnowledge, KnowledgeNode, CardData, FeedGroup as FeedGroupType } from "../types";
 import {
@@ -22,6 +22,14 @@ import { TopTabs, type TopTabId } from "../features/feed/TopTabs";
 import { AnnotationMenu } from "../features/feed/AnnotationMenu";
 import { PdfReaderModal } from "../features/pdf-reader/PdfReaderModal";
 import { CameraModal } from "../features/camera/CameraModal";
+import { CameraAgentModal } from "../features/camera/cameraAgent/CameraAgentModal";
+import { isCameraAgentEnabled } from "../features/camera/cameraAgent/config";
+import { DEMO_CAMERA_IMAGE } from "../features/camera/cameraAgent/demoCamera";
+import {
+  fakeDoubaoDelay,
+  fakeStreamUnifiedDetail,
+  getDemoDoubaoResult,
+} from "../features/camera/cameraAgent/demoCameraPipeline";
 import { ScreenshotModeModal } from "../features/screenshot/ScreenshotModeModal";
 import { VoiceModal } from "../features/voice/VoiceModal";
 import { isDemoTranscript } from "../features/voice/demoTranscript";
@@ -296,6 +304,16 @@ export default function App() {
     setSidebarLoading(false);
   };
 
+  const startFlyAnimation = useCallback((imageDataUrl: string) => {
+    setFlyImg(imageDataUrl);
+    setFlyPhase("center");
+    const t1 = setTimeout(() => setFlyPhase("corner"), 80);
+    const t2 = setTimeout(() => setFlyPhase("fading"), 5200);
+    const t3 = setTimeout(() => setFlyPhase("idle"), 5800);
+    flyTimers.current.forEach(clearTimeout);
+    flyTimers.current = [t1, t2, t3];
+  }, []);
+
   /** Core image processing pipeline — calls server-side proxies, no keys in browser */
   const processImage = (
     imageDataUrl: string,
@@ -305,13 +323,7 @@ export default function App() {
   ) => {
     setSidebarLoading(true);
     if (!options?.skipFly) {
-      setFlyImg(imageDataUrl);
-      setFlyPhase("center");
-      const t1 = setTimeout(() => setFlyPhase("corner"), 80);
-      const t2 = setTimeout(() => setFlyPhase("fading"), 5200);
-      const t3 = setTimeout(() => setFlyPhase("idle"), 5800);
-      flyTimers.current.forEach(clearTimeout);
-      flyTimers.current = [t1, t2, t3];
+      startFlyAnimation(imageDataUrl);
     }
 
     const loadStart = Date.now();
@@ -408,6 +420,55 @@ export default function App() {
           showToast("AI 接口暂不可用，已用演示内容保存");
         });
       });
+  };
+
+  /** 演示相机：假 Doubao + 假流式详情，流程与 processImage 一致 */
+  const processDemoCameraImage = (
+    imageDataUrl: string,
+    options?: { skipFly?: boolean },
+  ) => {
+    setSidebarLoading(true);
+    if (!options?.skipFly) {
+      startFlyAnimation(imageDataUrl);
+    }
+
+    const loadStart = Date.now();
+    const applyWithMinDelay = (fn: () => void) => {
+      const elapsed = Date.now() - loadStart;
+      setTimeout(fn, Math.max(0, 2500 - elapsed));
+    };
+    const preassignedId = `new_${Date.now()}`;
+
+    void (async () => {
+      await fakeDoubaoDelay();
+      const r = getDemoDoubaoResult(activeSubject);
+      const unifiedDetail = await fakeStreamUnifiedDetail(() => {});
+      applyWithMinDelay(() => {
+        applyNewCard(
+          r.subjectId,
+          r.title,
+          r.summary,
+          "notes",
+          DEMO_CAMERA_IMAGE,
+          r.overview,
+          r.detailIntro,
+          r.detailSections,
+          r.aiKeyPoints,
+          r.expandedKnowledge,
+          r.knowledgeTree,
+          r.nextAction,
+          r.skill,
+          undefined,
+          false,
+          preassignedId,
+          unifiedDetail,
+          r.contentType,
+        );
+        setActiveTopTab("notes");
+        setSidebarLoading(false);
+        showToast("资料已整理并存入记忆");
+      });
+    })();
   };
 
   const handleSave = (imageDataUrl: string, hasAnnotations: boolean) => {
@@ -926,12 +987,29 @@ export default function App() {
       )}
 
       {showCamera && (
-        <CameraModal
-          onClose={() => setShowCamera(false)}
-          onSave={(imageDataUrl) => {
-            processImage(imageDataUrl, false, "notes");
-          }}
-        />
+        isCameraAgentEnabled ? (
+          <CameraAgentModal
+            onClose={() => setShowCamera(false)}
+            onSave={(imageDataUrl, meta) => {
+              if (meta?.demo) {
+                if (meta.flyOnly) {
+                  startFlyAnimation(imageDataUrl);
+                  return;
+                }
+                processDemoCameraImage(imageDataUrl, { skipFly: true });
+                return;
+              }
+              processImage(imageDataUrl, false, "notes", { skipFly: meta?.autoCapture });
+            }}
+          />
+        ) : (
+          <CameraModal
+            onClose={() => setShowCamera(false)}
+            onSave={(imageDataUrl) => {
+              processImage(imageDataUrl, false, "notes");
+            }}
+          />
+        )
       )}
 
       {showScreenshot && (

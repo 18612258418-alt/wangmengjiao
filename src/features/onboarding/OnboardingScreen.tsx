@@ -209,7 +209,7 @@ export function OnboardingScreen({ onEnter, mode = "first", onPdfSelected, onOpe
       label: "拍照",
       gradient: "linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)",
       icon: <Camera size={26} color="#1e293b" />,
-      onClick: () => { showTip("拍下课本/板书，AI 一键解读"); onOpenCamera?.(); },
+      onClick: () => { showTip("对准资料，AI 自动识别并整理"); onOpenCamera?.(); },
     },
     {
       label: "录音",

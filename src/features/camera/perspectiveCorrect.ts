@@ -15,7 +15,12 @@ export interface Quad {
 }
 
 // ─── Sobel 边缘检测 ────────────────────────────────────────────────────────────
-function sobelEdges(data: Uint8ClampedArray, w: number, h: number): Uint8Array {
+function sobelEdges(
+  data: Uint8ClampedArray,
+  w: number,
+  h: number,
+  threshold = 32,
+): Uint8Array {
   const gray = new Float32Array(w * h);
   for (let i = 0; i < w * h; i++) {
     gray[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
@@ -32,14 +37,42 @@ function sobelEdges(data: Uint8ClampedArray, w: number, h: number): Uint8Array {
         gray[idx(y - 1, x - 1)] + 2 * gray[idx(y - 1, x)] + gray[idx(y - 1, x + 1)]
         - gray[idx(y + 1, x - 1)] - 2 * gray[idx(y + 1, x)] - gray[idx(y + 1, x + 1)];
       const mag = Math.sqrt(gx * gx + gy * gy);
-      edges[y * w + x] = mag > 40 ? 255 : 0;
+      edges[y * w + x] = mag > threshold ? 255 : 0;
     }
   }
   return edges;
 }
 
+export interface DetectQuadOptions {
+  /** 四边形面积占画面最小比例，默认 0.25 */
+  minAreaRatio?: number;
+}
+
 // ─── 找轮廓最大矩形（4顶点） ──────────────────────────────────────────────────
-function findLargestQuad(edges: Uint8Array, w: number, h: number): Quad | null {
+export function detectQuadFromCanvas(
+  src: HTMLCanvasElement,
+  opts?: DetectQuadOptions,
+): Quad | null {
+  try {
+    const imgData = src.getContext("2d")!.getImageData(0, 0, src.width, src.height);
+    const minRatio = opts?.minAreaRatio ?? 0.06;
+    for (const threshold of [28, 20, 14, 10]) {
+      const edges = sobelEdges(imgData.data, src.width, src.height, threshold);
+      const quad = findLargestQuad(edges, src.width, src.height, minRatio);
+      if (quad) return quad;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function findLargestQuad(
+  edges: Uint8Array,
+  w: number,
+  h: number,
+  minAreaRatio: number,
+): Quad | null {
   // 采样边缘点（降分辨率后仅取亮点）
   const pts: [number, number][] = [];
   const step = 4;
@@ -48,7 +81,7 @@ function findLargestQuad(edges: Uint8Array, w: number, h: number): Quad | null {
       if (edges[y * w + x] > 128) pts.push([x, y]);
     }
   }
-  if (pts.length < 40) return null;
+  if (pts.length < 20) return null;
 
   // 利用凸包近似四边形：取4个极端点（左上/右上/右下/左下方向上最极端的点）
   const score = {
@@ -65,12 +98,15 @@ function findLargestQuad(edges: Uint8Array, w: number, h: number): Quad | null {
 
   // 校验：4点围成的四边形面积要占画面 25% 以上
   const area = quadArea(tl, tr, br, bl);
-  if (area < w * h * 0.25) return null;
+  if (area < w * h * minAreaRatio) return null;
 
-  // 校验：形状不能太歪（4点不能几乎共线）
+  // 校验：形状不能太歪（边长相对画面过短）
+  const minEdge = Math.min(w, h) * 0.05;
   const isDegenerate = (
-    Math.hypot(tl[0] - tr[0], tl[1] - tr[1]) < 20 ||
-    Math.hypot(bl[0] - br[0], bl[1] - br[1]) < 20
+    Math.hypot(tl[0] - tr[0], tl[1] - tr[1]) < minEdge
+    || Math.hypot(bl[0] - br[0], bl[1] - br[1]) < minEdge
+    || Math.hypot(tl[0] - bl[0], tl[1] - bl[1]) < minEdge
+    || Math.hypot(tr[0] - br[0], tr[1] - br[1]) < minEdge
   );
   if (isDegenerate) return null;
 
@@ -128,85 +164,129 @@ function applyH(H: M3, x: number, y: number): [number, number] {
 
 // ─── 公开 API ─────────────────────────────────────────────────────────────────
 
+const WARP_MAX_SRC = 960;
+const WARP_MAX_OUT = 960;
+
+function scaleQuad(quad: Quad, s: number): Quad {
+  return {
+    tl: [quad.tl[0] * s, quad.tl[1] * s],
+    tr: [quad.tr[0] * s, quad.tr[1] * s],
+    br: [quad.br[0] * s, quad.br[1] * s],
+    bl: [quad.bl[0] * s, quad.bl[1] * s],
+  };
+}
+
+function downscaleCanvas(
+  src: HTMLCanvasElement,
+  maxEdge: number,
+): { canvas: HTMLCanvasElement; scale: number } {
+  const scale = Math.min(maxEdge / src.width, maxEdge / src.height, 1);
+  if (scale >= 1) return { canvas: src, scale: 1 };
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(src.width * scale));
+  canvas.height = Math.max(1, Math.round(src.height * scale));
+  canvas.getContext("2d")!.drawImage(src, 0, 0, canvas.width, canvas.height);
+  return { canvas, scale };
+}
+
+/** 仿射变换绘制三角形，避免 getImageData 全图拷贝（移动端 OOM 杀手） */
+function drawImageTriangle(
+  ctx: CanvasRenderingContext2D,
+  img: CanvasImageSource,
+  s0: [number, number],
+  s1: [number, number],
+  s2: [number, number],
+  d0: [number, number],
+  d1: [number, number],
+  d2: [number, number],
+) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(d0[0], d0[1]);
+  ctx.lineTo(d1[0], d1[1]);
+  ctx.lineTo(d2[0], d2[1]);
+  ctx.closePath();
+  ctx.clip();
+
+  const denom = (s0[0] - s2[0]) * (s1[1] - s2[1]) - (s1[0] - s2[0]) * (s0[1] - s2[1]);
+  if (Math.abs(denom) < 1e-6) {
+    ctx.restore();
+    return;
+  }
+
+  const m11 = ((d0[0] - d2[0]) * (s1[1] - s2[1]) - (d1[0] - d2[0]) * (s0[1] - s2[1])) / denom;
+  const m12 = ((d1[0] - d2[0]) * (s0[0] - s2[0]) - (d0[0] - d2[0]) * (s1[0] - s2[0])) / denom;
+  const m21 = ((d0[1] - d2[1]) * (s1[1] - s2[1]) - (d1[1] - d2[1]) * (s0[1] - s2[1])) / denom;
+  const m22 = ((d1[1] - d2[1]) * (s0[0] - s2[0]) - (d0[1] - d2[1]) * (s1[0] - s2[0])) / denom;
+  const dx = d2[0] - m11 * s2[0] - m12 * s2[1];
+  const dy = d2[1] - m21 * s2[0] - m22 * s2[1];
+
+  ctx.transform(m11, m21, m12, m22, dx, dy);
+  ctx.drawImage(img, 0, 0);
+  ctx.restore();
+}
+
+/** 将源图中 quad 区域透视拉正为矩形 canvas */
+export function warpCanvasWithQuad(src: HTMLCanvasElement, quad: Quad): HTMLCanvasElement | null {
+  try {
+    const { canvas: workSrc, scale: srcScale } = downscaleCanvas(src, WARP_MAX_SRC);
+    const q = srcScale < 1 ? scaleQuad(quad, srcScale) : quad;
+
+    const topW = Math.hypot(q.tr[0] - q.tl[0], q.tr[1] - q.tl[1]);
+    const botW = Math.hypot(q.br[0] - q.bl[0], q.br[1] - q.bl[1]);
+    const leftH = Math.hypot(q.bl[0] - q.tl[0], q.bl[1] - q.tl[1]);
+    const rightH = Math.hypot(q.br[0] - q.tr[0], q.br[1] - q.tr[1]);
+    const outW = Math.round((topW + botW) / 2);
+    const outH = Math.round((leftH + rightH) / 2);
+    if (outW < 8 || outH < 8) return null;
+
+    const outScale = Math.min(WARP_MAX_OUT / outW, WARP_MAX_OUT / outH, 1);
+    const fw = Math.max(1, Math.round(outW * outScale));
+    const fh = Math.max(1, Math.round(outH * outScale));
+
+    const out = document.createElement("canvas");
+    out.width = fw;
+    out.height = fh;
+    const ctx = out.getContext("2d")!;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, fw, fh);
+
+    drawImageTriangle(ctx, workSrc, q.tl, q.tr, q.bl, [0, 0], [fw, 0], [0, fh]);
+    drawImageTriangle(ctx, workSrc, q.tr, q.br, q.bl, [fw, 0], [fw, fh], [0, fh]);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 尝试检测 canvas 图像中的黑板/文档矩形并矫正透视。
  * 失败时返回 null（调用方使用原图）。
  */
 export function correctPerspective(src: HTMLCanvasElement): HTMLCanvasElement | null {
   try {
-    // 缩小到最长边 400px 做检测（速度优先）
+    const { canvas: work } = downscaleCanvas(src, WARP_MAX_SRC);
     const DETECT_MAX = 400;
-    const scale = Math.min(DETECT_MAX / src.width, DETECT_MAX / src.height, 1);
-    const dw = Math.round(src.width * scale);
-    const dh = Math.round(src.height * scale);
+    const detectScale = Math.min(DETECT_MAX / work.width, DETECT_MAX / work.height, 1);
+    const dw = Math.max(1, Math.round(work.width * detectScale));
+    const dh = Math.max(1, Math.round(work.height * detectScale));
 
     const small = document.createElement("canvas");
     small.width = dw;
     small.height = dh;
-    small.getContext("2d")!.drawImage(src, 0, 0, dw, dh);
-    const imgData = small.getContext("2d")!.getImageData(0, 0, dw, dh);
-    const edges = sobelEdges(imgData.data, dw, dh);
-    const quad = findLargestQuad(edges, dw, dh);
-    if (!quad) return null;
+    small.getContext("2d")!.drawImage(work, 0, 0, dw, dh);
+    const quadSmall = detectQuadFromCanvas(small);
+    if (!quadSmall) return null;
 
-    // 把检测角点映射回原图坐标
-    const inv = 1 / scale;
-    const srcPts: [number, number][] = [
-      [quad.tl[0] * inv, quad.tl[1] * inv],
-      [quad.tr[0] * inv, quad.tr[1] * inv],
-      [quad.br[0] * inv, quad.br[1] * inv],
-      [quad.bl[0] * inv, quad.bl[1] * inv],
-    ];
+    const inv = 1 / detectScale;
+    const quad: Quad = {
+      tl: [quadSmall.tl[0] * inv, quadSmall.tl[1] * inv],
+      tr: [quadSmall.tr[0] * inv, quadSmall.tr[1] * inv],
+      br: [quadSmall.br[0] * inv, quadSmall.br[1] * inv],
+      bl: [quadSmall.bl[0] * inv, quadSmall.bl[1] * inv],
+    };
 
-    // 目标矩形尺寸（保持检测到的宽高比，最长边 2000px）
-    const topW = Math.hypot(srcPts[1][0] - srcPts[0][0], srcPts[1][1] - srcPts[0][1]);
-    const botW = Math.hypot(srcPts[2][0] - srcPts[3][0], srcPts[2][1] - srcPts[3][1]);
-    const leftH = Math.hypot(srcPts[3][0] - srcPts[0][0], srcPts[3][1] - srcPts[0][1]);
-    const rightH = Math.hypot(srcPts[2][0] - srcPts[1][0], srcPts[2][1] - srcPts[1][1]);
-    const outW = Math.round((topW + botW) / 2);
-    const outH = Math.round((leftH + rightH) / 2);
-    const MAX_OUT = 2000;
-    const outScale = Math.min(MAX_OUT / outW, MAX_OUT / outH, 1);
-    const fw = Math.round(outW * outScale);
-    const fh = Math.round(outH * outScale);
-
-    const dstPts: [number, number][] = [[0, 0], [fw, 0], [fw, fh], [0, fh]];
-    const H = computeHomography(dstPts, srcPts); // dst→src（反向映射）
-    if (!H) return null;
-
-    const out = document.createElement("canvas");
-    out.width = fw;
-    out.height = fh;
-    const outCtx = out.getContext("2d")!;
-    const srcCtx = src.getContext("2d")!;
-    const srcData = srcCtx.getImageData(0, 0, src.width, src.height);
-    const outData = outCtx.createImageData(fw, fh);
-
-    // 像素级反向映射（双线性插值）
-    for (let dy = 0; dy < fh; dy++) {
-      for (let dx = 0; dx < fw; dx++) {
-        const [sx, sy] = applyH(H, dx, dy);
-        const xi = Math.floor(sx), yi = Math.floor(sy);
-        if (xi < 0 || yi < 0 || xi >= src.width - 1 || yi >= src.height - 1) continue;
-        const fx = sx - xi, fy = sy - yi;
-        const i00 = (yi * src.width + xi) * 4;
-        const i10 = (yi * src.width + xi + 1) * 4;
-        const i01 = ((yi + 1) * src.width + xi) * 4;
-        const i11 = ((yi + 1) * src.width + xi + 1) * 4;
-        const di = (dy * fw + dx) * 4;
-        for (let c = 0; c < 3; c++) {
-          outData.data[di + c] = Math.round(
-            srcData.data[i00 + c] * (1 - fx) * (1 - fy) +
-            srcData.data[i10 + c] * fx * (1 - fy) +
-            srcData.data[i01 + c] * (1 - fx) * fy +
-            srcData.data[i11 + c] * fx * fy,
-          );
-        }
-        outData.data[di + 3] = 255;
-      }
-    }
-    outCtx.putImageData(outData, 0, 0);
-    return out;
+    return warpCanvasWithQuad(work, quad);
   } catch {
     return null;
   }
