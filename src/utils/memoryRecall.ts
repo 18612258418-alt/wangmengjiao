@@ -216,6 +216,20 @@ export function findCardBySourceAnchor(
   return found;
 }
 
+/** 按卡片 id 查找（用于固定 id upsert） */
+export function findCardById(
+  allFeedGroups: Record<string, FeedGroup[]>,
+  cardId: string,
+): { card: CardData; subjectId: string; date: string } | null {
+  let found: { card: CardData; subjectId: string; date: string } | null = null;
+  iterateAllCards(allFeedGroups, (card, subjectId, date) => {
+    if (card.id === cardId) {
+      found = { card, subjectId, date };
+    }
+  });
+  return found;
+}
+
 /** 展示层去重：与 cardDedupeKey / 自动合并 同一规则 */
 export function dedupeCardsBySourceAnchor(
   items: Array<{ card: CardData; date: string }>,

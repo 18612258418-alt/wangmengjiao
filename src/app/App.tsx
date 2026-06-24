@@ -32,11 +32,11 @@ import {
   getDemoDoubaoResult,
 } from "../features/camera/cameraAgent/demoCameraPipeline";
 import type { SourceAnchor } from "../types";
-import { recallSimilarMemories, findCardBySourceAnchor, type RecalledMemory } from "../utils/memoryRecall";
+import { recallSimilarMemories, findCardBySourceAnchor, findCardById, iterateAllCards, type RecalledMemory } from "../utils/memoryRecall";
 import { cardDedupeKey } from "../utils/cardDedupe";
 import { findCardByDedupeKey } from "../utils/memoryMerge";
 import { ScreenshotModeModal } from "../features/screenshot/ScreenshotModeModal";
-import { DEMO_SCREENSHOT_ANCHOR } from "../features/screenshot/constants";
+import { DEMO_SCREENSHOT_ANCHOR, DEMO_SCREENSHOT_CARD_ID, sourceAnchorKey } from "../features/screenshot/constants";
 import { VoiceModal } from "../features/voice/VoiceModal";
 import { isDemoTranscript } from "../features/voice/demoTranscript";
 import { OnboardingScreen } from "../features/onboarding/OnboardingScreen";
@@ -105,6 +105,19 @@ export default function App() {
   const [newSubjectName, setNewSubjectName] = useState("");
   const flyTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const didInitSubjectRef = useRef(false);
+  const allFeedGroupsRef = useRef(allFeedGroups);
+  const savedByAnchorRef = useRef(new Map<string, { subjectId: string; date: string; card: CardData }>());
+  allFeedGroupsRef.current = allFeedGroups;
+
+  useEffect(() => {
+    if (dbLoading) return;
+    savedByAnchorRef.current.clear();
+    iterateAllCards(allFeedGroups, (card, subjectId, date) => {
+      if (card.sourceAnchor?.fileId) {
+        savedByAnchorRef.current.set(sourceAnchorKey(card.sourceAnchor), { subjectId, date, card });
+      }
+    });
+  }, [dbLoading, allFeedGroups]);
 
   const sortedSubjects = useMemo(() => {
     return [...subjects].sort((a, b) => {
@@ -190,6 +203,35 @@ export default function App() {
     setDrawerCard(null);
   };
 
+  const rememberSavedCard = (
+    anchor: SourceAnchor | undefined,
+    subjectId: string,
+    date: string,
+    card: CardData,
+  ) => {
+    if (anchor?.fileId) {
+      savedByAnchorRef.current.set(sourceAnchorKey(anchor), { subjectId, date, card });
+    }
+  };
+
+  const lookupExistingCard = (
+    sourceAnchor?: SourceAnchor,
+    cardId?: string,
+  ): { card: CardData; subjectId: string; date: string } | null => {
+    const feeds = allFeedGroupsRef.current;
+    if (sourceAnchor?.fileId) {
+      const reg = savedByAnchorRef.current.get(sourceAnchorKey(sourceAnchor));
+      if (reg) return reg;
+      const hit = findCardBySourceAnchor(feeds, sourceAnchor);
+      if (hit) return hit;
+    }
+    if (cardId) {
+      const hit = findCardById(feeds, cardId);
+      if (hit) return hit;
+    }
+    return null;
+  };
+
   const applyNewCard = (
     targetSubjectId: string, newTitle: string, aiSummary: string,
     aType: string, capturedImg: string,
@@ -205,7 +247,7 @@ export default function App() {
     homeworkTasks?: string[],
     taskDueDate?: string,
     sourceAnchor?: SourceAnchor,
-  ) => {
+  ): "created" | "updated" => {
     const now = new Date();
     const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
 
@@ -278,49 +320,52 @@ export default function App() {
           showToast("已撤销合并");
         },
       });
+      rememberSavedCard(sourceAnchor, subjectId, date, {
+        ...card,
+        title: newTitle,
+        ...upsertCardFields,
+        sourceAnchor: sourceAnchor
+          ? { ...card.sourceAnchor, ...sourceAnchor }
+          : card.sourceAnchor,
+      });
     };
 
-    if (sourceAnchor) {
-      const existing = findCardBySourceAnchor(allFeedGroups, sourceAnchor);
-      if (existing) {
-        finishUpsert(
-          existing.card,
-          existing.subjectId,
-          existing.date,
-          sourceAnchor.kind === "pdf"
-            ? "已更新本页记忆"
-            : sourceAnchor.kind === "screenshot"
-              ? "已合并重复记忆"
-              : "已合并重复记忆",
-        );
-        return;
-      }
+    const existingHit = lookupExistingCard(sourceAnchor, preassignedId);
+    if (existingHit) {
+      finishUpsert(
+        existingHit.card,
+        existingHit.subjectId,
+        existingHit.date,
+        sourceAnchor?.kind === "pdf" ? "已更新本页记忆" : "已合并重复记忆",
+      );
+      return "updated";
     }
 
-    const dedupePreview: CardData = {
-      id: preassignedId ?? "preview",
-      title: newTitle,
-      img: upsertCardFields.img,
-      source: TYPE_SOURCE[aType] ?? "evernote",
-      time: timeStr,
-      skill: upsertCardFields.skill,
-      contentType: surfaces.contentType,
-      overview,
-      detailIntro,
-      detailSections,
-      aiKeyPoints,
-      expandedKnowledge,
-      knowledgeTree,
-      nextAction,
-      hasAnnotations,
-      ...(sourceAnchor ? { sourceAnchor } : {}),
-    };
-    const dedupeKey = cardDedupeKey(dedupePreview);
-    if (dedupeKey) {
-      const existing = findCardByDedupeKey(allFeedGroups, dedupeKey);
-      if (existing) {
-        finishUpsert(existing.card, existing.subjectId, existing.date, "已合并重复记忆");
-        return;
+    if (!sourceAnchor) {
+      const dedupePreview: CardData = {
+        id: preassignedId ?? "preview",
+        title: newTitle,
+        img: upsertCardFields.img,
+        source: TYPE_SOURCE[aType] ?? "evernote",
+        time: timeStr,
+        skill: upsertCardFields.skill,
+        contentType: surfaces.contentType,
+        overview,
+        detailIntro,
+        detailSections,
+        aiKeyPoints,
+        expandedKnowledge,
+        knowledgeTree,
+        nextAction,
+        hasAnnotations,
+      };
+      const dedupeKey = cardDedupeKey(dedupePreview);
+      if (dedupeKey) {
+        const existing = findCardByDedupeKey(allFeedGroupsRef.current, dedupeKey);
+        if (existing) {
+          finishUpsert(existing.card, existing.subjectId, existing.date, "已合并重复记忆");
+          return "updated";
+        }
       }
     }
 
@@ -348,6 +393,7 @@ export default function App() {
     setTimeout(() => setNewCardId(null), 3500);
 
     const subjectShort = INITIAL_SUBJECTS.find(s => s.id === targetSubjectId)?.short ?? "社会科学";
+    rememberSavedCard(sourceAnchor, targetSubjectId, todayKey, newCard);
     addCard({ targetSubjectId, card: newCard, date: todayKey, aiSummary, subjectShort });
     setMergeTick(t => t + 1);
 
@@ -436,6 +482,7 @@ export default function App() {
       setActiveSubject(targetSubjectId);
     }
     setSidebarLoading(false);
+    return "created";
   };
 
   const startFlyAnimation = useCallback((imageDataUrl: string) => {
@@ -453,7 +500,7 @@ export default function App() {
     imageDataUrl: string,
     hasAnnotations: boolean,
     aType: string,
-    options?: { skipFly?: boolean; sourceAnchor?: SourceAnchor },
+    options?: { skipFly?: boolean; sourceAnchor?: SourceAnchor; fixedCardId?: string },
   ) => {
     setSidebarLoading(true);
     if (!options?.skipFly) {
@@ -466,7 +513,7 @@ export default function App() {
       setTimeout(fn, Math.max(0, 2500 - elapsed));
     };
 
-    const preassignedId = `new_${Date.now()}`;
+    const preassignedId = options?.fixedCardId ?? `new_${Date.now()}`;
 
     callDoubao(imageDataUrl, hasAnnotations)
       .then(r => {
@@ -526,7 +573,7 @@ export default function App() {
         console.error("[processImage] Doubao failed:", err);
         const fallback = buildFallbackCardPayload(aType);
         applyWithMinDelay(() => {
-          applyNewCard(
+          const saved = applyNewCard(
             fallback.targetSubjectId,
             fallback.title,
             fallback.summary,
@@ -555,7 +602,9 @@ export default function App() {
             setTimeout(() => setFlyPhase("idle"), 600);
             flyTimers.current.forEach(clearTimeout);
           }
-          showToast("AI 接口暂不可用，已用演示内容保存");
+          if (saved === "created") {
+            showToast("AI 接口暂不可用，已用演示内容保存");
+          }
         });
       });
   };
@@ -1185,6 +1234,7 @@ export default function App() {
           onSave={(imageDataUrl) => {
             processImage(imageDataUrl, false, "notes", {
               sourceAnchor: DEMO_SCREENSHOT_ANCHOR,
+              fixedCardId: DEMO_SCREENSHOT_CARD_ID,
               skipFly: true,
             });
           }}

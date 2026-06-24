@@ -497,7 +497,7 @@ export function ScreenshotModeModal({ onClose, onSave }: Props) {
         {savedHint && (
           <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-full bg-[#1C1C1E]/90 text-white text-[12px] shadow-lg pointer-events-none"
             style={{ fontWeight: 500 }}>
-            已存入记忆，可继续截图
+            已提交保存 · 重复截图后请看屏幕底部
           </div>
         )}
 

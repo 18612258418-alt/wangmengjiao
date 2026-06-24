@@ -214,35 +214,49 @@ export function useMemoryDB(): MemoryDBHook {
     }
 
     // Update in-memory state
+    let cardIsNew = true;
     setAllFeedGroups(prev => {
       const feeds = prev[targetSubjectId] ?? [];
       const idx   = feeds.findIndex(g => g.date === date);
       const summary = aiSummary || `AI分析完成！本次批注归类至${subjectShort}笔记，新增1个知识点。建议结合已有笔记复习。`;
+      cardIsNew = !Object.values(prev).some(groups =>
+        groups?.some(g => g.cards.some(c => c.id === card.id)),
+      );
+
+      const upsertIntoGroup = (g: FeedGroup): FeedGroup => {
+        const hasId = g.cards.some(c => c.id === card.id);
+        return {
+          ...g,
+          cards: hasId
+            ? g.cards.map(c => c.id === card.id ? card : c)
+            : [card, ...g.cards],
+          label: hasId ? g.label : `新增了${g.cards.length + 1}个记忆`,
+        };
+      };
 
       const updated: FeedGroup[] = idx >= 0
-        ? feeds.map((g, i) => i === idx
-            ? { ...g, cards: [card, ...g.cards], label: `新增了${g.cards.length + 1}个记忆` }
-            : g)
+        ? feeds.map((g, i) => i === idx ? upsertIntoGroup(g) : g)
         : [{ date, label: "新增了1个记忆", summary, cards: [card] }, ...feeds];
 
       return { ...prev, [targetSubjectId]: updated };
     });
 
-    setSubjects(prev => prev.map(s => {
-      if (s.id !== targetSubjectId) return s;
-      const now       = new Date();
-      const dateLabel = `${now.getMonth() + 1}月${now.getDate()}日 · 批注新增1个记忆`;
-      const updated   = {
-        ...s,
-        count:   s.count + 1,
-        entries: [dateLabel, ...s.entries].slice(0, 3),
-        extra:   `刚刚 · ${s.count + 1}个知识点`,
-      };
-      putSubject(updated).catch(() => {});
-      return updated;
-    }));
-
-    showToast("已保存到本地 ✓");
+    if (cardIsNew) {
+      setSubjects(prev => prev.map(s => {
+        if (s.id !== targetSubjectId) return s;
+        const now       = new Date();
+        const dateLabel = `${now.getMonth() + 1}月${now.getDate()}日 · 批注新增1个记忆`;
+        const updated   = {
+          ...s,
+          count:   s.count + 1,
+          entries: [dateLabel, ...s.entries].slice(0, 3),
+          extra:   `刚刚 · ${s.count + 1}个知识点`,
+        };
+        putSubject(updated).catch(() => {});
+        return updated;
+      }));
+      showToast("已保存到本地 ✓");
+    }
   }, [showToast]);
 
   const removeCardInternal = useCallback(async (
