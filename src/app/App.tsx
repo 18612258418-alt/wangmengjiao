@@ -14,6 +14,7 @@ import { extractHomeworkFromNote } from "../utils/homeworkExtract";
 import { cardsForSyllabusEntry } from "../utils/syllabusNotes";
 import { linkOrProposeExamPoints } from "../modules/exam-prep";
 import { useMemoryDB } from "../hooks/useMemoryDB";
+import { useAutoMergeDuplicates } from "../hooks/useAutoMergeDuplicates";
 import { buildDetailPagePrompt } from "../prompts";
 import { ApiConfigProvider } from "../context/ApiConfigContext";
 import { AnnotationModal } from "../features/annotation/AnnotationModal";
@@ -30,6 +31,10 @@ import {
   fakeStreamUnifiedDetail,
   getDemoDoubaoResult,
 } from "../features/camera/cameraAgent/demoCameraPipeline";
+import type { SourceAnchor } from "../types";
+import { recallSimilarMemories, findCardBySourceAnchor, type RecalledMemory } from "../utils/memoryRecall";
+import { cardDedupeKey } from "../utils/cardDedupe";
+import { findCardByDedupeKey } from "../utils/memoryMerge";
 import { ScreenshotModeModal } from "../features/screenshot/ScreenshotModeModal";
 import { VoiceModal } from "../features/voice/VoiceModal";
 import { isDemoTranscript } from "../features/voice/demoTranscript";
@@ -61,8 +66,17 @@ function pickMostRecentSubject(allFeedGroups: Record<string, FeedGroupType[]>): 
 export default function App() {
   const {
     allFeedGroups, subjects, isLoading: dbLoading,
-    toast, addCard, removeCard, updateCard, addSubject, updateSubject, moveCardToSubject, showToast,
+    toast, addCard, removeCard, removeCardSilent, restoreMergedCards,
+    updateCard, addSubject, updateSubject, moveCardToSubject, showToast,
   } = useMemoryDB();
+
+  useAutoMergeDuplicates({
+    allFeedGroups,
+    dbLoading,
+    removeCardSilent,
+    restoreMergedCards,
+    showToast,
+  });
 
   const [activeSubject, setActiveSubject] = useState<string>("__pending__");
   const [activeTopTab, setActiveTopTab] = useState<TopTabId>("notes");
@@ -137,6 +151,10 @@ export default function App() {
     setDrawerCardSubject(subjectId ?? activeSubject);
   };
 
+  const handleOpenRecalledCard = (item: RecalledMemory) => {
+    handleOpenCard(item.card, item.date, item.subjectId);
+  };
+
   /** 用户点击某个大纲条目：清除该条目下所有笔记的"新增未读"红点 */
   const handleOpenSyllabusEntry = (entryId: string) => {
     const unreadCards = cardsForSyllabusEntry(feedGroups, entryId).filter(({ card }) => card.unread);
@@ -149,7 +167,7 @@ export default function App() {
   const buildFallbackCardPayload = (aType: string) => {
     const targetSubjectId = FALLBACK_CLASSIFY[aType] ?? "other";
     const titles = FALLBACK_TITLES[aType] ?? FALLBACK_TITLES.notes;
-    const title = titles[Math.floor(Math.random() * titles.length)] ?? "记忆：学习内容整理";
+    const title = titles[0] ?? "记忆：学习内容整理";
     const details = FALLBACK_DETAILS[aType] ?? FALLBACK_DETAILS.notes;
     return {
       targetSubjectId,
@@ -182,11 +200,10 @@ export default function App() {
     contentType?: CardContentType,
     homeworkTasks?: string[],
     taskDueDate?: string,
+    sourceAnchor?: SourceAnchor,
   ) => {
     const now = new Date();
     const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
-    const todayKey = `${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2,"0")}${now.getDate().toString().padStart(2,"0")}`;
-    const newId = preassignedId ?? `new_${Date.now()}`;
 
     const surfaces = classifyCardSurfaces({
       contentType: contentType ?? "note",
@@ -195,13 +212,96 @@ export default function App() {
       nextAction,
     });
 
+    const upsertCardFields = {
+      img: capturedImg || (TYPE_BG[aType] ?? imgNotesBg),
+      overview,
+      detailIntro,
+      detailSections,
+      aiKeyPoints,
+      expandedKnowledge,
+      knowledgeTree,
+      nextAction,
+      skill: (skill as CardData["skill"]) ?? "theory_concept",
+      ...(skillRawSections ? { skillRawSections } : {}),
+      ...(unifiedDetail ? { unifiedDetail } : {}),
+      hasAnnotations,
+      ...(sourceAnchor ? { sourceAnchor } : {}),
+      time: timeStr,
+      unread: true as const,
+    };
+
+    const finishUpsert = (
+      card: CardData,
+      subjectId: string,
+      date: string,
+      toastMsg: string,
+    ) => {
+      updateCard(subjectId, date, card.id, {
+        title: newTitle,
+        ...upsertCardFields,
+        sourceAnchor: sourceAnchor
+          ? { ...card.sourceAnchor, ...sourceAnchor }
+          : card.sourceAnchor,
+      });
+      setNewCardId(card.id);
+      setTimeout(() => setNewCardId(null), 3500);
+      if (activeSubject !== "all") {
+        setActiveSubject(subjectId);
+      }
+      setSidebarLoading(false);
+      showToast(toastMsg);
+    };
+
+    if (sourceAnchor) {
+      const existing = findCardBySourceAnchor(allFeedGroups, sourceAnchor);
+      if (existing) {
+        finishUpsert(
+          existing.card,
+          existing.subjectId,
+          existing.date,
+          sourceAnchor.kind === "pdf" ? "已更新本页记忆" : "已更新相关记忆",
+        );
+        return;
+      }
+    }
+
+    const dedupePreview: CardData = {
+      id: preassignedId ?? "preview",
+      title: newTitle,
+      img: upsertCardFields.img,
+      source: TYPE_SOURCE[aType] ?? "evernote",
+      time: timeStr,
+      skill: upsertCardFields.skill,
+      contentType: surfaces.contentType,
+      overview,
+      detailIntro,
+      detailSections,
+      aiKeyPoints,
+      expandedKnowledge,
+      knowledgeTree,
+      nextAction,
+      hasAnnotations,
+      ...(sourceAnchor ? { sourceAnchor } : {}),
+    };
+    const dedupeKey = cardDedupeKey(dedupePreview);
+    if (dedupeKey) {
+      const existing = findCardByDedupeKey(allFeedGroups, dedupeKey);
+      if (existing) {
+        finishUpsert(existing.card, existing.subjectId, existing.date, "已更新相关记忆");
+        return;
+      }
+    }
+
+    const todayKey = `${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2,"0")}${now.getDate().toString().padStart(2,"0")}`;
+    const newId = preassignedId ?? `new_${Date.now()}`;
+
     const newCard: CardData = {
       id: newId,
       title: newTitle,
-      img: capturedImg || (TYPE_BG[aType] ?? imgNotesBg),
+      img: upsertCardFields.img,
       source: TYPE_SOURCE[aType] ?? "evernote",
       time: timeStr,
-      skill: (skill as CardData["skill"]) ?? "theory_concept",
+      skill: upsertCardFields.skill,
       contentType: surfaces.contentType,
       ...(surfaces.homeworkTasks?.length ? { homeworkTasks: surfaces.homeworkTasks } : {}),
       ...(surfaces.taskDueDate ? { taskDueDate: surfaces.taskDueDate } : {}),
@@ -209,6 +309,7 @@ export default function App() {
       hasAnnotations,
       ...(skillRawSections ? { skillRawSections } as Partial<CardData> : {}),
       ...(unifiedDetail ? { unifiedDetail } : {}),
+      ...(sourceAnchor ? { sourceAnchor } : {}),
     };
 
     setNewCardId(newId);
@@ -319,7 +420,7 @@ export default function App() {
     imageDataUrl: string,
     hasAnnotations: boolean,
     aType: string,
-    options?: { skipFly?: boolean },
+    options?: { skipFly?: boolean; sourceAnchor?: SourceAnchor },
   ) => {
     setSidebarLoading(true);
     if (!options?.skipFly) {
@@ -353,6 +454,7 @@ export default function App() {
               r.contentType,
               r.homeworkTasks,
               r.taskDueDate || undefined,
+              options?.sourceAnchor,
             );
             if (r.openTab === "homework") {
               setActiveTopTab("homework");
@@ -410,6 +512,9 @@ export default function App() {
             preassignedId,
             undefined,
             "note",
+            undefined,
+            undefined,
+            options?.sourceAnchor,
           );
           setSidebarLoading(false);
           if (!options?.skipFly) {
@@ -425,7 +530,7 @@ export default function App() {
   /** 演示相机：假 Doubao + 假流式详情，流程与 processImage 一致 */
   const processDemoCameraImage = (
     imageDataUrl: string,
-    options?: { skipFly?: boolean },
+    options?: { skipFly?: boolean; sourceAnchor?: SourceAnchor },
   ) => {
     setSidebarLoading(true);
     if (!options?.skipFly) {
@@ -463,6 +568,9 @@ export default function App() {
           preassignedId,
           unifiedDetail,
           r.contentType,
+          undefined,
+          undefined,
+          { kind: "camera", fileId: "demo_calculus_limit_board" },
         );
         setActiveTopTab("notes");
         setSidebarLoading(false);
@@ -938,11 +1046,28 @@ export default function App() {
         )}
 
         <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] pointer-events-none transition-all duration-300"
-          style={{ opacity: toast ? 1 : 0, transform: `translateX(-50%) translateY(${toast ? "0px" : "12px"})` }}
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] transition-all duration-300"
+          style={{
+            opacity: toast ? 1 : 0,
+            transform: `translateX(-50%) translateY(${toast ? "0px" : "12px"})`,
+            pointerEvents: toast ? "auto" : "none",
+          }}
         >
-          <div className="bg-[#1C1C1E] text-white text-[13px] px-4 py-2.5 rounded-2xl shadow-lg" style={{ fontWeight: 500 }}>
-            {toast}
+          <div
+            className="bg-[#1C1C1E] text-white text-[13px] px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-3"
+            style={{ fontWeight: 500 }}
+          >
+            <span>{toast?.message}</span>
+            {toast?.actionLabel && toast.onAction && (
+              <button
+                type="button"
+                onClick={() => toast.onAction?.()}
+                className="text-[#618AFF] text-[13px] flex-shrink-0 hover:underline"
+                style={{ fontWeight: 600 }}
+              >
+                {toast.actionLabel}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -979,9 +1104,15 @@ export default function App() {
       {pdfReaderFile && (
         <PdfReaderModal
           file={pdfReaderFile}
+          allFeedGroups={allFeedGroups}
+          activeSubject={activeSubject}
+          onOpenRecalledCard={handleOpenRecalledCard}
           onClose={() => setPdfReaderFile(null)}
-          onSavePage={(imageDataUrl, hasAnnotations) => {
-            processImage(imageDataUrl, hasAnnotations, "notes", { skipFly: true });
+          onSavePage={(imageDataUrl, hasAnnotations, meta) => {
+            processImage(imageDataUrl, hasAnnotations, "notes", {
+              skipFly: true,
+              sourceAnchor: meta?.sourceAnchor,
+            });
           }}
         />
       )}
@@ -990,6 +1121,9 @@ export default function App() {
         isCameraAgentEnabled ? (
           <CameraAgentModal
             onClose={() => setShowCamera(false)}
+            allFeedGroups={allFeedGroups}
+            activeSubject={activeSubject}
+            onOpenRecalledCard={handleOpenRecalledCard}
             onSave={(imageDataUrl, meta) => {
               if (meta?.demo) {
                 if (meta.flyOnly) {

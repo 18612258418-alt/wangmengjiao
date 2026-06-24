@@ -11,6 +11,7 @@ import {
   syllabusEntryHasCards,
   syllabusEntryHasUnread,
 } from "../../utils/syllabusNotes";
+import { dedupeCardsBySourceAnchor } from "../../utils/memoryRecall";
 import { MemoryCard } from "./MemoryCard";
 
 function firstTopicWithCards(
@@ -43,7 +44,10 @@ export function SyllabusNotesView({
     () => syllabus?.nodes.filter(n => n.kind === "topic").map(n => n.id) ?? [],
     [syllabus],
   );
-  const recentCount = useMemo(() => collectUnmappedNoteCards(feedGroups).length, [feedGroups]);
+  const recentCount = useMemo(
+    () => dedupeCardsBySourceAnchor(collectUnmappedNoteCards(feedGroups)).length,
+    [feedGroups],
+  );
   const litCount = useMemo(
     () => countSyllabusEntriesWithCards(feedGroups, topicIds) + (recentCount > 0 ? 1 : 0),
     [feedGroups, topicIds, recentCount],
@@ -65,7 +69,9 @@ export function SyllabusNotesView({
   }, [subject.id, syllabus, feedGroups, recentCount]);
 
   const selectedCards = useMemo(
-    () => (selectedEntryId ? cardsForSyllabusEntry(feedGroups, selectedEntryId) : []),
+    () => dedupeCardsBySourceAnchor(
+      selectedEntryId ? cardsForSyllabusEntry(feedGroups, selectedEntryId) : [],
+    ),
     [feedGroups, selectedEntryId],
   );
 

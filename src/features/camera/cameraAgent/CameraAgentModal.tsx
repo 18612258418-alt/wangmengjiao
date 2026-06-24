@@ -18,6 +18,7 @@ import {
 } from "./demoCamera";
 import {
   fakeDetectQuadAtProgress,
+  getDemoDoubaoResult,
   runFakeCapturePipeline,
   type DemoProcessStep,
 } from "./demoCameraPipeline";
@@ -25,10 +26,16 @@ import { DemoProcessingOverlay } from "./DemoProcessingOverlay";
 import { DetectLock, smoothQuad } from "./detectLock";
 import { DetectionOverlay } from "./DetectionOverlay";
 import type { AgentPhase, AgentSaveMeta } from "./config";
+import type { FeedGroup } from "../../../types";
+import { MemoryRecallBanner } from "../../memory/MemoryRecallBanner";
+import { recallSimilarMemories, RECALL_WEAK_SCORE, type RecalledMemory } from "../../../utils/memoryRecall";
 
 interface Props {
   onClose: () => void;
   onSave: (imageDataUrl: string, meta?: AgentSaveMeta) => void;
+  allFeedGroups: Record<string, FeedGroup[]>;
+  activeSubject: string;
+  onOpenRecalledCard?: (item: RecalledMemory) => void;
 }
 
 const ANALYZE_MS = 450;
@@ -157,7 +164,13 @@ function InputCaptureFallback({
   );
 }
 
-export function CameraAgentModal({ onClose, onSave }: Props) {
+export function CameraAgentModal({
+  onClose,
+  onSave,
+  allFeedGroups,
+  activeSubject,
+  onOpenRecalledCard,
+}: Props) {
   const [phase, setPhase] = useState<AgentPhase>("preview");
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [camError, setCamError] = useState(false);
@@ -171,6 +184,7 @@ export function CameraAgentModal({ onClose, onSave }: Props) {
   const [videoSize, setVideoSize] = useState({ w: 0, h: 0 });
   const [demoProcessStep, setDemoProcessStep] = useState<DemoProcessStep | null>(null);
   const [demoPreviewUrl, setDemoPreviewUrl] = useState<string | null>(null);
+  const [recalledMemories, setRecalledMemories] = useState<RecalledMemory[]>([]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -284,6 +298,22 @@ export function CameraAgentModal({ onClose, onSave }: Props) {
     setPhase("preview");
     setStatusText(COPY.saved);
 
+    const querySubject = activeSubject !== "all" && activeSubject !== "__pending__"
+      ? activeSubject
+      : undefined;
+    const queryText = demo
+      ? (() => {
+        const r = getDemoDoubaoResult(activeSubject);
+        return [r.title, r.overview, ...(r.aiKeyPoints ?? [])].join(" ");
+      })()
+      : "课堂 笔记 资料";
+    const recalled = recallSimilarMemories(allFeedGroups, {
+      queryText,
+      subjectId: querySubject,
+      limit: 3,
+    }).filter(m => m.score >= RECALL_WEAK_SCORE);
+    setRecalledMemories(recalled);
+
     if (demo) {
       // 首轮演示结束后保持取景，不再自动扫描/自动拍摄
       demoStartedRef.current = true;
@@ -296,7 +326,7 @@ export function CameraAgentModal({ onClose, onSave }: Props) {
     stableCountRef.current = 0;
     guideStableRef.current = 0;
     window.setTimeout(() => setStatusText(COPY.idle), 1200);
-  }, [onSave]);
+  }, [onSave, allFeedGroups, activeSubject]);
 
   const demoCaptureAndProcess = useCallback(async (auto: boolean) => {
     if (capturingRef.current) return;
@@ -306,6 +336,7 @@ export function CameraAgentModal({ onClose, onSave }: Props) {
 
     const video = videoRef.current;
     demoFlyStartedRef.current = false;
+    setRecalledMemories([]);
     try {
       const imageUrl = await runFakeCapturePipeline({
         video,
@@ -645,6 +676,15 @@ export function CameraAgentModal({ onClose, onSave }: Props) {
         {showGuide && <CameraOnboarding onDismiss={() => setShowGuide(false)} />}
         {busy && isCameraDemoMode && demoProcessStep && (
           <DemoProcessingOverlay step={demoProcessStep} />
+        )}
+        {!busy && recalledMemories.length > 0 && (
+          <div className="absolute inset-x-0 bottom-0 z-20">
+            <MemoryRecallBanner
+              items={recalledMemories}
+              onOpenCard={onOpenRecalledCard}
+              compact
+            />
+          </div>
         )}
         {busy && !isCameraDemoMode && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/55 z-20">

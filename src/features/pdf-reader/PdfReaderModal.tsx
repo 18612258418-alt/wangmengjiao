@@ -6,12 +6,28 @@ import { compressImageForApi } from "../../utils/api";
 import { isImageFile, openPdfDocument } from "../../utils/pdfjs";
 import { formatCircleRegionAnswer, DEMO_CIRCLE_RESULT, type CircleRegionResult } from "../../prompts/circleRegion";
 import { recordAnalysis, recordClarification, summarizeProfile } from "./userProfile";
+import type { FeedGroup, SourceAnchor } from "../../types";
+import {
+  RECALL_HIT_SCORE,
+  buildRecalledSections,
+  formatRecalledAnswer,
+  makePdfFileId,
+  recallForPdfPage,
+  type RecalledMemory,
+} from "../../utils/memoryRecall";
 
 interface Props {
   file: File;
   onClose: () => void;
+  allFeedGroups: Record<string, FeedGroup[]>;
+  activeSubject: string;
+  onOpenRecalledCard?: (item: RecalledMemory) => void;
   /** Called when a page with annotations is ready to be saved to memory pocket */
-  onSavePage: (imageDataUrl: string, hasAnnotations: boolean) => void;
+  onSavePage: (
+    imageDataUrl: string,
+    hasAnnotations: boolean,
+    meta?: { sourceAnchor?: SourceAnchor },
+  ) => void;
 }
 
 type Tool = "pen" | "eraser";
@@ -79,7 +95,15 @@ function strokeHit(stroke: Stroke, pos: Point, radius: number): boolean {
   return false;
 }
 
-export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
+export function PdfReaderModal({
+  file,
+  onClose,
+  onSavePage,
+  allFeedGroups,
+  activeSubject,
+  onOpenRecalledCard,
+}: Props) {
+  const pdfFileId = useRef(makePdfFileId(file.name, file.size));
   const [pdfTitle, setPdfTitle] = useState(() => pdfDisplayTitle(file));
   const [totalPages, setTotalPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
@@ -601,19 +625,26 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
       if (opts?.manual) showToast("页面渲染中，请稍后再试");
       return;
     }
-    onSavePage(composite, true);
+    onSavePage(composite, true, {
+      sourceAnchor: {
+        kind: "pdf",
+        fileId: pdfFileId.current,
+        fileName: pdfTitle,
+        page: pageNum,
+      },
+    });
     setPageState(pageNum, { saved: true, dirtySinceSave: false });
     if (pageNum === currentPageRef.current) {
       setPageDirty(false);
     }
     if (opts?.manual) {
       setSaveFlash(true);
-      showToast("已存入记忆");
+      showToast("已提交整理");
       setTimeout(() => setSaveFlash(false), 1200);
     } else if (autoSaveRef.current) {
-      showToast("已自动存入记忆");
+      showToast("已自动同步本页");
     }
-  }, [onSavePage, showToast]);
+  }, [onSavePage, showToast, pdfTitle]);
 
   // ─── Page navigation ─────────────────────────────────────────────────────────
   const cachePageUiState = useCallback((pageNum: number) => {
@@ -797,6 +828,33 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
     if (!data.needClarify && data.skill) recordAnalysis(data.skill);
   }, [updateEntries]);
 
+  const tryRecallForPage = useCallback((pageNum: number): RecalledMemory[] => {
+    return recallForPdfPage(allFeedGroups, {
+      fileId: pdfFileId.current,
+      fileName: pdfTitle,
+      pageNum,
+      subjectId: activeSubject,
+    });
+  }, [allFeedGroups, pdfTitle, activeSubject]);
+
+  const applyRecalledToEntry = useCallback((
+    pageNum: number,
+    entryId: string,
+    recalled: RecalledMemory[],
+  ) => {
+    updateEntries(pageNum, prev => prev.map(e => e.id === entryId
+      ? {
+        ...e,
+        status: "done" as const,
+        fromMemory: true,
+        recalledMemories: recalled,
+        sections: buildRecalledSections(recalled),
+        answer: formatRecalledAnswer(recalled),
+      }
+      : e
+    ));
+  }, [updateEntries]);
+
   const removeEntry = useCallback((pageNum: number, entryId: string) => {
     entryCropRef.current.delete(entryId);
     setAiEntries(prev => {
@@ -843,6 +901,14 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
     pushLoadingEntry(pageNum, entryId, "circle");
 
     try {
+      const recalled = tryRecallForPage(pageNum);
+      if (recalled.length > 0 && recalled[0].score >= RECALL_HIT_SCORE) {
+        await new Promise(r => setTimeout(r, 280));
+        applyRecalledToEntry(pageNum, entryId, recalled);
+        showToast("已从记忆调取，未重新调用 AI");
+        return;
+      }
+
       if (!(await waitForPageReady())) throw new Error("页面渲染中，请稍后再圈选");
       const regionImg = await cropRegionHiRes(bbox, { maskPoints: stroke.points });
       if (!regionImg) throw new Error("empty analysis");
@@ -867,7 +933,7 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
       }
       removeEntry(pageNum, entryId);
     }
-  }, [pushLoadingEntry, cropRegionHiRes, callCircleApi, applyResultToEntry, removeStrokes, removeEntry, showToast, waitForPageReady]);
+  }, [pushLoadingEntry, tryRecallForPage, applyRecalledToEntry, cropRegionHiRes, callCircleApi, applyResultToEntry, removeStrokes, removeEntry, showToast, waitForPageReady]);
 
   // ─── Ink marks (underline / question mark / handwriting) → AI ────────────────
   const analyzeInkMarks = useCallback(async () => {
@@ -917,6 +983,14 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
     pushLoadingEntry(pageNum, entryId, "ink");
 
     try {
+      const recalled = tryRecallForPage(pageNum);
+      if (recalled.length > 0 && recalled[0].score >= RECALL_HIT_SCORE) {
+        await new Promise(r => setTimeout(r, 280));
+        applyRecalledToEntry(pageNum, entryId, recalled);
+        showToast("已从记忆调取，未重新调用 AI");
+        return;
+      }
+
       const regionImg = await cropRegionHiRes(bbox, { overlayStrokes: strokes });
       if (!regionImg) throw new Error("empty analysis");
       const compressed = await compressImageForApi(regionImg);
@@ -931,7 +1005,7 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
       removeEntry(pageNum, entryId);
       showToast(circleFailureMessage(err));
     }
-  }, [pushLoadingEntry, cropRegionHiRes, callCircleApi, applyResultToEntry, removeEntry, showToast]);
+  }, [pushLoadingEntry, tryRecallForPage, applyRecalledToEntry, cropRegionHiRes, callCircleApi, applyResultToEntry, removeEntry, showToast]);
 
   const scheduleInkAnalysis = useCallback((pageNum: number, strokeId: string) => {
     if (pendingInkRef.current.page !== pageNum) {
@@ -1413,6 +1487,7 @@ export function PdfReaderModal({ file, onClose, onSavePage }: Props) {
             onClose={handleCloseAiPanel}
             onDeleteEntry={handleDeleteEntry}
             onClarifyReply={handleClarifyReply}
+            onOpenRecalledCard={onOpenRecalledCard}
           />
         )}
       </div>

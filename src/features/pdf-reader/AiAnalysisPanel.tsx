@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { X, Loader2, Trash2, Send, HelpCircle } from "lucide-react";
+import { X, Loader2, Trash2, Send, HelpCircle, Sparkles } from "lucide-react";
 import { MathText } from "./MathText";
+import type { RecalledMemory } from "../../utils/memoryRecall";
 
 export interface CircleSection {
   title: string;
@@ -21,6 +22,9 @@ export interface AiEntry {
   clarifyQuestion?: string;
   /** 画布上对应的圈选笔迹已被橡皮擦掉 */
   erased?: boolean;
+  /** 来自已有记忆召回，未调 AI */
+  fromMemory?: boolean;
+  recalledMemories?: RecalledMemory[];
 }
 
 const SKIP_SECTION = new Set([
@@ -90,9 +94,10 @@ interface Props {
   onClose: () => void;
   onDeleteEntry?: (entryId: string) => void;
   onClarifyReply?: (entryId: string, reply: string) => void;
+  onOpenRecalledCard?: (item: RecalledMemory) => void;
 }
 
-export function AiAnalysisPanel({ entries, onClose, onDeleteEntry, onClarifyReply }: Props) {
+export function AiAnalysisPanel({ entries, onClose, onDeleteEntry, onClarifyReply, onOpenRecalledCard }: Props) {
   const visibleEntries = entries.filter(e => e.status !== "error");
 
   return (
@@ -182,9 +187,29 @@ export function AiAnalysisPanel({ entries, onClose, onDeleteEntry, onClarifyRepl
                 {entry.status === "loading" && (
                   <div className="flex items-center gap-2 text-[13px] text-[#7B8291]">
                     <Loader2 size={13} className="animate-spin flex-shrink-0" />
-                    AI 正在分析...
+                    {entry.fromMemory ? "正在调取记忆…" : "AI 正在分析..."}
                   </div>
                 )}
+
+                {entry.fromMemory && entry.status === "done" && (entry.recalledMemories?.length ?? 0) > 0 && (
+                  <div className="mb-2 flex items-center gap-1.5 text-[11px] text-[#4D5CFF]" style={{ fontWeight: 600 }}>
+                    <Sparkles size={12} />
+                    来自你的记忆（未重新生成）
+                  </div>
+                )}
+
+                {entry.fromMemory && entry.status === "done" && entry.recalledMemories?.map(item => (
+                  <button
+                    key={`${item.subjectId}-${item.cardId}`}
+                    type="button"
+                    onClick={() => onOpenRecalledCard?.(item)}
+                    className="w-full text-left mb-2 rounded-xl bg-white border border-[#4D5CFF]/15 px-3 py-2 hover:border-[#4D5CFF]/35 transition-colors"
+                  >
+                    <p className="text-[12px] text-[#020418]" style={{ fontWeight: 600 }}>{item.title}</p>
+                    <p className="text-[11px] text-[#7B8291] mt-1 line-clamp-2">{item.summary}</p>
+                    <p className="text-[10px] text-[#4D5CFF] mt-1">{item.reason} · 点击查看</p>
+                  </button>
+                ))}
 
                 {entry.status === "done" && entry.clarifyQuestion && onClarifyReply && (
                   <ClarifyBox
@@ -193,7 +218,7 @@ export function AiAnalysisPanel({ entries, onClose, onDeleteEntry, onClarifyRepl
                   />
                 )}
 
-                {(entry.status === "streaming" || entry.status === "done") && !entry.clarifyQuestion && (
+                {(entry.status === "streaming" || entry.status === "done") && !entry.clarifyQuestion && !entry.fromMemory && (
                   <div className="space-y-3">
                     {showIntent && (
                       <div>

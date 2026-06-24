@@ -14,6 +14,17 @@ export type SkillType =
 /** 卡片内容类型 — 由豆包视觉模型自动判断 */
 export type CardContentType = "note" | "homework";
 
+/** 卡片来源锚点 —— 用于「识别后自动调取记忆」 */
+export type SourceKind = "pdf" | "camera" | "upload" | "annotation" | "screenshot";
+
+export interface SourceAnchor {
+  kind: SourceKind;
+  /** PDF 等文件的稳定 id（文件名+大小等） */
+  fileId?: string;
+  fileName?: string;
+  page?: number;
+}
+
 export interface CardData {
   id: string;
   title: string;
@@ -50,6 +61,8 @@ export interface CardData {
   unifiedDetail?: string;
   /** Optional dynamic interactive experience for this memory card */
   interactiveSpec?: InteractiveSpec;
+  /** 入库时的来源锚点，供同页/同文件记忆召回 */
+  sourceAnchor?: SourceAnchor;
 }
 
 export interface FeedGroup {
