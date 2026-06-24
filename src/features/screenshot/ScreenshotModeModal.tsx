@@ -327,8 +327,10 @@ function MockPage() {
 export function ScreenshotModeModal({ onClose, onSave }: Props) {
   const [capturing, setCapturing] = useState(false);
   const [showGuide, setShowGuide] = useState(true);
+  const [savedHint, setSavedHint] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const isRunning = useRef(false);
+  const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 用 ref 持有 triggerCapture，避免 useEffect touch 里拿到旧闭包
   const triggerRef = useRef<() => void>(() => undefined);
 
@@ -378,8 +380,17 @@ export function ScreenshotModeModal({ onClose, onSave }: Props) {
       isRunning.current = false;
     }
 
-    if (url) onSave(url);
+    if (url) {
+      onSave(url);
+      setSavedHint(true);
+      if (hintTimer.current) clearTimeout(hintTimer.current);
+      hintTimer.current = setTimeout(() => setSavedHint(false), 2200);
+    }
   }, [onSave]);
+
+  useEffect(() => () => {
+    if (hintTimer.current) clearTimeout(hintTimer.current);
+  }, []);
 
   // 始终用最新的 triggerCapture 更新 ref
   useEffect(() => { triggerRef.current = triggerCapture; }, [triggerCapture]);
@@ -482,6 +493,13 @@ export function ScreenshotModeModal({ onClose, onSave }: Props) {
         >
           <MockPage />
         </div>
+
+        {savedHint && (
+          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-full bg-[#1C1C1E]/90 text-white text-[12px] shadow-lg pointer-events-none"
+            style={{ fontWeight: 500 }}>
+            已存入记忆，可继续截图
+          </div>
+        )}
 
         {/* ── 底部静态提示 ── */}
         {!showGuide && !capturing && (

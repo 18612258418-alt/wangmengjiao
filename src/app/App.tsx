@@ -1183,7 +1183,6 @@ export default function App() {
         <ScreenshotModeModal
           onClose={() => setShowScreenshot(false)}
           onSave={(imageDataUrl) => {
-            setShowScreenshot(false);
             processImage(imageDataUrl, false, "notes", {
               sourceAnchor: DEMO_SCREENSHOT_ANCHOR,
               skipFly: true,
