@@ -196,6 +196,9 @@ export function anchorsEquivalent(a: SourceAnchor, b: SourceAnchor): boolean {
   if (a.kind === "camera") {
     return Boolean(a.fileId && b.fileId && a.fileId === b.fileId);
   }
+  if (a.kind === "screenshot" || a.kind === "upload" || a.kind === "annotation") {
+    return Boolean(a.fileId && b.fileId && a.fileId === b.fileId);
+  }
   return false;
 }
 

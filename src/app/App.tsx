@@ -36,6 +36,7 @@ import { recallSimilarMemories, findCardBySourceAnchor, type RecalledMemory } fr
 import { cardDedupeKey } from "../utils/cardDedupe";
 import { findCardByDedupeKey } from "../utils/memoryMerge";
 import { ScreenshotModeModal } from "../features/screenshot/ScreenshotModeModal";
+import { DEMO_SCREENSHOT_ANCHOR } from "../features/screenshot/constants";
 import { VoiceModal } from "../features/voice/VoiceModal";
 import { isDemoTranscript } from "../features/voice/demoTranscript";
 import { OnboardingScreen } from "../features/onboarding/OnboardingScreen";
@@ -70,9 +71,12 @@ export default function App() {
     updateCard, addSubject, updateSubject, moveCardToSubject, showToast,
   } = useMemoryDB();
 
+  const [mergeTick, setMergeTick] = useState(0);
+
   useAutoMergeDuplicates({
     allFeedGroups,
     dbLoading,
+    mergeTick,
     removeCardSilent,
     restoreMergedCards,
     showToast,
@@ -236,6 +240,7 @@ export default function App() {
       date: string,
       toastMsg: string,
     ) => {
+      const snapshot = structuredClone(card);
       updateCard(subjectId, date, card.id, {
         title: newTitle,
         ...upsertCardFields,
@@ -249,7 +254,30 @@ export default function App() {
         setActiveSubject(subjectId);
       }
       setSidebarLoading(false);
-      showToast(toastMsg);
+      showToast(toastMsg, {
+        actionLabel: "撤销",
+        durationMs: 8000,
+        onAction: () => {
+          updateCard(subjectId, date, card.id, {
+            title: snapshot.title,
+            img: snapshot.img,
+            overview: snapshot.overview,
+            detailIntro: snapshot.detailIntro,
+            detailSections: snapshot.detailSections,
+            aiKeyPoints: snapshot.aiKeyPoints,
+            expandedKnowledge: snapshot.expandedKnowledge,
+            knowledgeTree: snapshot.knowledgeTree,
+            nextAction: snapshot.nextAction,
+            skill: snapshot.skill,
+            unifiedDetail: snapshot.unifiedDetail,
+            hasAnnotations: snapshot.hasAnnotations,
+            sourceAnchor: snapshot.sourceAnchor,
+            time: snapshot.time,
+            unread: snapshot.unread,
+          });
+          showToast("已撤销合并");
+        },
+      });
     };
 
     if (sourceAnchor) {
@@ -259,7 +287,11 @@ export default function App() {
           existing.card,
           existing.subjectId,
           existing.date,
-          sourceAnchor.kind === "pdf" ? "已更新本页记忆" : "已更新相关记忆",
+          sourceAnchor.kind === "pdf"
+            ? "已更新本页记忆"
+            : sourceAnchor.kind === "screenshot"
+              ? "已合并重复记忆"
+              : "已合并重复记忆",
         );
         return;
       }
@@ -287,7 +319,7 @@ export default function App() {
     if (dedupeKey) {
       const existing = findCardByDedupeKey(allFeedGroups, dedupeKey);
       if (existing) {
-        finishUpsert(existing.card, existing.subjectId, existing.date, "已更新相关记忆");
+        finishUpsert(existing.card, existing.subjectId, existing.date, "已合并重复记忆");
         return;
       }
     }
@@ -317,6 +349,7 @@ export default function App() {
 
     const subjectShort = INITIAL_SUBJECTS.find(s => s.id === targetSubjectId)?.short ?? "社会科学";
     addCard({ targetSubjectId, card: newCard, date: todayKey, aiSummary, subjectShort });
+    setMergeTick(t => t + 1);
 
     // 后台静默：把新笔记自动归类到教学大纲条目，让它进入对应目录并打"新增"红点。
     // 失败/无把握时保持 syllabusEntryId 为空 → 仍留在「最近上传与批注」兜底。
@@ -1150,7 +1183,11 @@ export default function App() {
         <ScreenshotModeModal
           onClose={() => setShowScreenshot(false)}
           onSave={(imageDataUrl) => {
-            processImage(imageDataUrl, false, "notes");
+            setShowScreenshot(false);
+            processImage(imageDataUrl, false, "notes", {
+              sourceAnchor: DEMO_SCREENSHOT_ANCHOR,
+              skipFly: true,
+            });
           }}
         />
       )}

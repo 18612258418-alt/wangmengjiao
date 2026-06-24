@@ -11,6 +11,7 @@ import { iterateAllCards } from "../utils/memoryRecall";
 interface Options {
   allFeedGroups: Record<string, FeedGroup[]>;
   dbLoading: boolean;
+  mergeTick?: number;
   removeCardSilent: (subjectId: string, date: string, cardId: string) => Promise<void>;
   restoreMergedCards: (snapshots: MergeUndoSnapshot[]) => Promise<void>;
   showToast: (
@@ -32,6 +33,7 @@ function feedSignature(allFeedGroups: Record<string, FeedGroup[]>): string {
 export function useAutoMergeDuplicates({
   allFeedGroups,
   dbLoading,
+  mergeTick = 0,
   removeCardSilent,
   restoreMergedCards,
   showToast,
@@ -97,8 +99,8 @@ export function useAutoMergeDuplicates({
           runningRef.current = false;
         }
       })();
-    }, 1500);
+    }, mergeTick > 0 ? 400 : 1500);
 
     return () => window.clearTimeout(timer);
-  }, [signature, dbLoading]);
+  }, [signature, dbLoading, mergeTick]);
 }

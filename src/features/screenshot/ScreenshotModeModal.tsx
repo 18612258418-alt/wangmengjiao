@@ -326,9 +326,7 @@ function MockPage() {
 // ─── 主 Modal ─────────────────────────────────────────────────────────────────
 export function ScreenshotModeModal({ onClose, onSave }: Props) {
   const [capturing, setCapturing] = useState(false);
-  const [flash, setFlash] = useState(false);
   const [showGuide, setShowGuide] = useState(true);
-  const isCapturing = capturing || flash;
   const contentRef = useRef<HTMLDivElement>(null);
   const isRunning = useRef(false);
   // 用 ref 持有 triggerCapture，避免 useEffect touch 里拿到旧闭包
@@ -339,13 +337,8 @@ export function ScreenshotModeModal({ onClose, onSave }: Props) {
     if (!el || isRunning.current) return;
     isRunning.current = true;
     setShowGuide(false);
-
-    setFlash(true);
-    await new Promise(r => setTimeout(r, 80));
-    setFlash(false);
-    await new Promise(r => requestAnimationFrame(r));
-
     setCapturing(true);
+
     let url: string | null = null;
     const visW = el.clientWidth;
     const visH = el.clientHeight;
@@ -449,12 +442,6 @@ export function ScreenshotModeModal({ onClose, onSave }: Props) {
           from { opacity: 0; transform: scale(0.88) translateY(12px); }
           to   { opacity: 1; transform: scale(1)    translateY(0);    }
         }
-        [data-flash="1"] { animation: ssFlash 0.2s ease-out forwards; }
-        @keyframes ssFlash {
-          0%   { filter: brightness(1); }
-          30%  { filter: brightness(3); }
-          100% { filter: brightness(1); }
-        }
       `}</style>
 
       <div className="fixed inset-0 z-[600] flex flex-col bg-white">
@@ -475,12 +462,12 @@ export function ScreenshotModeModal({ onClose, onSave }: Props) {
           </div>
           <button
             onClick={triggerCapture}
-            disabled={isCapturing}
+            disabled={capturing}
             className="flex items-center gap-1.5 text-[11px] text-[#4D5CFF] px-2.5 py-1.5 rounded-lg bg-[#EEF0FF] hover:bg-[#DDE1FF] transition-colors disabled:opacity-40 select-none"
             style={{ fontWeight: 600 }}
           >
             {capturing && <Loader2 size={11} className="animate-spin" />}
-            截图
+            {capturing ? "截图中…" : "截图"}
             <kbd className="hidden sm:inline-flex text-[9px] px-1 py-0.5 rounded bg-white/70 border border-[#D0D5FF] text-[#9CA3AF] leading-none" style={{ fontFamily: "inherit" }}>
               ⌘S
             </kbd>
@@ -488,29 +475,16 @@ export function ScreenshotModeModal({ onClose, onSave }: Props) {
         </div>
 
         {/* ── 内容区（html2canvas 只会看这里，里面不放任何覆盖层） ── */}
-        <div ref={contentRef} className="flex-1 overflow-y-auto bg-white">
+        <div
+          ref={contentRef}
+          className="flex-1 overflow-y-auto bg-white transition-opacity duration-150"
+          style={{ opacity: capturing ? 0.92 : 1 }}
+        >
           <MockPage />
         </div>
 
-        {/* 白光闪烁 —— fixed，不在 contentRef 内 */}
-        {flash && (
-          <div className="fixed inset-0 z-[605] bg-white pointer-events-none"
-            style={{ animation: "ssFlash 0.22s ease-out forwards" }} />
-        )}
-
-        {/* 截图处理中 —— fixed，不在 contentRef 内 */}
-        {capturing && (
-          <div className="fixed inset-0 z-[605] flex items-center justify-center pointer-events-none"
-            style={{ background: "rgba(255,255,255,0.55)" }}>
-            <div className="flex flex-col items-center gap-2">
-              <Loader2 size={22} className="animate-spin text-[#4D5CFF]" />
-              <span className="text-[12px] text-[#7B8291]">正在截图…</span>
-            </div>
-          </div>
-        )}
-
         {/* ── 底部静态提示 ── */}
-        {!showGuide && !isCapturing && (
+        {!showGuide && !capturing && (
           <div className="flex items-center justify-center gap-2 px-4 py-3 bg-[#F5F6FA] border-t border-[#EAEDF2] flex-shrink-0">
             <div className="flex gap-0.5 items-center">
               {[0, 1, 2].map(i => (
@@ -523,7 +497,7 @@ export function ScreenshotModeModal({ onClose, onSave }: Props) {
         )}
 
         {/* ── 引导弹窗（fixed 居中，玻璃态） ── */}
-        {showGuide && !isCapturing && (
+        {showGuide && !capturing && (
           <GestureGuide onDismiss={() => setShowGuide(false)} />
         )}
 
