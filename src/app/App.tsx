@@ -1046,7 +1046,7 @@ export default function App() {
         )}
 
         <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] transition-all duration-300"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] transition-all duration-300"
           style={{
             opacity: toast ? 1 : 0,
             transform: `translateX(-50%) translateY(${toast ? "0px" : "12px"})`,

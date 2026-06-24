@@ -32,11 +32,12 @@ export function cardDedupeKey(card: CardData): string | null {
       : `${anchor.kind}:${anchor.fileId}`;
   }
 
-  const imgFp = imageFingerprint(card.img);
-  if (imgFp) return `img:${card.source}:${imgFp}`;
-
+  // 文案 intro 优先于图片指纹：避免同批注一次用 data URL、一次用静态封面导致无法合并
   const intro = (card.detailIntro || card.overview || "").trim().slice(0, 36);
   if (intro) return `intro:${card.source}:${intro}`;
+
+  const imgFp = imageFingerprint(card.img);
+  if (imgFp) return `img:${card.source}:${imgFp}`;
 
   return `title:${card.source}:${card.title.trim().slice(0, 48)}`;
 }

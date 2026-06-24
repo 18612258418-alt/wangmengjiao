@@ -39,54 +39,66 @@ export function useAutoMergeDuplicates({
   const mergedKeysRef = useRef(new Set<string>());
   const runningRef = useRef(false);
   const feedRef = useRef(allFeedGroups);
+  const showToastRef = useRef(showToast);
+  const restoreRef = useRef(restoreMergedCards);
+  const removeRef = useRef(removeCardSilent);
+
   feedRef.current = allFeedGroups;
+  showToastRef.current = showToast;
+  restoreRef.current = restoreMergedCards;
+  removeRef.current = removeCardSilent;
 
   const signature = useMemo(() => feedSignature(allFeedGroups), [allFeedGroups]);
 
   useEffect(() => {
     if (dbLoading) return;
 
-    const timer = window.setTimeout(async () => {
-      if (runningRef.current) return;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        if (runningRef.current) return;
 
-      const groups = findDuplicateGroups(feedRef.current).filter(
-        g => !mergedKeysRef.current.has(g.key),
-      );
-      if (groups.length === 0) return;
+        const groups = findDuplicateGroups(feedRef.current).filter(
+          g => !mergedKeysRef.current.has(g.key),
+        );
+        if (groups.length === 0) return;
 
-      runningRef.current = true;
-      const snapshots: MergeUndoSnapshot[] = [];
-      let removedCount = 0;
+        runningRef.current = true;
+        const snapshots: MergeUndoSnapshot[] = [];
+        let removedCount = 0;
 
-      try {
-        for (const group of groups) {
-          const { remove } = planMerge(group);
-          if (remove.length === 0) continue;
-          for (const ref of remove) {
-            await removeCardSilent(ref.subjectId, ref.date, ref.card.id);
-          }
-          snapshots.push(snapshotForUndo(group.key, remove));
-          mergedKeysRef.current.add(group.key);
-          removedCount += remove.length;
-        }
-
-        if (removedCount === 0) return;
-
-        showToast(`已自动合并 ${removedCount} 条重复记忆`, {
-          actionLabel: "撤销",
-          durationMs: 6000,
-          onAction: () => {
-            for (const snap of snapshots) {
-              mergedKeysRef.current.delete(snap.groupKey);
+        try {
+          for (const group of groups) {
+            const { remove } = planMerge(group);
+            if (remove.length === 0) continue;
+            for (const ref of remove) {
+              await removeRef.current(ref.subjectId, ref.date, ref.card.id);
             }
-            void restoreMergedCards(snapshots);
-          },
-        });
-      } finally {
-        runningRef.current = false;
-      }
-    }, 1200);
+            snapshots.push(snapshotForUndo(group.key, remove));
+            mergedKeysRef.current.add(group.key);
+            removedCount += remove.length;
+          }
+
+          if (removedCount === 0) return;
+
+          // 等 state 刷完再弹 Toast，避免被后续 render 盖掉
+          window.requestAnimationFrame(() => {
+            showToastRef.current(`已自动合并 ${removedCount} 条重复记忆`, {
+              actionLabel: "撤销",
+              durationMs: 8000,
+              onAction: () => {
+                for (const snap of snapshots) {
+                  mergedKeysRef.current.delete(snap.groupKey);
+                }
+                void restoreRef.current(snapshots);
+              },
+            });
+          });
+        } finally {
+          runningRef.current = false;
+        }
+      })();
+    }, 1500);
 
     return () => window.clearTimeout(timer);
-  }, [signature, dbLoading, removeCardSilent, restoreMergedCards, showToast]);
+  }, [signature, dbLoading]);
 }
