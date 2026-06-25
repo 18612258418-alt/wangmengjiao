@@ -68,11 +68,11 @@ export const COLORS = ["#EF4444", "#3B82F6", "#10B981", "#F59E0B", "#8B5CF6", "#
 
 /** 内置学科展示名（侧栏 short + 顶栏 name） */
 export const BUILTIN_SUBJECT_LABELS: Record<string, Pick<SubjectData, "name" | "short">> = {
-  physics: { name: "大学物理笔记", short: "大学物理" },
-  math: { name: "高等数学笔记", short: "高等数学" },
-  chemistry: { name: "大学化学笔记", short: "大学化学" },
-  english: { name: "大学英语笔记", short: "大学英语" },
-  other: { name: "社会科学笔记", short: "社会科学" },
+  physics: { name: "大学物理", short: "大学物理" },
+  math: { name: "高等数学", short: "高等数学" },
+  chemistry: { name: "大学化学", short: "大学化学" },
+  english: { name: "大学英语", short: "大学英语" },
+  other: { name: "社会科学", short: "社会科学" },
 };
 
 export const INITIAL_SUBJECTS: SubjectData[] = [

@@ -16,7 +16,7 @@ import type { MergeUndoSnapshot } from "../utils/memoryMerge";
 const CARD_META_PATCH_KEY = "card_meta_patch_v1";
 const CONTENT_TYPE_PATCH_KEY = "content_type_patch_v1";
 const CONTENT_TYPE_V2_KEY = "content_type_patch_v2";
-const SUBJECT_LABELS_PATCH_KEY = "subject_labels_univ_v1";
+const SUBJECT_LABELS_PATCH_KEY = "subject_labels_univ_v2";
 const SYLLABUS_ENTRY_PATCH_KEY = "syllabus_entry_patch_v1";
 
 // ─── Public interface ─────────────────────────────────────────────────────────

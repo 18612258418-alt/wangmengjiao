@@ -25,7 +25,7 @@ export function TopTabs({
             <button
               key={tab.id}
               onClick={() => onChangeTab(tab.id)}
-              className="px-5 py-1.5 rounded-xl text-[13px] transition-all duration-150"
+              className="px-5 py-1.5 rounded-[12px] text-[13px] transition-all duration-150"
               style={{
                 background: active ? "#4D5CFF" : "transparent",
                 color: active ? "#fff" : "#41464F",

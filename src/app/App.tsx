@@ -40,6 +40,8 @@ import { DEMO_SCREENSHOT_ANCHOR, DEMO_SCREENSHOT_CARD_ID, sourceAnchorKey } from
 import { VoiceModal } from "../features/voice/VoiceModal";
 import { isDemoTranscript } from "../features/voice/demoTranscript";
 import { OnboardingScreen } from "../features/onboarding/OnboardingScreen";
+import { FormFillModal } from "../features/form-fill/FormFillModal";
+import { PenContextProvider, PenSceneSync } from "../features/pen-context";
 import { HomeworkView } from "../features/feed/HomeworkView";
 import { ExamPrepView } from "../modules/exam-prep";
 import { filterNoteFeedGroups } from "../utils/feedFilters";
@@ -98,6 +100,7 @@ export default function App() {
     onUndo: () => void;
   } | null>(null);
   const [showVoice, setShowVoice] = useState(false);
+  const [showFormFill, setShowFormFill] = useState(false);
   const [onboardingMode, setOnboardingMode] = useState<"first" | "demo" | null>(
     () => localStorage.getItem("imemo_onboarded") ? null : "first",
   );
@@ -1011,7 +1014,7 @@ export default function App() {
     const id = `custom_${idBase || Date.now()}_${Date.now().toString(36)}`;
     addSubject({
       id,
-      name: `${name}笔记`,
+      name,
       short: name.slice(0, 6),
       count: 0,
       unit: "条记忆",
@@ -1034,6 +1037,13 @@ export default function App() {
 
   return (
     <ApiConfigProvider>
+      <PenContextProvider>
+      <PenSceneSync
+        annotationType={annotationType}
+        pdfReaderFile={pdfReaderFile}
+        showVoice={showVoice}
+        showFormFill={showFormFill}
+      />
       <div className="fixed inset-0 flex overflow-hidden bg-[#F5F6FA]">
         {dbLoading && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#F5F6FA]">
@@ -1062,10 +1072,11 @@ export default function App() {
               <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-2 flex-shrink-0">
                 <div className="min-w-0">
                   <EditableSubjectName
-                    name={subject?.name ?? ""}
-                    onRename={(next) => { if (subject) updateSubject({ ...subject, name: next }); }}
+                    name={subject?.short ?? ""}
+                    onRename={(next) => {
+                      if (subject) updateSubject({ ...subject, name: next, short: next.slice(0, 6) });
+                    }}
                   />
-                  <p className="text-[13px] text-[#7B8291] mt-1">{subject?.extra ?? ""}</p>
                 </div>
                 <AnnotationMenu
                   onOpenAnnotation={handleOpenAnnotation}
@@ -1221,6 +1232,7 @@ export default function App() {
           onOpenScreenshot={() => setShowScreenshot(true)}
           onOpenCamera={() => setShowCamera(true)}
           onOpenVoice={() => setShowVoice(true)}
+          onOpenFormFill={() => setShowFormFill(true)}
         />
       )}
 
@@ -1345,9 +1357,14 @@ export default function App() {
         />
       )}
 
+      {showFormFill && (
+        <FormFillModal onClose={() => setShowFormFill(false)} />
+      )}
+
       {/* FlyThumbnail 必须放在所有 Modal 之后才能浮在最顶层 */}
       <FlyThumbnail phase={flyPhase} imgSrc={flyImg} />
 
+      </PenContextProvider>
     </ApiConfigProvider>
   );
 }

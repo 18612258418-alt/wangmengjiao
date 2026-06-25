@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { X, ChevronLeft, ChevronRight, Save, Pen, Eraser } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Save } from "lucide-react";
 import { detectClosedShape, type Point } from "./circleDetect";
 import { AiAnalysisPanel, type AiEntry } from "./AiAnalysisPanel";
 import { compressImageForApi } from "../../utils/api";
@@ -15,6 +15,10 @@ import {
   recallForPdfPage,
   type RecalledMemory,
 } from "../../utils/memoryRecall";
+import { PenToolbar } from "../pen-context/PenToolbar";
+import { PenContextBanner } from "../pen-context/PenContextBanner";
+import { usePenContext } from "../pen-context/usePenContext";
+import type { PenToolKind } from "../pen-context/types";
 
 interface Props {
   file: File;
@@ -103,6 +107,7 @@ export function PdfReaderModal({
   activeSubject,
   onOpenRecalledCard,
 }: Props) {
+  const { activatePen } = usePenContext();
   const pdfFileId = useRef(makePdfFileId(file.name, file.size));
   const [pdfTitle, setPdfTitle] = useState(() => pdfDisplayTitle(file));
   const [totalPages, setTotalPages] = useState(0);
@@ -1137,6 +1142,7 @@ export function PdfReaderModal({
 
   // ─── Pen / touch handlers ────────────────────────────────────────────────────
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    activatePen();
     if (e.pointerType === "touch") {
       const pos = getCanvasPos(e);
       touchTrackRef.current = {
@@ -1335,33 +1341,12 @@ export function PdfReaderModal({
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* 笔 / 橡皮擦切换 */}
-          <div className="flex items-center gap-0.5 rounded-xl bg-[#F5F6FA] p-0.5">
-            <button
-              onClick={() => setTool("pen")}
-              title="触控笔书写 / 圈选"
-              className="w-8 h-8 flex items-center justify-center rounded-[10px] transition-colors"
-              style={{
-                background: tool === "pen" ? "#fff" : "transparent",
-                color: tool === "pen" ? "#4D5CFF" : "#7B8291",
-                boxShadow: tool === "pen" ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
-              }}
-            >
-              <Pen size={14} />
-            </button>
-            <button
-              onClick={() => setTool("eraser")}
-              title="橡皮擦：点击或划过笔迹即可擦除"
-              className="w-8 h-8 flex items-center justify-center rounded-[10px] transition-colors"
-              style={{
-                background: tool === "eraser" ? "#fff" : "transparent",
-                color: tool === "eraser" ? "#4D5CFF" : "#7B8291",
-                boxShadow: tool === "eraser" ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
-              }}
-            >
-              <Eraser size={14} />
-            </button>
-          </div>
+          <PenToolbar
+            layout="inline"
+            showMarker={false}
+            tool={tool === "eraser" ? "eraser" : "pencil"}
+            onToolChange={(t: PenToolKind) => setTool(t === "eraser" ? "eraser" : "pen")}
+          />
 
           <button
             type="button"
@@ -1407,6 +1392,10 @@ export function PdfReaderModal({
           )}
         </div>
       </div>
+
+      <PenContextBanner
+        className="flex justify-center px-4 py-2 flex-shrink-0 bg-[#F5F6FA]"
+      />
 
       {/* ── Body ── */}
       <div className="flex-1 flex overflow-hidden min-h-0">

@@ -66,7 +66,7 @@ export function SearchOverlay({
           if (searchable.includes(q)) matched.push({ card, date: group.date });
         }
       }
-      if (matched.length > 0) grouped.push({ subjectId: subject.id, subjectName: subject.name, cards: matched });
+      if (matched.length > 0) grouped.push({ subjectId: subject.id, subjectName: subject.short, cards: matched });
     }
     return grouped;
   }, [query, allFeedGroups, subjects]);

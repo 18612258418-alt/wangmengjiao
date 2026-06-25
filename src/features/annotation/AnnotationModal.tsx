@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from "react";
-import {
-  X, Check, Undo2, Redo2, Pencil, Highlighter, Eraser, MoreVertical,
-} from "lucide-react";
-import { COLORS, TYPE_BG, imgNotesBg } from "../../data/initialData";
-
-type PenType = "pencil" | "marker" | "eraser";
+import { X, MoreVertical } from "lucide-react";
+import { TYPE_BG, imgNotesBg } from "../../data/initialData";
+import { PenToolbar } from "../pen-context/PenToolbar";
+import { PenContextBanner } from "../pen-context/PenContextBanner";
+import { usePenContext } from "../pen-context/usePenContext";
+import type { PenToolKind } from "../pen-context/types";
 
 export function AnnotationModal({
   type,
@@ -15,12 +15,13 @@ export function AnnotationModal({
   onClose: () => void;
   onSave: (imageDataUrl: string, hasAnnotations: boolean) => void;
 }) {
+  const { activatePen } = usePenContext();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const bgImgRef = useRef<HTMLImageElement>(null);
   const [drawColor, setDrawColor] = useState("#EF4444");
   const [isDrawing, setIsDrawing] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
-  const [penType, setPenType] = useState<PenType>("pencil");
+  const [penType, setPenType] = useState<PenToolKind>("pencil");
   const [showPenPanel, setShowPenPanel] = useState(false);
 
   const lastPos = useRef<{ x: number; y: number } | null>(null);
@@ -28,7 +29,7 @@ export function AnnotationModal({
   const snapshots = useRef<string[]>([]);
   const snapIdx = useRef(-1);
 
-  const getLineWidth = (pt: PenType) =>
+  const getLineWidth = (pt: PenToolKind) =>
     pt === "marker" ? 9 : pt === "eraser" ? 26 : 2.5;
 
   const saveSnapshot = () => {
@@ -111,6 +112,7 @@ export function AnnotationModal({
     setIsDrawing(true);
     hasMoved.current = false;
     lastPos.current = getPos(e);
+    activatePen();
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -206,56 +208,25 @@ export function AnnotationModal({
         </div>
 
         <div
-          className={`${panelCls} pointer-events-auto px-3 gap-1 transition-all duration-300`}
+          className="pointer-events-auto transition-all duration-300"
           style={{
             opacity: showPenPanel ? 1 : 0,
             transform: showPenPanel ? "translateY(0)" : "translateY(-10px)",
             pointerEvents: showPenPanel ? "auto" : "none",
           }}
         >
-          <button onClick={undo} className={toolBtn(false)} title="撤销">
-            <Undo2 size={17} />
-          </button>
-          <button onClick={redo} className={toolBtn(false)} title="重做">
-            <Redo2 size={17} />
-          </button>
-
-          <div className="w-px h-6 bg-[#E9E9E9] mx-1 flex-shrink-0" />
-
-          <button onClick={() => setPenType("pencil")} className={toolBtn(penType === "pencil")} title="铅笔">
-            <Pencil size={17} />
-          </button>
-          <button onClick={() => setPenType("marker")} className={toolBtn(penType === "marker")} title="荧光笔">
-            <Highlighter size={17} />
-          </button>
-          <button onClick={() => setPenType("eraser")} className={toolBtn(penType === "eraser")} title="橡皮擦">
-            <Eraser size={17} />
-          </button>
-
-          <div className="w-px h-6 bg-[#E9E9E9] mx-1 flex-shrink-0" />
-
-          <div className="relative" onClick={e => e.stopPropagation()}>
-            <button
-              onClick={() => setShowColorPicker(v => !v)}
-              className="w-7 h-7 rounded-full border-2 border-white shadow-md transition-transform hover:scale-110 flex-shrink-0"
-              style={{ background: drawColor }}
-              title="颜色"
-            />
-            {showColorPicker && (
-              <div className="absolute top-10 left-1/2 -translate-x-1/2 bg-white rounded-2xl shadow-xl p-3 flex gap-2.5 z-20">
-                {COLORS.map(c => (
-                  <button
-                    key={c}
-                    onClick={() => { setDrawColor(c); setShowColorPicker(false); }}
-                    className="w-7 h-7 rounded-full transition-transform hover:scale-110 flex items-center justify-center"
-                    style={{ background: c }}
-                  >
-                    {drawColor === c && <Check size={12} className="text-white" />}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <PenToolbar
+            tool={penType}
+            onToolChange={setPenType}
+            drawColor={drawColor}
+            onColorChange={c => { setDrawColor(c); setShowColorPicker(false); }}
+            showColorPicker={showColorPicker}
+            onToggleColorPicker={() => setShowColorPicker(v => !v)}
+            showUndoRedo
+            onUndo={undo}
+            onRedo={redo}
+            visible={showPenPanel}
+          />
         </div>
 
         <div className={`${panelCls} pointer-events-auto px-3 gap-1`}>
@@ -274,18 +245,26 @@ export function AnnotationModal({
         </div>
       </div>
 
-      <div
-        className="absolute left-1/2 z-10 pointer-events-none transition-all duration-500"
-        style={{
-          top: "84px",
-          opacity: showPenPanel ? 0 : 1,
-          transform: showPenPanel ? "translate(-50%, -6px)" : "translate(-50%, 0)",
-        }}
-      >
-        <div className="bg-[rgba(10,12,30,0.72)] backdrop-blur-sm text-white text-[13px] px-5 py-3 rounded-2xl max-w-[560px] text-center leading-6 shadow-xl">
-          {guidanceText[type] ?? guidanceText.notes}
+      {showPenPanel ? (
+        <PenContextBanner
+          visible
+          className="absolute left-1/2 -translate-x-1/2 z-10"
+          style={{ top: "84px" }}
+        />
+      ) : (
+        <div
+          className="absolute left-1/2 z-10 pointer-events-none transition-all duration-500"
+          style={{
+            top: "84px",
+            opacity: 1,
+            transform: "translate(-50%, 0)",
+          }}
+        >
+          <div className="bg-[rgba(10,12,30,0.72)] backdrop-blur-sm text-white text-[13px] px-5 py-3 rounded-2xl max-w-[560px] text-center leading-6 shadow-xl -translate-x-1/2">
+            {guidanceText[type] ?? guidanceText.notes}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
