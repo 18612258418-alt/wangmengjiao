@@ -81,3 +81,23 @@ export function snapshotForUndo(
     })),
   };
 }
+
+/** 物理删除同 dedupe key 的其它卡片，只保留 keepCardId */
+export async function purgeDuplicatesExcept(
+  allFeedGroups: Record<string, FeedGroup[]>,
+  key: string,
+  keepCardId: string,
+  removeCardSilent: (subjectId: string, date: string, cardId: string) => Promise<void>,
+): Promise<number> {
+  const toRemove: CardRef[] = [];
+  iterateAllCards(allFeedGroups, (card, subjectId, date) => {
+    if (card.id === keepCardId) return;
+    if (cardDedupeKey(card) === key) {
+      toRemove.push({ card, subjectId, date });
+    }
+  });
+  for (const ref of toRemove) {
+    await removeCardSilent(ref.subjectId, ref.date, ref.card.id);
+  }
+  return toRemove.length;
+}

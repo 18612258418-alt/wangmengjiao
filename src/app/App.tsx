@@ -34,7 +34,7 @@ import {
 import type { SourceAnchor } from "../types";
 import { recallSimilarMemories, findCardBySourceAnchor, findCardById, iterateAllCards, type RecalledMemory } from "../utils/memoryRecall";
 import { cardDedupeKey } from "../utils/cardDedupe";
-import { findCardByDedupeKey } from "../utils/memoryMerge";
+import { findCardByDedupeKey, purgeDuplicatesExcept } from "../utils/memoryMerge";
 import { ScreenshotModeModal } from "../features/screenshot/ScreenshotModeModal";
 import { DEMO_SCREENSHOT_ANCHOR, DEMO_SCREENSHOT_CARD_ID, sourceAnchorKey } from "../features/screenshot/constants";
 import { VoiceModal } from "../features/voice/VoiceModal";
@@ -341,6 +341,18 @@ export default function App() {
           ? { ...card.sourceAnchor, ...sourceAnchor }
           : card.sourceAnchor,
       });
+      const mergedKey = cardDedupeKey({
+        ...card,
+        title: newTitle,
+        ...upsertCardFields,
+        sourceAnchor: sourceAnchor
+          ? { ...card.sourceAnchor, ...sourceAnchor }
+          : card.sourceAnchor,
+      });
+      if (mergedKey) {
+        void purgeDuplicatesExcept(allFeedGroupsRef.current, mergedKey, card.id, removeCardSilent)
+          .then(n => { if (n > 0) setMergeTick(t => t + 1); });
+      }
     };
 
     const isDemoScreenshot = sourceAnchor?.fileId === DEMO_SCREENSHOT_ANCHOR.fileId;
@@ -427,6 +439,11 @@ export default function App() {
     });
     if (isDemoScreenshot) {
       screenshotSaveCountRef.current = Math.max(1, screenshotSaveCountRef.current + 1);
+      const key = cardDedupeKey(newCard);
+      if (key) {
+        void purgeDuplicatesExcept(allFeedGroupsRef.current, key, newCard.id, removeCardSilent)
+          .then(n => { if (n > 0) setMergeTick(t => t + 1); });
+      }
     }
     setMergeTick(t => t + 1);
 
@@ -1264,6 +1281,7 @@ export default function App() {
       {showScreenshot && (
         <ScreenshotModeModal
           mergeNotice={screenshotMergeNotice}
+          onMergeNoticeDismiss={() => setScreenshotMergeNotice(null)}
           onClose={() => {
             setScreenshotMergeNotice(null);
             setShowScreenshot(false);
