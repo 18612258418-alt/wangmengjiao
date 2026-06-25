@@ -118,6 +118,7 @@ function renderCourseCanvas(w: number, h: number): string {
 interface Props {
   onClose: () => void;
   onSave: (imageDataUrl: string) => void;
+  mergeNotice?: { message: string; onUndo: () => void } | null;
 }
 
 // html2canvas 失败时的降级截图（纯 canvas 绘制可视区域色块）
@@ -324,7 +325,7 @@ function MockPage() {
 }
 
 // ─── 主 Modal ─────────────────────────────────────────────────────────────────
-export function ScreenshotModeModal({ onClose, onSave }: Props) {
+export function ScreenshotModeModal({ onClose, onSave, mergeNotice }: Props) {
   const [capturing, setCapturing] = useState(false);
   const [showGuide, setShowGuide] = useState(true);
   const [savedHint, setSavedHint] = useState(false);
@@ -494,10 +495,24 @@ export function ScreenshotModeModal({ onClose, onSave }: Props) {
           <MockPage />
         </div>
 
-        {savedHint && (
+        {savedHint && !mergeNotice && (
           <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-full bg-[#1C1C1E]/90 text-white text-[12px] shadow-lg pointer-events-none"
             style={{ fontWeight: 500 }}>
-            已提交保存 · 重复截图后请看屏幕底部
+            已提交保存，处理中…
+          </div>
+        )}
+
+        {mergeNotice && (
+          <div className="absolute bottom-16 left-4 right-4 z-20 flex items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-[#1C1C1E] text-white shadow-2xl">
+            <span className="text-[13px]" style={{ fontWeight: 500 }}>{mergeNotice.message}</span>
+            <button
+              type="button"
+              onClick={mergeNotice.onUndo}
+              className="text-[#618AFF] text-[13px] flex-shrink-0 hover:underline px-2 py-1"
+              style={{ fontWeight: 700 }}
+            >
+              撤销
+            </button>
           </div>
         )}
 

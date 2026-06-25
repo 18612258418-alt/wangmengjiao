@@ -93,6 +93,10 @@ export default function App() {
   const [pdfReaderFile, setPdfReaderFile] = useState<File | null>(null);
   const [showCamera, setShowCamera] = useState(false);
   const [showScreenshot, setShowScreenshot] = useState(false);
+  const [screenshotMergeNotice, setScreenshotMergeNotice] = useState<{
+    message: string;
+    onUndo: () => void;
+  } | null>(null);
   const [showVoice, setShowVoice] = useState(false);
   const [onboardingMode, setOnboardingMode] = useState<"first" | "demo" | null>(
     () => localStorage.getItem("imemo_onboarded") ? null : "first",
@@ -107,16 +111,19 @@ export default function App() {
   const didInitSubjectRef = useRef(false);
   const allFeedGroupsRef = useRef(allFeedGroups);
   const savedByAnchorRef = useRef(new Map<string, { subjectId: string; date: string; card: CardData }>());
+  const screenshotSaveCountRef = useRef(0);
   allFeedGroupsRef.current = allFeedGroups;
 
   useEffect(() => {
     if (dbLoading) return;
-    savedByAnchorRef.current.clear();
     iterateAllCards(allFeedGroups, (card, subjectId, date) => {
       if (card.sourceAnchor?.fileId) {
         savedByAnchorRef.current.set(sourceAnchorKey(card.sourceAnchor), { subjectId, date, card });
       }
     });
+    const demoHit = findCardById(allFeedGroups, DEMO_SCREENSHOT_CARD_ID)
+      ?? findCardBySourceAnchor(allFeedGroups, DEMO_SCREENSHOT_ANCHOR);
+    screenshotSaveCountRef.current = demoHit ? 1 : 0;
   }, [dbLoading, allFeedGroups]);
 
   const sortedSubjects = useMemo(() => {
@@ -296,29 +303,35 @@ export default function App() {
         setActiveSubject(subjectId);
       }
       setSidebarLoading(false);
+      const runUndo = () => {
+        updateCard(subjectId, date, card.id, {
+          title: snapshot.title,
+          img: snapshot.img,
+          overview: snapshot.overview,
+          detailIntro: snapshot.detailIntro,
+          detailSections: snapshot.detailSections,
+          aiKeyPoints: snapshot.aiKeyPoints,
+          expandedKnowledge: snapshot.expandedKnowledge,
+          knowledgeTree: snapshot.knowledgeTree,
+          nextAction: snapshot.nextAction,
+          skill: snapshot.skill,
+          unifiedDetail: snapshot.unifiedDetail,
+          hasAnnotations: snapshot.hasAnnotations,
+          sourceAnchor: snapshot.sourceAnchor,
+          time: snapshot.time,
+          unread: snapshot.unread,
+        });
+        rememberSavedCard(sourceAnchor, subjectId, date, snapshot);
+        setScreenshotMergeNotice(null);
+        showToast("已撤销合并");
+      };
+      if (sourceAnchor?.kind === "screenshot") {
+        setScreenshotMergeNotice({ message: toastMsg, onUndo: runUndo });
+      }
       showToast(toastMsg, {
         actionLabel: "撤销",
         durationMs: 8000,
-        onAction: () => {
-          updateCard(subjectId, date, card.id, {
-            title: snapshot.title,
-            img: snapshot.img,
-            overview: snapshot.overview,
-            detailIntro: snapshot.detailIntro,
-            detailSections: snapshot.detailSections,
-            aiKeyPoints: snapshot.aiKeyPoints,
-            expandedKnowledge: snapshot.expandedKnowledge,
-            knowledgeTree: snapshot.knowledgeTree,
-            nextAction: snapshot.nextAction,
-            skill: snapshot.skill,
-            unifiedDetail: snapshot.unifiedDetail,
-            hasAnnotations: snapshot.hasAnnotations,
-            sourceAnchor: snapshot.sourceAnchor,
-            time: snapshot.time,
-            unread: snapshot.unread,
-          });
-          showToast("已撤销合并");
-        },
+        onAction: runUndo,
       });
       rememberSavedCard(sourceAnchor, subjectId, date, {
         ...card,
@@ -329,6 +342,16 @@ export default function App() {
           : card.sourceAnchor,
       });
     };
+
+    const isDemoScreenshot = sourceAnchor?.fileId === DEMO_SCREENSHOT_ANCHOR.fileId;
+
+    if (isDemoScreenshot && screenshotSaveCountRef.current >= 1) {
+      const forced = lookupExistingCard(sourceAnchor, preassignedId ?? DEMO_SCREENSHOT_CARD_ID);
+      if (forced) {
+        finishUpsert(forced.card, forced.subjectId, forced.date, "已合并重复记忆");
+        return "updated";
+      }
+    }
 
     const existingHit = lookupExistingCard(sourceAnchor, preassignedId);
     if (existingHit) {
@@ -394,7 +417,17 @@ export default function App() {
 
     const subjectShort = INITIAL_SUBJECTS.find(s => s.id === targetSubjectId)?.short ?? "社会科学";
     rememberSavedCard(sourceAnchor, targetSubjectId, todayKey, newCard);
-    addCard({ targetSubjectId, card: newCard, date: todayKey, aiSummary, subjectShort });
+    addCard({
+      targetSubjectId,
+      card: newCard,
+      date: todayKey,
+      aiSummary,
+      subjectShort,
+      silent: isDemoScreenshot,
+    });
+    if (isDemoScreenshot) {
+      screenshotSaveCountRef.current = Math.max(1, screenshotSaveCountRef.current + 1);
+    }
     setMergeTick(t => t + 1);
 
     // 后台静默：把新笔记自动归类到教学大纲条目，让它进入对应目录并打"新增"红点。
@@ -1230,7 +1263,11 @@ export default function App() {
 
       {showScreenshot && (
         <ScreenshotModeModal
-          onClose={() => setShowScreenshot(false)}
+          mergeNotice={screenshotMergeNotice}
+          onClose={() => {
+            setScreenshotMergeNotice(null);
+            setShowScreenshot(false);
+          }}
           onSave={(imageDataUrl) => {
             processImage(imageDataUrl, false, "notes", {
               sourceAnchor: DEMO_SCREENSHOT_ANCHOR,

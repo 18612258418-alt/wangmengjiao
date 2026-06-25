@@ -56,6 +56,7 @@ export interface AddCardParams {
   date: string;          // YYYYMMDD
   aiSummary: string;
   subjectShort: string;
+  silent?: boolean;
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -188,37 +189,16 @@ export function useMemoryDB(): MemoryDBHook {
   // ─── Add card ──────────────────────────────────────────────────────────────
 
   const addCard = useCallback(async ({
-    targetSubjectId, card, date, aiSummary, subjectShort,
+    targetSubjectId, card, date, aiSummary, subjectShort, silent = false,
   }: AddCardParams) => {
     const fgKey = `${targetSubjectId}_${date}`;
+    const summary = aiSummary || `AI分析完成！本次批注归类至${subjectShort}笔记，新增1个知识点。建议结合已有笔记复习。`;
 
-    // Persist card + feedGroup meta concurrently
-    try {
-      const existingFGs = await getAllFeedGroups();
-      const existingFG  = existingFGs.find(fg => fg.id === fgKey);
-
-      await Promise.all([
-        putCard({ ...card, subjectId: targetSubjectId, date }),
-        putFeedGroup({
-          id:        fgKey,
-          subjectId: targetSubjectId,
-          date,
-          label:     existingFG
-            ? `新增了${(existingFG.label.match(/\d+/) ? Number(existingFG.label.match(/\d+/)![0]) : 0) + 1}个记忆`
-            : "新增了1个记忆",
-          summary:   aiSummary || `AI分析完成！本次批注归类至${subjectShort}笔记，新增1个知识点。建议结合已有笔记复习。`,
-        }),
-      ]);
-    } catch (err) {
-      console.error("[useMemoryDB] addCard persist failed", err);
-    }
-
-    // Update in-memory state
+    // 先更新内存，避免异步 persist 期间重复落卡；Toast 也立即弹出，不被后续合并 Toast 覆盖
     let cardIsNew = true;
     setAllFeedGroups(prev => {
       const feeds = prev[targetSubjectId] ?? [];
       const idx   = feeds.findIndex(g => g.date === date);
-      const summary = aiSummary || `AI分析完成！本次批注归类至${subjectShort}笔记，新增1个知识点。建议结合已有笔记复习。`;
       cardIsNew = !Object.values(prev).some(groups =>
         groups?.some(g => g.cards.some(c => c.id === card.id)),
       );
@@ -255,8 +235,31 @@ export function useMemoryDB(): MemoryDBHook {
         putSubject(updated).catch(() => {});
         return updated;
       }));
-      showToast("已保存到本地 ✓");
+      if (!silent) {
+        showToast("已保存到本地 ✓");
+      }
     }
+
+    void (async () => {
+      try {
+        const existingFGs = await getAllFeedGroups();
+        const existingFG  = existingFGs.find(fg => fg.id === fgKey);
+        await Promise.all([
+          putCard({ ...card, subjectId: targetSubjectId, date }),
+          putFeedGroup({
+            id:        fgKey,
+            subjectId: targetSubjectId,
+            date,
+            label:     existingFG
+              ? `新增了${(existingFG.label.match(/\d+/) ? Number(existingFG.label.match(/\d+/)![0]) : 0) + 1}个记忆`
+              : "新增了1个记忆",
+            summary,
+          }),
+        ]);
+      } catch (err) {
+        console.error("[useMemoryDB] addCard persist failed", err);
+      }
+    })();
   }, [showToast]);
 
   const removeCardInternal = useCallback(async (
