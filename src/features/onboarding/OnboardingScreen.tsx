@@ -197,7 +197,7 @@ function PenIntroCard({
         className="block w-full text-center py-3 rounded-2xl bg-[#4D5CFF] text-white text-[14px] cursor-pointer mb-2"
         style={{ fontWeight: 600 }}
       >
-        上传 PDF 开始圈注
+        上传 PDF 用笔
         <input
           id="intro-pdf-input"
           type="file"
@@ -352,11 +352,8 @@ export function OnboardingScreen({
           />
         ) : (
           <div style={{ textAlign: "center", padding: "0 24px" }}>
-            <p style={{ color: "rgba(255,255,255,0.82)", fontSize: "clamp(15px, 2.2vw, 20px)", fontWeight: 400, lineHeight: 1.7, letterSpacing: 0.3 }}>
-              揭笔即感知——尝试各场景下触发 AI 记忆的交互方式
-            </p>
-            <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, marginTop: 10 }}>
-              推荐从「圈注」上传 PDF，画一圈即可生成记忆卡
+            <p style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, fontWeight: 400, lineHeight: 1.6, letterSpacing: 0.2 }}>
+              尝试各场景下触发 AI 记忆的交互方式
             </p>
           </div>
         )}
@@ -396,7 +393,7 @@ export function OnboardingScreen({
                 <Pen size={26} color="#fff" />
               </div>
               <span style={{ color: "rgba(255,255,255,0.82)", fontSize: 12, fontWeight: 500, letterSpacing: 0.1 }}>
-                圈注
+                笔
               </span>
               <input
                 id="onboarding-pdf-input"
