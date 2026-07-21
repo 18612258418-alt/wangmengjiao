@@ -181,6 +181,14 @@ export function PaperView({
           </div>
         </section>
 
+        <section className="rounded-2xl border border-[#DDE1FF] bg-gradient-to-r from-[#F7F8FF] to-white p-5">
+          <div className="flex items-center gap-2"><Lightbulb size={17} className="text-[#4D5CFF]"/><h3 className="text-[15px] font-bold text-[#020418]">问题演化与关键判断</h3><span className="ml-auto text-[10px] text-[#8A909C]">AI 根据阅读、讨论和修改记录整理</span></div>
+          <div className="mt-4 grid grid-cols-3 gap-3">
+            {[["最初问题","短视频使用是否会直接导致冲动消费？","9 月 3 日 · 课堂观察"],["理解变化","仅看使用时长解释不足，引入沉浸式使用与社会比较。","9 月 14 日 · 2 篇文献"],["当前问题","社会比较是否发挥中介作用，自我控制是否构成边界条件？","9 月 22 日 · 导师讨论"]].map((x,i)=><div key={x[0]} className={`rounded-xl border p-4 ${i===2?"border-[#BEC5FF] bg-white":"border-[#EAEDF2] bg-white/70"}`}><small className="font-semibold text-[#4D5CFF]">{x[0]}</small><p className="mt-2 text-[12px] leading-5 text-[#41464F]">{x[1]}</p><p className="mt-3 text-[10px] text-[#9CA3AF]">{x[2]}</p></div>)}
+          </div>
+          <div className="mt-3 flex items-center rounded-xl bg-white p-4"><div className="min-w-0 flex-1"><b className="text-[12px]">关键判断：暂将社会比较设为中介变量</b><p className="mt-1 text-[11px] text-[#7B8291]">支持：3 条知识、2 份原文　·　保留异议：作用可能只在低自尊群体中成立</p></div><LinkedNoteButton note={noteAt(1)} onOpenNote={onOpenNote}/></div>
+        </section>
+
         <div>
           <div className="space-y-4">
             <section className="rounded-2xl border border-[#EAEDF2] bg-white p-5">

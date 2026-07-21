@@ -49,7 +49,9 @@ import { filterNoteFeedGroups } from "../utils/feedFilters";
 import { EditableSubjectName } from "../features/feed/EditableSubjectName";
 import { RightDrawer } from "../features/drawer/RightDrawer";
 import { SearchOverlay } from "../features/search/SearchOverlay";
-import { Sidebar } from "../features/sidebar/Sidebar";
+import { Sidebar, type WorkspaceId } from "../features/sidebar/Sidebar";
+import { GoalsView, KnowledgeView, TodayView } from "../features/workspace/WorkspaceViews";
+import { ResearchHome, ResearchWorkspace } from "../features/workspace/ResearchWorkspace";
 import { AddSourceModal, type SourceDraft, isAudioFile } from "../features/source/AddSourceModal";
 import { FlyThumbnail } from "../shared/FlyThumbnail";
 
@@ -86,6 +88,9 @@ export default function App() {
   });
 
   const [activeSubject, setActiveSubject] = useState<string>("__pending__");
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceId>("today");
+  const [researchDetailOpen, setResearchDetailOpen] = useState(false);
+  const [memorySuggestedTask, setMemorySuggestedTask] = useState<string | null>(null);
   const [activeTopTab, setActiveTopTab] = useState<TopTabId>("notes");
   const [annotationType, setAnnotationType] = useState<string | null>(null);
   const [drawerCard, setDrawerCard] = useState<CardData | null>(null);
@@ -154,6 +159,7 @@ export default function App() {
     const tab = params.get("tab");
     if (tab === "notes" || tab === "homework" || tab === "exam" || tab === "paper") {
       setActiveTopTab(tab);
+      setActiveWorkspace(tab === "paper" ? "project" : "course");
     }
     const subject = params.get("subject");
     if (subject && subjects.some(s => s.id === subject)) {
@@ -1057,21 +1063,48 @@ export default function App() {
         )}
 
         <Sidebar
+          activeWorkspace={activeWorkspace}
           activeSubject={activeSubject}
+          onSelectWorkspace={(id) => {
+            setActiveWorkspace(id);
+            if (id === "course") setActiveTopTab("notes");
+            if (id === "project") setResearchDetailOpen(false);
+          }}
           onSelectSubject={(id) => {
             didInitSubjectRef.current = true;
             setActiveSubject(id);
-            if (id !== "other" && activeTopTab === "paper") setActiveTopTab("notes");
+            setActiveWorkspace("course");
+            setActiveTopTab("notes");
           }}
           isLoading={sidebarLoading}
           subjects={sortedSubjects}
           onOpenSearch={() => setShowSearch(true)}
           onUploadFile={() => setShowAddSource(true)}
-          onCreateSubject={() => setShowCreateSubject(true)}
         />
 
         <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#F5F6FA]">
-          {subject ? (
+          {activeWorkspace === "today" && (
+            <TodayView
+              onCourse={() => { setActiveWorkspace("course"); setActiveTopTab("homework"); }}
+              onProject={() => { setActiveWorkspace("project"); setResearchDetailOpen(true); }}
+              onGoals={() => setActiveWorkspace("goals")}
+              memorySuggestion={memorySuggestedTask}
+            />
+          )}
+          {activeWorkspace === "knowledge" && <KnowledgeView />}
+          {activeWorkspace === "goals" && <GoalsView onAddToday={setMemorySuggestedTask} />}
+          {activeWorkspace === "project" && subject && (
+            researchDetailOpen ? <>
+              <div className="flex items-start justify-between gap-3 px-7 pt-6 pb-2 flex-shrink-0">
+                <div><button onClick={() => setResearchDetailOpen(false)} className="text-[11px] font-semibold text-[#4D5CFF]">← 返回研究列表</button><h1 className="mt-2 text-[23px] font-bold text-[#171A24]">短视频平台与大学生冲动消费研究</h1></div>
+                <AnnotationMenu onOpenAnnotation={handleOpenAnnotation} onOpenPdfReader={(file) => setPdfReaderFile(file)} onOpenCamera={() => setShowCamera(true)} onOpenScreenshot={() => setShowScreenshot(true)} onOpenVoice={() => setShowVoice(true)} onOpenDemo={() => setOnboardingMode("demo")} />
+              </div>
+              <ResearchWorkspace onAddSource={() => setShowAddSource(true)}>
+                <PaperView subject={subjects.find(s => s.id === "other") ?? subject} feedGroups={allFeedGroups.other ?? []} onOpenNote={(card,date) => handleOpenCard(card,date,"other")} />
+              </ResearchWorkspace>
+            </> : <ResearchHome onOpen={() => setResearchDetailOpen(true)} />
+          )}
+          {activeWorkspace === "course" && subject ? (
             <>
               {/* 学科头部 */}
               <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-2 flex-shrink-0">
@@ -1096,7 +1129,6 @@ export default function App() {
               <TopTabs
                 activeTab={activeTopTab}
                 onChangeTab={setActiveTopTab}
-                showPaperTab={activeSubject === "other"}
               />
 
               {activeTopTab === "notes" && (
@@ -1129,13 +1161,6 @@ export default function App() {
                 />
               )}
 
-              {activeTopTab === "paper" && activeSubject === "other" && (
-                <PaperView
-                  subject={subject}
-                  feedGroups={feedGroups}
-                  onOpenNote={handleOpenCard}
-                />
-              )}
             </>
           ) : null}
         </main>
