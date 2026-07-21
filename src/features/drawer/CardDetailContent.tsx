@@ -15,6 +15,7 @@ import {
 } from "../../utils/cardDetailParsing";
 import { parseSections } from "../../utils/parseSections";
 import { OriginalImageOverlay, ViewOriginalImageButton } from "../../shared/OriginalImageViewer";
+import { OriginalSourceOverlay, ViewOriginalSourceButton } from "../../shared/OriginalSourceViewer";
 
 type InteractivePhase = "idle" | "planning" | "coding" | "ready" | "skipped" | "failed";
 
@@ -37,6 +38,7 @@ export function CardDetailContent({
   const [interactivePhase, setInteractivePhase] = useState<InteractivePhase>("idle");
   const [interactiveError, setInteractiveError] = useState<string>("");
   const [showOriginalImage, setShowOriginalImage] = useState(false);
+  const [showOriginalSource, setShowOriginalSource] = useState(false);
 
   const pushConcept = (keyword: string) =>
     setConceptStack(prev => [...prev, { keyword, cardTitle: card.title }]);
@@ -107,6 +109,7 @@ export function CardDetailContent({
     setLocalUnifiedContent("");
     setLocalInteractiveSpec(null);
     setShowOriginalImage(false);
+    setShowOriginalSource(false);
     setGeneratingUnified(false);
     setQuizRaw("");
     setQuizLoading(true);
@@ -189,7 +192,9 @@ export function CardDetailContent({
               );
             })}
           </div>
-          {card.img && (
+          {card.sourceDocument ? (
+            <ViewOriginalSourceButton onClick={() => setShowOriginalSource(true)} />
+          ) : card.img && (
             <ViewOriginalImageButton onClick={() => setShowOriginalImage(true)} />
           )}
         </div>
@@ -465,6 +470,14 @@ export function CardDetailContent({
           onClose={() => setShowOriginalImage(false)}
           src={card.img}
           alt={card.title}
+        />
+      )}
+
+      {card.sourceDocument && (
+        <OriginalSourceOverlay
+          open={showOriginalSource}
+          onClose={() => setShowOriginalSource(false)}
+          source={card.sourceDocument}
         />
       )}
 

@@ -25,6 +25,17 @@ export interface SourceAnchor {
   page?: number;
 }
 
+export interface SourceDocument {
+  type: "pdf" | "web";
+  title: string;
+  url?: string;
+  page?: number;
+  author?: string;
+  publishedAt?: string;
+  excerpt?: string;
+  paragraphs?: string[];
+}
+
 export interface CardData {
   id: string;
   title: string;
@@ -63,6 +74,8 @@ export interface CardData {
   interactiveSpec?: InteractiveSpec;
   /** 入库时的来源锚点，供同页/同文件记忆召回 */
   sourceAnchor?: SourceAnchor;
+  /** PDF 或网页来源信息，用于从笔记详情返回查看原文 */
+  sourceDocument?: SourceDocument;
 }
 
 export interface FeedGroup {

@@ -44,6 +44,7 @@ import { FormFillModal } from "../features/form-fill/FormFillModal";
 import { PenContextProvider, PenSceneSync } from "../features/pen-context";
 import { HomeworkView } from "../features/feed/HomeworkView";
 import { ExamPrepView } from "../modules/exam-prep";
+import { PaperView } from "../features/feed/PaperView";
 import { filterNoteFeedGroups } from "../utils/feedFilters";
 import { EditableSubjectName } from "../features/feed/EditableSubjectName";
 import { RightDrawer } from "../features/drawer/RightDrawer";
@@ -151,7 +152,7 @@ export default function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get("tab");
-    if (tab === "notes" || tab === "homework" || tab === "exam") {
+    if (tab === "notes" || tab === "homework" || tab === "exam" || tab === "paper") {
       setActiveTopTab(tab);
     }
     const subject = params.get("subject");
@@ -1057,7 +1058,11 @@ export default function App() {
 
         <Sidebar
           activeSubject={activeSubject}
-          onSelectSubject={(id) => { didInitSubjectRef.current = true; setActiveSubject(id); }}
+          onSelectSubject={(id) => {
+            didInitSubjectRef.current = true;
+            setActiveSubject(id);
+            if (id !== "other" && activeTopTab === "paper") setActiveTopTab("notes");
+          }}
           isLoading={sidebarLoading}
           subjects={sortedSubjects}
           onOpenSearch={() => setShowSearch(true)}
@@ -1091,6 +1096,7 @@ export default function App() {
               <TopTabs
                 activeTab={activeTopTab}
                 onChangeTab={setActiveTopTab}
+                showPaperTab={activeSubject === "other"}
               />
 
               {activeTopTab === "notes" && (
@@ -1120,6 +1126,14 @@ export default function App() {
                   feedGroups={examNoteFeedGroups}
                   onOpenNote={(card, date) => handleOpenCard(card as CardData, date)}
                   onAskLlm={(prompt) => callTextStreamed(prompt, { maxTokens: 4000 })}
+                />
+              )}
+
+              {activeTopTab === "paper" && activeSubject === "other" && (
+                <PaperView
+                  subject={subject}
+                  feedGroups={feedGroups}
+                  onOpenNote={handleOpenCard}
                 />
               )}
             </>
