@@ -49,7 +49,7 @@ export function Sidebar({
                 </radialGradient>
               </defs>
             </svg>
-            <span className="text-[17px] text-[#020418]" style={{ fontWeight: 600 }}>AI记忆</span>
+            <span className="text-[17px] text-[#020418]" style={{ fontWeight: 600 }}>Memo</span>
           </div>
 
           {/* Icon toolbar: upload + search */}
