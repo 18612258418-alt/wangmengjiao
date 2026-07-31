@@ -1,5 +1,6 @@
 import type { CardContentType, DetailSection, ExpandedKnowledge, KnowledgeNode } from "../types";
 import { classifyCardSurfaces } from "./cardSurfaces";
+import { parseJsonLoose } from "./json";
 
 export interface DeepSeekResult {
   subjectId: string;
@@ -19,18 +20,21 @@ export interface DeepSeekResult {
   nextAction?: string;
 }
 
-export function compressImageForApi(dataUrl: string): Promise<string> {
+export function compressImageForApi(
+  dataUrl: string,
+  options: { maxSide?: number; quality?: number } = {},
+): Promise<string> {
   return new Promise(resolve => {
     const img = new Image();
     img.onload = () => {
-      const MAX = 1280;
+      const MAX = options.maxSide ?? 1280;
       const scale = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
       const w = Math.round(img.naturalWidth * scale);
       const h = Math.round(img.naturalHeight * scale);
       const c = document.createElement("canvas");
       c.width = w; c.height = h;
       c.getContext("2d")!.drawImage(img, 0, 0, w, h);
-      resolve(c.toDataURL("image/jpeg", 0.72));
+      resolve(c.toDataURL("image/jpeg", options.quality ?? 0.72));
     };
     img.onerror = () => resolve(dataUrl);
     img.src = dataUrl;
@@ -158,7 +162,7 @@ export async function callDoubao(imageDataUrl: string, hasAnnotations?: boolean)
   const text: string = data.choices?.[0]?.message?.content ?? "";
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) throw new Error("No JSON in Doubao response");
-  const parsed = JSON.parse(match[0]);
+  const parsed = parseJsonLoose<Record<string, unknown>>(match[0]) as Record<string, any>;
 
   const validIds = ["physics", "math", "chemistry", "english", "other"];
   if (!validIds.includes(parsed.subjectId)) parsed.subjectId = "other";

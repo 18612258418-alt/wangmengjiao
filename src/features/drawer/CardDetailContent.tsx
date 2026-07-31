@@ -1,466 +1,339 @@
-import { useState, useEffect, Fragment } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { ChevronRight, FileText } from "lucide-react";
 import type { CardData, InteractiveSpec } from "../../types";
-import { streamText } from "../../utils/api";
-import { buildCardQuizPrompt, buildDetailPagePrompt } from "../../prompts";
-import { ConceptPage, InteractiveQuiz } from "../../components/ConceptPage";
-import { DynamicRenderer, ModuleBadge } from "../../shared/DynamicRenderer";
-import { MathContent, MathParagraph } from "../../shared/MathContent";
+import { OriginalImageOverlay } from "../../shared/OriginalImageViewer";
+import { OriginalSourceOverlay } from "../../shared/OriginalSourceViewer";
 import { KnowledgeTree } from "../../shared/KnowledgeTree";
 import { InteractiveBlock } from "../interactive/InteractiveBlock";
-import { DetailFeedbackBar } from "../../shared/DetailFeedbackBar";
 import { generateInteractionPlan, generateInteractiveCode } from "../../utils/interactiveGeneration";
-import {
-  getSkillMeta, parseSkillSections,
-  UNIFIED_SECTION_COLORS, UNIFIED_SECTION_DEFAULT,
-} from "../../utils/cardDetailParsing";
-import { parseSections } from "../../utils/parseSections";
-import { OriginalImageOverlay, ViewOriginalImageButton } from "../../shared/OriginalImageViewer";
-import { OriginalSourceOverlay, ViewOriginalSourceButton } from "../../shared/OriginalSourceViewer";
 
-type InteractivePhase = "idle" | "planning" | "coding" | "ready" | "skipped" | "failed";
+function interactionSuitable(card: CardData) {
+  if (card.sourceDocument) return false;
+  const explicit = card.learningContext?.capabilities?.interactive;
+  if (typeof explicit === "boolean") return explicit;
+  if (card.interactiveSpec) return true;
+  const text = [
+    card.title,
+    card.overview,
+    card.detailIntro,
+    ...(card.aiKeyPoints ?? []),
+  ].filter(Boolean).join(" ");
+  const dynamicSkill = card.skill === "math_problem" || card.skill === "experiment_lab" || card.skill === "code_cs";
+  const dynamicContent = /(变化|调节|拖动|参数|变量|函数|曲线|实验|仿真|算法|积分|导数|概率分布|受力|电路|磁场|运动)/.test(text);
+  const physicsProcess = /(受力|运动|速度|加速度|能量|动量|引力|卫星|轨道|电场|电势|磁场|电磁|感应|光电|波|振动|电路|变压器)/.test(text);
+  return dynamicContent && (dynamicSkill || physicsProcess);
+}
+
+function isPhysicsProcess(card: CardData) {
+  const text = [card.title, card.overview, card.detailIntro, ...(card.aiKeyPoints ?? [])].filter(Boolean).join(" ");
+  return /(受力|运动|速度|加速度|能量|动量|引力|卫星|轨道|电场|电势|磁场|电磁|感应|光电|波|振动|电路|变压器)/.test(text);
+}
+
+function studyActivity(card: CardData): "reading" | "steps" | "expression" | "recall" {
+  if (card.sourceDocument) return "reading";
+  if (card.skill === "language" || card.skill === "literature_essay") return "expression";
+  const text = [card.title, card.detailIntro, ...(card.aiKeyPoints ?? [])].filter(Boolean).join(" ");
+  if (/(步骤|流程|方法|制作|判断|解题|操作)/.test(text)) return "steps";
+  return "recall";
+}
 
 export function CardDetailContent({
-  card, unifiedContent, onUpdateCard, exportRef,
+  card,
+  exportRef,
+  onUpdateCard,
 }: {
   card: CardData;
   unifiedContent?: string;
   onUpdateCard?: (cardId: string, updates: Partial<CardData>) => void;
   exportRef?: React.RefObject<HTMLDivElement | null>;
 }) {
-  const skillMeta = getSkillMeta(card.skill);
-  const [activeTab, setActiveTab] = useState<"analysis" | "mindmap" | "interactive">("analysis");
-  const [conceptStack, setConceptStack] = useState<Array<{ keyword: string; cardTitle: string }>>([]);
-  const [quizRaw, setQuizRaw] = useState<string>("");
-  const [quizLoading, setQuizLoading] = useState<boolean>(false);
-  const [localUnifiedContent, setLocalUnifiedContent] = useState<string>("");
-  const [generatingUnified, setGeneratingUnified] = useState<boolean>(false);
-  const [localInteractiveSpec, setLocalInteractiveSpec] = useState<InteractiveSpec | null>(null);
-  const [interactivePhase, setInteractivePhase] = useState<InteractivePhase>("idle");
-  const [interactiveError, setInteractiveError] = useState<string>("");
   const [showOriginalImage, setShowOriginalImage] = useState(false);
   const [showOriginalSource, setShowOriginalSource] = useState(false);
-
-  const pushConcept = (keyword: string) =>
-    setConceptStack(prev => [...prev, { keyword, cardTitle: card.title }]);
-  const popConcept = () => setConceptStack(prev => prev.slice(0, -1));
-
-  const buildUnifiedPrompt = () => buildDetailPagePrompt({
-    skill: card.skill ?? "theory_concept",
-    title: card.title,
-    hasAnnotations: card.hasAnnotations,
-    overview: card.overview ?? "",
-    detailIntro: card.detailIntro ?? "",
-    detailSections: card.detailSections ?? [],
-    aiKeyPoints: card.aiKeyPoints ?? [],
-  });
-
-  const regenerateUnified = () => {
-    setGeneratingUnified(true);
-    setLocalUnifiedContent("");
-    let buffer = "";
-    streamText(
-      buildUnifiedPrompt(),
-      (chunk) => { buffer += chunk; },
-      () => {
-        setLocalUnifiedContent(buffer);
-        setGeneratingUnified(false);
-        onUpdateCard?.(card.id, { unifiedDetail: buffer });
-      },
-    ).catch(() => setGeneratingUnified(false));
-  };
-
-  const runInteractiveGeneration = async (opts?: { force?: boolean }) => {
-    setLocalInteractiveSpec(null);
-    setInteractiveError("");
-    setInteractivePhase("planning");
-    try {
-      const plan = await generateInteractionPlan([card]);
-      if (!plan.suitable && !opts?.force) {
-        setInteractivePhase("skipped");
-        return;
-      }
-      const planForCode = opts?.force ? { ...plan, suitable: true } : plan;
-      setInteractivePhase("coding");
-      const spec = await generateInteractiveCode([card], planForCode);
-      setLocalInteractiveSpec(spec);
-      setInteractivePhase("ready");
-      onUpdateCard?.(card.id, { interactiveSpec: spec });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setInteractiveError(message);
-      setInteractivePhase("failed");
-      if (typeof console !== "undefined") console.error("[interactive] generation failed", err);
-    }
-  };
-
-  const regenerateInteractive = () => {
-    if (interactivePhase === "planning" || interactivePhase === "coding") return;
-    runInteractiveGeneration();
-  };
-
-  const forceGenerateInteractive = () => {
-    if (interactivePhase === "planning" || interactivePhase === "coding") return;
-    runInteractiveGeneration({ force: true });
-  };
+  const [interactiveSpec, setInteractiveSpec] = useState<InteractiveSpec | null>(card.interactiveSpec ?? null);
+  const [generatingInteraction, setGeneratingInteraction] = useState(false);
+  const [interactionMessage, setInteractionMessage] = useState("");
+  const [activityOpen, setActivityOpen] = useState(false);
+  const knowledgeNodes = useMemo(
+    () => card.knowledgeTree?.length
+      ? card.knowledgeTree
+      : (card.aiKeyPoints ?? []).map((label, index) => ({
+          label,
+          level: index === 0 ? 0 : 1,
+          current: index === 0,
+        })),
+    [card],
+  );
+  const showKnowledgeMap = (card.learningContext?.capabilities?.knowledgeMap ?? knowledgeNodes.length > 1)
+    && knowledgeNodes.length > 1;
+  const showInteraction = interactionSuitable(card);
+  const activity = studyActivity(card);
 
   useEffect(() => {
-    setConceptStack([]);
-    setActiveTab("analysis");
-    setLocalUnifiedContent("");
-    setLocalInteractiveSpec(null);
     setShowOriginalImage(false);
     setShowOriginalSource(false);
-    setGeneratingUnified(false);
-    setQuizRaw("");
-    setQuizLoading(true);
-
-    const quizPrompt = buildCardQuizPrompt(card.title, card.detailIntro || card.overview || "");
-    streamText(quizPrompt,
-      (chunk) => setQuizRaw(prev => prev + chunk),
-      () => setQuizLoading(false),
-    ).catch(() => setQuizLoading(false));
-
-    if (!card.unifiedDetail) {
-      regenerateUnified();
-    }
-
-    setInteractiveError("");
-    // 交互演示改为「点击 tab 时」按需生成：避免与智能总结抢占 DeepSeek 接口、也省 token
-    setInteractivePhase(card.interactiveSpec?.appCode ? "ready" : "idle");
+    setInteractiveSpec(card.interactiveSpec ?? null);
+    setGeneratingInteraction(false);
+    setInteractionMessage("");
+    setActivityOpen(false);
   }, [card.id]);
 
-  const effectiveUnifiedContent = localUnifiedContent || unifiedContent || "";
-  const effectiveInteractiveSpec = localInteractiveSpec || card.interactiveSpec;
-  const interactiveBusy = interactivePhase === "planning" || interactivePhase === "coding";
+  const createInteraction = async () => {
+    if (generatingInteraction) return;
+    setGeneratingInteraction(true);
+    setInteractionMessage("");
+    try {
+      const proposedPlan = await generateInteractionPlan([card]);
+      const plan = isPhysicsProcess(card) && /机械能|动量|碰撞|弹簧/.test(card.title)
+        ? {
+            ...proposedPlan,
+            suitable: true,
+            interactionType: "physics_sim" as const,
+            renderStrategy: "canvas_animation" as const,
+            learningGoal: "调节小球初速度与弹簧劲度系数，观察碰撞前后动量、动能和弹性势能的变化。",
+            controls: [
+              { key: "position", label: "振子位置", min: -5, max: 5, step: 0.1, default: 0, unit: "cm" },
+            ],
+            outputs: ["势能", "动能"],
+            visualMetaphor: "拖动振子位置，观察抛物线上的状态点以及动能、势能之间的转换。",
+            sceneDescription: "1) 逻辑画布 760×280，CSS 宽度 100%，左右安全边距各 55px。2) 中央绘制简洁的 U 形势能曲线，横轴为位置 x，纵轴为能量 E；左侧用小弹簧图标提示振子。3) position 控制曲线上的蓝色状态点左右移动。4) 用一条水平虚线表示总机械能。5) 画布下只显示势能与动能两个紧凑结果；不显示标题、播放按钮、重置按钮或额外说明。",
+            fallbackMode: "step_cards" as const,
+          }
+        : proposedPlan;
+      if (!plan.suitable) {
+        setInteractionMessage("这条内容用图文理解更清楚，暂不生成互动实验。");
+        return;
+      }
+      const spec = await generateInteractiveCode([card], plan);
+      setInteractiveSpec(spec);
+      onUpdateCard?.(card.id, { interactiveSpec: spec });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error("[interactive] generation failed", error);
+      setInteractionMessage("互动实验生成连接已中断，请再试一次。");
+    } finally {
+      setGeneratingInteraction(false);
+    }
+  };
 
   return (
-    <div style={{ position: "relative", flex: "1 1 auto", minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-      <div ref={exportRef} style={{ flex: "1 1 auto", minHeight: 0, overflowY: "scroll", scrollbarGutter: "stable" }}>
-        <div style={{
-          position: "sticky", top: 0, zIndex: 5,
-          display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 20px", gap: 12,
-          background: "#fff",
-          borderBottom: "1px solid #F0F2F5",
-        }}>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: 4, background: "#F5F6FA", border: "1px solid #EAEDF2", borderRadius: 14 }}>
-            {([
-              { key: "analysis", label: "智能总结" },
-              { key: "mindmap", label: "知识脉络" },
-              { key: "interactive", label: "交互演示" },
-            ] as const).map(tab => {
-              const isActive = activeTab === tab.key;
-              const isInteractive = tab.key === "interactive";
-              const showLoadingDot = isInteractive && (interactivePhase === "planning" || interactivePhase === "coding");
-              const showReadyDot = isInteractive && interactivePhase === "ready" && !isActive;
-              const showFailedDot = isInteractive && interactivePhase === "failed" && !isActive;
-              return (
-                <button key={tab.key} onClick={() => {
-                  setActiveTab(tab.key);
-                  if (tab.key === "interactive" && interactivePhase === "idle" && !effectiveInteractiveSpec) {
-                    runInteractiveGeneration();
-                  }
-                }} style={{
-                  width: 120,
-                  height: 34,
-                  padding: "0 12px",
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: isActive ? "#4F46E5" : "#7B8291",
-                  background: isActive ? "#fff" : "transparent",
-                  border: "none",
-                  borderRadius: 10,
-                  cursor: "pointer",
-                  transition: "color 0.2s, background 0.2s, box-shadow 0.2s",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 6,
-                  whiteSpace: "nowrap",
-                  boxShadow: isActive ? "0 1px 3px rgba(15,23,42,0.10)" : "none",
-                }}>
-                  {tab.label}
-                  {showLoadingDot && (
-                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#8B5CF6", animation: "shimmer 1.4s ease-in-out infinite", flexShrink: 0 }} />
-                  )}
-                  {showReadyDot && (
-                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10B981", flexShrink: 0 }} />
-                  )}
-                  {showFailedDot && (
-                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#CBD5E1", flexShrink: 0 }} />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          {card.sourceDocument ? (
-            <ViewOriginalSourceButton onClick={() => setShowOriginalSource(true)} />
-          ) : card.img && (
-            <ViewOriginalImageButton onClick={() => setShowOriginalImage(true)} />
-          )}
-        </div>
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div ref={exportRef} className="flex-1 overflow-y-auto px-6 pb-8 pt-4">
+        <div className="space-y-4">
+          {card.sourceDocument?.type === "pdf" ? (
+            <button
+              type="button"
+              onClick={() => setShowOriginalSource(true)}
+              className="group block w-full overflow-hidden rounded-2xl border border-[#EAEDF2] bg-[#EEF0F4] p-4 text-left transition-colors hover:border-[#C9CFFF]"
+              aria-label="预览 PDF 原文"
+            >
+              <span className="mx-auto block min-h-[230px] max-w-[390px] bg-white px-8 py-7 shadow-[0_3px_14px_rgba(15,23,42,0.12)] transition-transform group-hover:scale-[1.01]">
+                <span className="block text-center text-[8px] tracking-[0.2em] text-[#AAB1C2]">PDF 文档</span>
+                <span className="mt-3 block text-center text-[15px] font-bold leading-6 text-[#111827]">{card.sourceDocument.title}</span>
+                {card.sourceDocument.author && (
+                  <span className="mt-2 block text-center text-[9px] text-[#9CA3AF]">
+                    {card.sourceDocument.author}{card.sourceDocument.publishedAt ? ` · ${card.sourceDocument.publishedAt}` : ""}
+                  </span>
+                )}
+                <span className="mt-5 block space-y-2">
+                  {(card.sourceDocument.paragraphs ?? []).slice(0, 2).map((paragraph, index) => (
+                    <span key={index} className="block line-clamp-2 text-[9px] leading-4 text-[#596170]">{paragraph}</span>
+                  ))}
+                </span>
+                <span className="mt-5 block text-center text-[8px] text-[#B0B5C0]">
+                  {card.sourceDocument.page ? `— 第 ${card.sourceDocument.page} 页 —` : "— 原文预览 —"}
+                </span>
+              </span>
+              <span className="mt-3 flex items-center justify-center gap-1 text-[10px] font-semibold text-[#4D5CFF]">
+                点击预览 PDF <ChevronRight size={13} />
+              </span>
+            </button>
+          ) : card.sourceDocument ? (
+            <button
+              type="button"
+              onClick={() => setShowOriginalSource(true)}
+              className="flex w-full items-center gap-3 rounded-2xl border border-[#EAEDF2] bg-white p-4 text-left transition-colors hover:border-[#C9CFFF] hover:bg-[#FAFAFF]"
+            >
+              <span className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-xl bg-[#EEF0FF] text-[#4D5CFF]">
+                <FileText size={19} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12px] font-bold text-[#020418]">{card.sourceDocument.title}</span>
+                <span className="mt-1 block text-[10px] text-[#7B8291]">
+                  {card.sourceDocument.type === "pptx"
+                    ? `PPT 课件 · ${card.sourceDocument.pageCount ?? card.sourceDocument.pages?.length ?? 0} 页${card.sourceDocument.page ? ` · 定位 P${card.sourceDocument.page}` : ""}`
+                    : "网页原文"}
+                </span>
+              </span>
+              <span className="text-[10px] font-semibold text-[#4D5CFF]">
+                {card.sourceDocument.type === "pptx" ? "查看课件" : "打开原文"}
+              </span>
+              <ChevronRight size={14} className="text-[#AAB1C2]" />
+            </button>
+          ) : card.img ? (
+            <button
+              type="button"
+              onClick={() => setShowOriginalImage(true)}
+              className="group block w-full overflow-hidden rounded-2xl border border-[#EAEDF2] bg-[#F7F8FA]"
+              aria-label="预览笔记图片"
+            >
+              <img src={card.img} alt={card.title} className="max-h-[300px] w-full object-contain transition-transform group-hover:scale-[1.01]" />
+              <span className="block border-t border-[#EAEDF2] bg-white px-4 py-2.5 text-right text-[10px] font-semibold text-[#4D5CFF]">
+                点击查看大图
+              </span>
+            </button>
+          ) : null}
 
-        <div style={{ paddingLeft: 20, paddingRight: 20, paddingBottom: 32 }}>
-        {activeTab === "analysis" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 20, marginTop: 20 }}>
-            {generatingUnified && !localUnifiedContent && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                {[1,2,3].map(i => (
-                  <div key={i} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    <div style={{ width: 90, height: 24, borderRadius: 8, background: "#E9ECF2", animation: "shimmer 1.4s ease-in-out infinite" }} />
-                    <div style={{ borderRadius: 14, background: "#F7F8FA", border: "1px solid #EAEDF2", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
-                      {[1,2].map(j => <div key={j} style={{ height: 14, borderRadius: 6, background: "#E9ECF2", width: j === 2 ? "70%" : "100%", animation: "shimmer 1.4s ease-in-out infinite" }} />)}
-                    </div>
+          <section className="rounded-2xl border border-[#EAEDF2] bg-white p-4">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-[12px] font-bold text-[#020418]">笔记重点</h2>
+              <span className="text-[9px] text-[#9CA3AF]">仅整理这条笔记</span>
+            </div>
+            {(card.detailIntro || card.overview) && (
+              <p className="mt-2 text-[11px] leading-6 text-[#596170]">{card.detailIntro ?? card.overview}</p>
+            )}
+            {card.aiKeyPoints && card.aiKeyPoints.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {card.aiKeyPoints.map(point => (
+                  <span key={point} className="rounded-lg bg-[#F2F4F8] px-2.5 py-1.5 text-[10px] text-[#41464F]">{point}</span>
+                ))}
+              </div>
+            )}
+            {card.detailSections && card.detailSections.length > 0 && (
+              <div className="mt-4 space-y-3 border-t border-[#EEF0F4] pt-3">
+                {card.detailSections.map((section, sectionIndex) => (
+                  <div key={`${section.title}-${sectionIndex}`}>
+                    <p className="text-[10px] font-semibold text-[#41464F]">{section.title}</p>
+                    <ul className="mt-1.5 space-y-1">
+                      {section.items.map((item, itemIndex) => (
+                        <li key={itemIndex} className="flex gap-2 text-[10px] leading-5 text-[#596170]">
+                          <span className="mt-[7px] h-1 w-1 flex-shrink-0 rounded-full bg-[#AAB1C2]" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 ))}
-                <style>{`@keyframes shimmer{0%,100%{opacity:1}50%{opacity:0.45}}`}</style>
               </div>
             )}
+          </section>
 
-            {effectiveUnifiedContent && (() => {
-              const sections = parseSections(effectiveUnifiedContent);
-              const chipsNode = card.aiKeyPoints && card.aiKeyPoints.length > 0 ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <ModuleBadge label="AI 提炼重点" textColor="#4338CA" bgColor="#EEF2FF" barColor="#818CF8" />
-                    <span style={{ fontSize: 11, color: "#9CA3AF" }}>点击知识点深度解析 →</span>
-                  </div>
-                  <div style={{ background: "#F7F8FA", border: "1px solid #EAEDF2", borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 6 }}>
-                    {card.aiKeyPoints.map((point, i) => (
-                      <button key={i} onClick={() => pushConcept(point)}
-                        style={{ display: "flex", gap: 10, alignItems: "center", width: "100%", background: "none", border: "none", cursor: "pointer", padding: "6px 8px", borderRadius: 10, textAlign: "left", transition: "background 0.15s" }}
-                        onMouseEnter={e => (e.currentTarget.style.background = "#EEF2FF")}
-                        onMouseLeave={e => (e.currentTarget.style.background = "none")}
-                      >
-                        <div style={{ minWidth: 20, height: 20, borderRadius: "50%", background: "linear-gradient(135deg, #818CF8, #6366F1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                          <span style={{ fontSize: 10, color: "#fff", fontWeight: 700 }}>{i + 1}</span>
-                        </div>
-                        <span style={{ fontSize: 13, color: "#334155", flex: 1, lineHeight: 1.6 }}>{point}</span>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#818CF8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="9 18 15 12 9 6" /></svg>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null;
-              return (
-                <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-                  {card.hasAnnotations === true && card.detailSections && card.detailSections.length > 0 && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                      <ModuleBadge label="圈选重点" textColor="#BE123C" bgColor="#FFE4E6" barColor="#FB7185" />
-                      <div style={{ background: "#F7F8FA", border: "1px solid #EAEDF2", borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 14 }}>
-                        {card.detailIntro && <p style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.75, fontStyle: "italic", margin: 0 }}>"{card.detailIntro}"</p>}
-                        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                          {card.detailSections.map((section, si) => (
-                            <div key={si}>
-                              <p style={{ fontWeight: 700, fontSize: 13, color: "#BE123C", marginBottom: 8 }}>{si + 1}. {section.title}</p>
-                              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                                {section.items.map((item, ii) => (
-                                  <div key={ii} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                                    <span style={{ color: "#FB7185", fontSize: 12, marginTop: 2, flexShrink: 0 }}>▸</span>
-                                    <DynamicRenderer text={item} onLinkClick={pushConcept} />
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {sections.map((sec, si) => {
-                    const meta = UNIFIED_SECTION_COLORS[sec.title] ?? UNIFIED_SECTION_DEFAULT;
-                    return (
-                      <Fragment key={si}>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                          <ModuleBadge label={sec.title} textColor={meta.textColor} bgColor={meta.bgColor} barColor={meta.barColor} />
-                          <div style={{ background: "#F7F8FA", border: "1px solid #EAEDF2", borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 6 }}>
-                            {sec.content.split(/\n+/).filter(Boolean).map((line, li) => (
-                              <p key={li} style={{ fontSize: 13, color: "#334155", lineHeight: 1.85, margin: 0 }}><MathContent text={line} onLinkClick={pushConcept} /></p>
-                            ))}
-                          </div>
-                        </div>
-                        {si === 1 && chipsNode}
-                      </Fragment>
-                    );
-                  })}
-                  {sections.length <= 1 && chipsNode}
-                </div>
-              );
-            })()}
-
-            {!effectiveUnifiedContent && !generatingUnified && (<>
-              {card.overview && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  <ModuleBadge label="内容概述" textColor="#0369A1" bgColor="#E0F2FE" barColor="#38BDF8" />
-                  <div style={{ background: "#F7F8FA", border: "1px solid #EAEDF2", borderRadius: 14, padding: "14px 16px" }}>
-                    <MathParagraph text={card.overview ?? ""} onLinkClick={pushConcept} />
-                  </div>
-                </div>
-              )}
-              {card.skillRawSections && (() => {
-                const skillSections = parseSkillSections(card.skillRawSections!);
-                if (skillSections.length === 0) return null;
-                return (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <ModuleBadge label={`${skillMeta.emoji} ${skillMeta.label}深度解析`} textColor={skillMeta.textColor} bgColor={skillMeta.bgColor} barColor={skillMeta.barColor} />
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                      {skillSections.map((sec, si) => (
-                        <div key={si} style={{ background: "#F7F8FA", border: `1px solid ${skillMeta.barColor}30`, borderRadius: 14, padding: "12px 16px", borderLeft: `3px solid ${skillMeta.barColor}` }}>
-                          <p style={{ fontSize: 12, fontWeight: 700, color: skillMeta.textColor, marginBottom: 6 }}>{sec.title}</p>
-                          {sec.content.split(/\n+/).filter(Boolean).map((line, li) => (
-                            <p key={li} style={{ fontSize: 13, color: "#334155", lineHeight: 1.85, margin: "2px 0" }}><MathContent text={line} onLinkClick={pushConcept} /></p>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
-              {card.detailSections && card.detailSections.length > 0 && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  <ModuleBadge label={card.hasAnnotations === false ? "核心重点解析" : card.hasAnnotations ? "手写内容重点" : "圈选重点"} textColor="#BE123C" bgColor="#FFE4E6" barColor="#FB7185" />
-                  <div style={{ background: "#F7F8FA", border: "1px solid #EAEDF2", borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 14 }}>
-                    {card.hasAnnotations !== false && card.detailIntro && (
-                      <p style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.75, fontStyle: "italic", margin: 0 }}>"{card.detailIntro}"</p>
-                    )}
-                    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                      {card.detailSections.map((section, si) => (
-                        <div key={si}>
-                          <p style={{ fontWeight: 700, fontSize: 13, color: "#BE123C", marginBottom: 8 }}>{si + 1}. {section.title}</p>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                            {section.items.map((item, ii) => (
-                              <div key={ii} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                                <span style={{ color: "#FB7185", fontSize: 12, marginTop: 2, flexShrink: 0 }}>▸</span>
-                                <DynamicRenderer text={item} onLinkClick={pushConcept} />
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-              {card.expandedKnowledge && card.expandedKnowledge.length > 0 && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  <ModuleBadge label="关联知识扩展" textColor="#C2410C" bgColor="#FFF7ED" barColor="#FB923C" />
-                  <div style={{ background: "#F7F8FA", border: "1px solid #EAEDF2", borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
-                    {card.expandedKnowledge.map((item, i) => (
-                      <div key={i} style={{ background: "#fff", borderRadius: 10, padding: "10px 12px", border: "1px solid #EAEDF2" }}>
-                        <button onClick={() => pushConcept(item.concept)} style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: 5 }}>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: "#D97706", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 3 }}>{item.concept}</span>
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
-                        </button>
-                        <DynamicRenderer text={item.explanation} onLinkClick={pushConcept} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {card.nextAction && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  <ModuleBadge label="下一步建议" textColor="#065F46" bgColor="#D1FAE5" barColor="#34D399" />
-                  <div style={{ background: "#F7F8FA", border: "1px solid #EAEDF2", borderRadius: 14, padding: "14px 16px" }}>
-                    <MathParagraph text={card.nextAction ?? ""} onLinkClick={pushConcept} />
-                  </div>
-                </div>
-              )}
-              {!card.overview && !card.detailIntro && !(card.detailSections?.length) && !(card.aiKeyPoints?.length) && (
-                <p style={{ marginTop: 48, fontSize: 13, color: "#B0B5C0", textAlign: "center" }}>AI 正在分析批注内容...</p>
-              )}
-            </>)}
-
-            {(quizRaw || quizLoading) && (
-              <div style={{ marginTop: 10 }}>
-                <InteractiveQuiz rawText={quizRaw} loading={quizLoading} />
+          {showKnowledgeMap && (
+            <section className="rounded-2xl border border-[#EAEDF2] bg-white p-4">
+              <h2 className="text-[12px] font-bold text-[#020418]">知识导图</h2>
+              <p className="mt-1 text-[10px] text-[#9CA3AF]">展示这条笔记内部的概念关系</p>
+              <div className="mt-3 rounded-xl bg-[#F8FAFB] p-3">
+                <KnowledgeTree nodes={knowledgeNodes} />
               </div>
-            )}
+            </section>
+          )}
 
-            <DetailFeedbackBar onRegenerate={regenerateUnified} regenerating={generatingUnified} />
-          </div>
-        )}
-
-        {activeTab === "mindmap" && (
-          <div style={{ marginTop: 20 }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <ModuleBadge label="知识脉络" textColor="#065F46" bgColor="#D1FAE5" barColor="#34D399" />
-              <div style={{ background: "#F8FAFB", border: "1px solid #E9EDF2", borderRadius: 14, padding: "16px 20px" }}>
-                <KnowledgeTree nodes={card.knowledgeTree ?? []} />
-              </div>
-              <p style={{ fontSize: 11, color: "#9CA3AF", textAlign: "center", marginTop: 4 }}>📍 当前节点为本次圈选的知识点</p>
-            </div>
-          </div>
-        )}
-
-        {activeTab === "interactive" && (
-          <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 12 }}>
-            {effectiveInteractiveSpec && interactivePhase === "ready" ? (
-              <>
-                <InteractiveBlock spec={effectiveInteractiveSpec} />
-                <DetailFeedbackBar
-                  onRegenerate={regenerateInteractive}
-                  regenerating={interactiveBusy}
-                  regenerateLabel="重新生成演示"
-                />
-              </>
-            ) : interactivePhase === "skipped" ? (
-              <div style={{ background: "#fff", border: "1px solid #EAEDF2", borderRadius: 16, padding: "20px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 10, background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>💡</div>
-                  <p style={{ fontSize: 14, color: "#0F172A", fontWeight: 700, margin: 0 }}>该知识点更适合静态阅读</p>
-                </div>
-                <p style={{ fontSize: 13, color: "#475569", margin: 0, lineHeight: 1.7 }}>
-                  AI 判断这条笔记偏概念/历史/理论性，做动态演示反而会增加理解成本。建议直接看「智能总结」和「知识脉络」。
-                </p>
-                <button
-                  onClick={forceGenerateInteractive}
-                  style={{ alignSelf: "flex-start", fontSize: 12, padding: "8px 14px", borderRadius: 10, background: "#EEF2FF", color: "#4338CA", border: "none", cursor: "pointer", fontWeight: 600 }}
-                >
-                  我还是想试一下 →
-                </button>
-              </div>
-            ) : interactivePhase === "failed" ? (
-              <div style={{ background: "#fff", border: "1px solid #EAEDF2", borderRadius: 16, padding: "20px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 10, background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🧩</div>
-                  <p style={{ fontSize: 14, color: "#0F172A", fontWeight: 700, margin: 0 }}>当前内容不太适合动态演示</p>
-                </div>
-                <p style={{ fontSize: 13, color: "#475569", margin: 0, lineHeight: 1.7 }}>
-                  这条笔记的知识点用文字和图示讲解会更清晰，AI 没能把它转成稳定的交互动画。建议直接看「智能总结」和「知识脉络」，理解效果通常更好。
-                </p>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {showInteraction && (
+            <section className="rounded-2xl border border-[#E2E5FF] bg-[#F9F9FF] p-4">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-[12px] font-bold text-[#020418]">互动实验</h2>
+                {interactiveSpec && (
                   <button
-                    onClick={regenerateInteractive}
-                    style={{ fontSize: 12, padding: "8px 14px", borderRadius: 10, background: "#EEF2FF", color: "#4338CA", border: "none", cursor: "pointer", fontWeight: 600 }}
+                    type="button"
+                    onClick={() => {
+                      setInteractiveSpec(null);
+                      void createInteraction();
+                    }}
+                    className="rounded-lg bg-[#EEF0FF] px-3 py-1.5 text-[9px] font-semibold text-[#4D5CFF]"
                   >
-                    再试一次 →
+                    重新生成
                   </button>
-                </div>
-                {interactiveError && (
-                  <details style={{ marginTop: 2 }}>
-                    <summary style={{ fontSize: 11, color: "#94A3B8", cursor: "pointer", userSelect: "none" }}>技术详情</summary>
-                    <pre style={{ fontSize: 11, color: "#64748B", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "8px 10px", margin: "8px 0 0", whiteSpace: "pre-wrap", wordBreak: "break-all", lineHeight: 1.5 }}>{interactiveError}</pre>
-                  </details>
                 )}
               </div>
-            ) : (
-              <div style={{ background: "#fff", border: "1px solid #EAEDF2", borderRadius: 16, padding: "20px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#8B5CF6", animation: "shimmer 1.4s ease-in-out infinite" }} />
-                  <p style={{ fontSize: 14, color: "#0F172A", fontWeight: 700, margin: 0 }}>
-                    {interactivePhase === "planning" ? "AI 正在设计交互方案..." : interactivePhase === "coding" ? "AI 正在生成动态演示..." : "AI 准备启动交互生成..."}
-                  </p>
+              <p className="mt-1 text-[10px] text-[#7B8291]">通过改变参数或步骤，验证这条笔记中的规律。</p>
+              {interactiveSpec ? (
+                <div className="mt-3 overflow-hidden rounded-xl bg-white">
+                  <InteractiveBlock spec={interactiveSpec} />
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {[1, 2, 3, 4].map(i => (
-                    <div key={i} style={{ height: 12, borderRadius: 6, background: "#E9ECF2", width: i === 4 ? "55%" : "100%", animation: "shimmer 1.4s ease-in-out infinite" }} />
-                  ))}
-                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={createInteraction}
+                  disabled={generatingInteraction}
+                  className="mt-3 rounded-xl bg-[#EEF0FF] px-4 py-2.5 text-[10px] font-semibold text-[#4D5CFF] disabled:opacity-60"
+                >
+                  {generatingInteraction ? "正在准备互动实验…" : "打开互动实验"}
+                </button>
+              )}
+              {interactionMessage && <p className="mt-2 text-[10px] text-[#7B8291]">{interactionMessage}</p>}
+            </section>
+          )}
+
+          {!showInteraction && activity === "reading" && (
+            <section className="rounded-2xl border border-[#E4E8F0] bg-[#FAFAFC] p-4">
+              <h2 className="text-[12px] font-bold text-[#020418]">阅读检查</h2>
+              <p className="mt-1 text-[10px] text-[#7B8291]">读完原文后，用下面三个问题检查是否抓住重点。</p>
+              <div className="mt-3 space-y-2">
+                {["这份资料主要回答了什么问题？", "最重要的结论是什么？", "哪一处需要回到课堂或教材继续确认？"].map((question, index) => (
+                  <label key={question} className="flex cursor-pointer items-start gap-2 rounded-xl bg-white p-3 text-[10px] leading-5 text-[#596170]">
+                    <input type="checkbox" className="mt-1 accent-[#4D5CFF]" />
+                    <span>{index + 1}. {question}</span>
+                  </label>
+                ))}
               </div>
-            )}
-          </div>
-        )}
+            </section>
+          )}
+
+          {!showInteraction && activity === "steps" && (
+            <section className="rounded-2xl border border-[#E4E8F0] bg-[#FAFAFC] p-4">
+              <h2 className="text-[12px] font-bold text-[#020418]">按步骤复述</h2>
+              <p className="mt-1 text-[10px] text-[#7B8291]">先不看笔记，按顺序说出这个方法的关键步骤。</p>
+              <button
+                type="button"
+                onClick={() => setActivityOpen(open => !open)}
+                className="mt-3 rounded-xl bg-[#EEF0FF] px-4 py-2.5 text-[10px] font-semibold text-[#4D5CFF]"
+              >
+                {activityOpen ? "收起提示" : "查看步骤提示"}
+              </button>
+              {activityOpen && (
+                <ol className="mt-3 space-y-2 rounded-xl bg-white p-3">
+                  {(card.detailSections?.flatMap(section => section.items).slice(0, 4) ?? card.aiKeyPoints ?? []).map((item, index) => (
+                    <li key={`${item}-${index}`} className="text-[10px] leading-5 text-[#596170]">{index + 1}. {item}</li>
+                  ))}
+                </ol>
+              )}
+            </section>
+          )}
+
+          {!showInteraction && activity === "expression" && (
+            <section className="rounded-2xl border border-[#E4E8F0] bg-[#FAFAFC] p-4">
+              <h2 className="text-[12px] font-bold text-[#020418]">表达练习</h2>
+              <p className="mt-2 text-[10px] leading-5 text-[#596170]">
+                合上笔记，用自己的话概括“{card.title.replace(/^记忆：/, "")}”，并补充一个例子或反例。
+              </p>
+              <textarea
+                aria-label="输入表达练习"
+                placeholder="在这里写下你的理解…"
+                className="mt-3 min-h-24 w-full resize-none rounded-xl border border-[#DDE1EA] bg-white p-3 text-[10px] leading-5 text-[#41464F] outline-none focus:border-[#AEB7FF]"
+              />
+            </section>
+          )}
+
+          {!showInteraction && activity === "recall" && (
+            <section className="rounded-2xl border border-[#E4E8F0] bg-[#FAFAFC] p-4">
+              <h2 className="text-[12px] font-bold text-[#020418]">快速自测</h2>
+              <p className="mt-2 text-[10px] font-semibold leading-5 text-[#41464F]">
+                不看笔记，你能用两句话解释“{card.title.replace(/^记忆：/, "")}”吗？
+              </p>
+              <button
+                type="button"
+                onClick={() => setActivityOpen(open => !open)}
+                className="mt-3 rounded-xl bg-[#EEF0FF] px-4 py-2.5 text-[10px] font-semibold text-[#4D5CFF]"
+              >
+                {activityOpen ? "隐藏参考" : "查看参考"}
+              </button>
+              {activityOpen && (
+                <p className="mt-3 rounded-xl bg-white p-3 text-[10px] leading-5 text-[#596170]">
+                  {card.detailIntro ?? card.overview ?? card.aiKeyPoints?.join("、")}
+                </p>
+              )}
+            </section>
+          )}
+
         </div>
       </div>
 
@@ -472,7 +345,6 @@ export function CardDetailContent({
           alt={card.title}
         />
       )}
-
       {card.sourceDocument && (
         <OriginalSourceOverlay
           open={showOriginalSource}
@@ -480,16 +352,6 @@ export function CardDetailContent({
           source={card.sourceDocument}
         />
       )}
-
-      <div style={{ position: "absolute", inset: 0, background: "#fff", borderRadius: "inherit", transform: conceptStack.length > 0 ? "translateX(0)" : "translateX(105%)", transition: "transform 0.28s cubic-bezier(0.4,0,0.2,1)", zIndex: 10 }}>
-        {conceptStack.length > 0 && (
-          <ConceptPage
-            keyword={conceptStack[conceptStack.length - 1].keyword}
-            cardTitle={conceptStack[conceptStack.length - 1].cardTitle}
-            onBack={popConcept}
-          />
-        )}
-      </div>
     </div>
   );
 }

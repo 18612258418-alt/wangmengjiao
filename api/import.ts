@@ -13,6 +13,10 @@ import {
   type CircleRegionResult,
   type CircleRegionSection,
 } from "../src/prompts/circleRegion";
+import {
+  SOURCE_INGESTION_PROMPT,
+  SOURCE_INGESTION_VISION_RULES,
+} from "../src/prompts/sourceIngestion";
 import { classifyCardSurfaces } from "../src/utils/cardSurfaces";
 
 type ImportKind = "image" | "text" | "link";
@@ -32,6 +36,15 @@ interface ImportRequest {
   userIntent?: string;
   /** 本地学习到的用户偏好画像 */
   userProfile?: string;
+  /** 当前学期课程与允许挂靠的知识目录；模型只能从这里选择稳定 id。 */
+  routingContext?: {
+    currentSubjectId?: string;
+    currentCourseId?: string;
+    currentCourseName?: string;
+    semester?: string;
+    courses?: Array<{ id: string; name: string; teacher?: string }>;
+    syllabusCatalog?: Array<{ subjectId: string; id: string; title: string }>;
+  };
 }
 
 // 以这些字母开头的反斜杠序列几乎必然是 LaTeX 命令而非 JSON 转义
@@ -94,6 +107,47 @@ function extractJson(text: string): Record<string, unknown> {
   throw new Error("模型返回格式异常，请重新圈选");
 }
 
+function normalizePageNumbers(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map(page => Number(page)).filter(page => Number.isInteger(page) && page > 0))];
+}
+
+function normalizeMemoryUnits(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item, index) => {
+    if (!item || typeof item !== "object") return [];
+    const row = item as Record<string, unknown>;
+    const title = typeof row.title === "string" ? row.title.trim() : "";
+    const pages = normalizePageNumbers(row.pages);
+    if (!title || pages.length === 0) return [];
+    return [{
+      id: typeof row.id === "string" && row.id.trim() ? row.id : `MU${String(index + 1).padStart(3, "0")}`,
+      title,
+      pages,
+      contribution: typeof row.contribution === "string" ? row.contribution : "",
+    }];
+  });
+}
+
+function normalizeKnowledgeGroups(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(item => {
+    if (!item || typeof item !== "object") return [];
+    const row = item as Record<string, unknown>;
+    const title = typeof row.title === "string" ? row.title.trim() : "";
+    const pages = normalizePageNumbers(row.pages);
+    if (!title || pages.length === 0) return [];
+    return [{
+      title,
+      pages,
+      summary: typeof row.summary === "string" ? row.summary : "",
+      children: Array.isArray(row.children)
+        ? row.children.filter((child): child is string => typeof child === "string" && !!child.trim())
+        : [],
+    }];
+  });
+}
+
 function normalizeResult(parsed: Record<string, unknown>, fallbackTitle: string, imageDataUrl?: string) {
   const validSubjects = ["physics", "math", "chemistry", "english", "other"];
   const validSkills = ["theory_concept", "math_problem", "language", "experiment_lab", "code_cs", "literature_essay"];
@@ -118,11 +172,39 @@ function normalizeResult(parsed: Record<string, unknown>, fallbackTitle: string,
     homeworkTasks: surfaces.homeworkTasks,
     taskDueDate: surfaces.taskDueDate,
     openTab: surfaces.openTab,
+    validCourseContent: typeof parsed.validCourseContent === "boolean" ? parsed.validCourseContent : true,
+    validityConfidence: typeof parsed.validityConfidence === "number" ? parsed.validityConfidence : 0.5,
+    validityReason: typeof parsed.validityReason === "string" ? parsed.validityReason : "",
+    materialType: typeof parsed.materialType === "string" ? parsed.materialType : "reference",
+    subjectName: typeof parsed.subjectName === "string" ? parsed.subjectName : "",
+    courseName: typeof parsed.courseName === "string" ? parsed.courseName : "",
+    targetCourseId: typeof parsed.targetCourseId === "string" ? parsed.targetCourseId : "",
+    chapterTitle: typeof parsed.chapterTitle === "string" ? parsed.chapterTitle : "",
+    knowledgePoints: Array.isArray(parsed.knowledgePoints) ? parsed.knowledgePoints : [],
+    destinations: Array.isArray(parsed.destinations) ? parsed.destinations : [],
+    learningPhase: typeof parsed.learningPhase === "string" ? parsed.learningPhase : "",
+    learningActions: Array.isArray(parsed.learningActions) ? parsed.learningActions : [],
+    syllabusEntryId: typeof parsed.syllabusEntryId === "string" ? parsed.syllabusEntryId : "",
+    memoryUnits: normalizeMemoryUnits(parsed.memoryUnits),
+    knowledgeGroups: normalizeKnowledgeGroups(parsed.knowledgeGroups),
   };
 }
 
 const OUTPUT_SCHEMA = `{
-  "subjectId": "严格归类，只输出英文标识符：physics（任何物理相关）/ math（任何数学相关）/ chemistry（任何化学相关）/ english（任何外语相关）/ other（专业课、人文社科、计算机、经济等）。只看核心内容的学科本质",
+  "subjectId": "只输出英文标识符：physics（任何物理相关）/ math（任何数学相关）/ chemistry（任何化学相关）/ english（任何外语相关）/ other（其他学科）。other 只是技术标识，不能据此把专业课命名为社会科学；必须在 subjectName 写出真实学科，如电路分析、模拟电子技术、计算机组成原理、经济学",
+  "validCourseContent": true,
+  "validityConfidence": 0.0,
+  "validityReason": "一句话说明有效或无效的原文证据",
+  "materialType": "courseware|textbook|note|homework|exam|syllabus|schedule_notice|reference|non_course",
+  "subjectName": "真实、具体的学科名称。禁止用'其他''专业课''社会科学'笼统代替；例如节点电压法应写'电路分析'",
+  "courseName": "匹配到的课程名，无可靠证据则空",
+  "targetCourseId": "只能从课程上下文候选 id 中选择，无匹配则空",
+  "chapterTitle": "原文章节或可靠推断章节，无则空",
+  "knowledgePoints": ["本资料实际涉及的知识点"],
+  "destinations": ["knowledge|homework|exam，可多选"],
+  "learningPhase": "before_class|in_class|after_class|homework|exam",
+  "learningActions": [{"type":"preview|class_reminder|homework|review","title":"可执行动作","dueAt":"可靠时间，无则空","evidence":"触发动作的原文"}],
+  "syllabusEntryId": "只能从知识目录候选 id 中选择，无可靠匹配则空",
   "contentType": "最主要意图：note/homework。有作业待办时填下方 homeworkTasks",
   "homeworkTasks": ["有作业/待办意图时填写可执行 task，无则 []"],
   "taskDueDate": "有作业意图时最近截止 YYYYMMDD，无则空",
@@ -147,6 +229,12 @@ const OUTPUT_SCHEMA = `{
     {"label": "细分概念1", "level": 5},
     {"label": "细分概念2", "level": 5}
   ],
+  "memoryUnits": [
+    {"id": "MU001", "title": "由一页或连续多页共同贡献的知识单元", "pages": [1,2], "contribution": "这些页面为该知识点提供了什么"}
+  ],
+  "knowledgeGroups": [
+    {"title": "融合后的上位知识对象", "summary": "综合多页后的准确解释", "pages": [1,2,3], "children": ["子概念1","子概念2"]}
+  ],
   "skill": "根据内容类型选一个：theory_concept（定义/定理/概念）/ math_problem（数学物理计算题）/ language（外语/语言学习）/ experiment_lab（实验/研究方法）/ code_cs（代码/算法）/ literature_essay（文献/论述/人文社科）",
   "nextAction": "50字以内，给出1-2条具体可执行的下一步学习建议，用第二人称'你'，结合大学学习场景（课后作业、文献阅读、实验、备考等），不能是'继续学习'之类空话"
 }`;
@@ -158,11 +246,38 @@ const SHARED_RULES = `严格约束：
 ④在 overview、detailSections 的 items 里自然穿插少量 [[学术名词]] 双中括号（前端会渲染为可点击蓝色链接），中括号只放名词本身。
 ⑤只输出 JSON，不要输出任何解释、markdown 代码块或多余文字。`;
 
-function buildTextPrompt(kind: "text" | "link", value: string, fileName?: string) {
-  return `你是一位有丰富大学教学经验的学长/学姐，专门帮大学生整理学习资料、提炼核心知识点。请把用户提供的${kind === "link" ? "链接/网页资料" : "文本/PDF 抽取内容"}深度整理成一张学习记忆卡。
+function routingContextBlock(context?: ImportRequest["routingContext"]) {
+  if (!context) return "未提供课程上下文；没有明确证据时课程和目录 id 必须留空。";
+  return `【当前可用挂靠上下文】
+${JSON.stringify(context)}
+只能使用以上 course id 与 syllabus id；上下文不匹配时留空。`;
+}
+
+function buildTextPrompt(
+  kind: "text" | "link",
+  value: string,
+  fileName?: string,
+  routingContext?: ImportRequest["routingContext"],
+) {
+  const isPptx = /\.pptx$/i.test(fileName ?? "");
+  const documentRules = isPptx ? `
+【多页 PPT 专项规则】
+1. 必须先做文件级理解：判断整份课件的课程、主题、章节与叙事顺序。
+2. 再做页面级解析：memoryUnits 必须保留原始页码，并说明该页或连续页面对知识的贡献。
+3. 最后做知识融合：knowledgeGroups 要合并重复、连续和上下位概念，不能“一页等于一个知识点”。
+4. title、overview、detailSections、knowledgeTree 必须描述融合后的知识对象；页面只是来源证据。
+5. 同一概念跨多页时生成一个 memoryUnit；一页包含多个独立概念时可拆成多个 memoryUnit。
+6. 不得编造课件中没有出现的教师、学期、页码或作业截止时间。
+` : "";
+  return `${SOURCE_INGESTION_PROMPT}
+
+请把用户提供的${kind === "link" ? "链接/网页资料" : "文本/PDF 抽取内容"}深度整理成学习内容。
 
 【资料来源】
-${fileName ? `文件名：${fileName}\n` : ""}${value.slice(0, 12000)}
+${fileName ? `文件名：${fileName}\n` : ""}${value.slice(0, isPptx ? 50000 : 12000)}
+
+${routingContextBlock(routingContext)}
+${documentRules}
 
 请按整份资料的核心知识点做结构化总结与深化（不要逐字复述，要提炼升华），按以下 JSON 格式输出：
 ${OUTPUT_SCHEMA}
@@ -174,7 +289,20 @@ ${SHARED_RULES}`;
 // 只产出预览卡必需字段，把豆包单次生成压进 Edge 25s 墙钟内。缺的字段 normalizeResult 会补默认值，
 // 后续在确认保存 / 详情页再二次补全。
 const VISION_OUTPUT_SCHEMA = `{
-  "subjectId": "physics|math|chemistry|english|other 之一",
+  "subjectId": "physics|math|chemistry|english|other 之一；other 只表示其他学科，不等于社会科学",
+  "validCourseContent": true,
+  "validityConfidence": 0.0,
+  "validityReason": "有效性证据",
+  "materialType": "courseware|textbook|note|homework|exam|syllabus|schedule_notice|reference|non_course",
+  "subjectName": "真实、具体的学科名称；禁止用其他、专业课、社会科学笼统代替",
+  "courseName": "课程名或空",
+  "targetCourseId": "候选课程 id 或空",
+  "chapterTitle": "章节或空",
+  "knowledgePoints": ["知识点1","知识点2"],
+  "destinations": ["knowledge|homework|exam"],
+  "learningPhase": "before_class|in_class|after_class|homework|exam",
+  "learningActions": [{"type":"preview|class_reminder|homework|review","title":"动作","dueAt":"","evidence":"原文证据"}],
+  "syllabusEntryId": "候选知识目录 id 或空",
   "contentType": "note|homework 之一（主意图）",
   "homeworkTasks": [],
   "taskDueDate": "",
@@ -195,7 +323,7 @@ const VISION_RULES =
   "只输出 JSON，无 markdown。全中文（枚举字段除外）。有作业意图必填 homeworkTasks。不要输出 knowledgeTree、expandedKnowledge。";
 
 function isCircleApiUnavailable(message: string): boolean {
-  return /not configured|429|SetLimitExceeded|TooManyRequests|InvalidEndpointOrModel|Doubao 5\d\d|Doubao 4\d\d/i.test(message);
+  return /not configured|429|SetLimitExceeded|TooManyRequests|InvalidEndpointOrModel|Doubao 5\d\d|Doubao 4\d\d|超时|timeout|504|FUNCTION_INVOCATION_TIMEOUT/i.test(message);
 }
 
 function circleDemoFallbackResponse(): Response {
@@ -207,13 +335,17 @@ function circleDemoFallbackResponse(): Response {
 function apiTimeouts() {
   const onVercel = !!process.env.VERCEL;
   return {
-    vision: Number(process.env.IMPORT_VISION_TIMEOUT_MS) || (onVercel ? 24000 : 120000),
-    text: Number(process.env.IMPORT_TEXT_TIMEOUT_MS) || (onVercel ? 24000 : 90000),
+    // Vercel 函数上限为 60 秒。Kimi K3 必须推理，24 秒会把正常请求误判为超时。
+    vision: Number(process.env.IMPORT_VISION_TIMEOUT_MS) || (onVercel ? 55000 : 180000),
+    text: Number(process.env.IMPORT_TEXT_TIMEOUT_MS) || (onVercel ? 50000 : 90000),
   };
 }
 
-function buildVisionPrompt(fileName?: string) {
-  return `整理本页学习资料为记忆卡 JSON。${fileName ? `文件：${fileName}。` : ""}提炼核心知识点，不要描述版式。
+function buildVisionPrompt(fileName?: string, routingContext?: ImportRequest["routingContext"]) {
+  return `${SOURCE_INGESTION_VISION_RULES}
+
+整理当前图像或扫描页为学习内容 JSON。${fileName ? `文件：${fileName}。` : ""}提炼核心知识点，不要描述版式。若这是多页资料中的一页，保留当前页的来源位置。
+${routingContextBlock(routingContext)}
 ${VISION_OUTPUT_SCHEMA}
 ${VISION_RULES}`;
 }
@@ -257,6 +389,39 @@ async function callDeepSeek(prompt: string) {
   if (!res.ok) throw new Error(`DeepSeek ${res.status}: ${await res.text().catch(() => "")}`);
   const data = await res.json();
   return String(data.choices?.[0]?.message?.content ?? "");
+}
+
+async function callKimiText(prompt: string) {
+  const apiKey = process.env.MOONSHOT_API_KEY || process.env.VITE_MOONSHOT_API_KEY;
+  const model = process.env.MOONSHOT_MODEL_ID || process.env.VITE_MOONSHOT_MODEL_ID || "kimi-k3";
+  if (!apiKey) throw new Error("MOONSHOT_API_KEY not configured");
+  const res = await fetchWithTimeout("https://api.moonshot.cn/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      max_completion_tokens: 4096,
+      reasoning_effort: "low",
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: "你是大学学习资料入库助手。严格按要求判断有效性、挂靠课程与知识点并输出 JSON。" },
+        { role: "user", content: prompt },
+      ],
+    }),
+  }, apiTimeouts().text, "Kimi 文本模型");
+  if (!res.ok) throw new Error(`Kimi ${res.status}: ${await res.text().catch(() => "")}`);
+  const data = await res.json();
+  return String(data.choices?.[0]?.message?.content ?? "");
+}
+
+async function callTextModel(prompt: string) {
+  if (process.env.MOONSHOT_API_KEY || process.env.VITE_MOONSHOT_API_KEY) {
+    return callKimiText(prompt);
+  }
+  return callDeepSeek(prompt);
 }
 
 const SKIP_SECTION = new Set([
@@ -362,6 +527,7 @@ async function callDoubao(
     markKind?: "circle" | "ink";
     userIntent?: string;
     userProfile?: string;
+    routingContext?: ImportRequest["routingContext"];
   },
 ) {
   const apiKey = process.env.DOUBAO_API_KEY || process.env.VITE_DOUBAO_API_KEY;
@@ -378,7 +544,7 @@ async function callDoubao(
       userIntent: options?.userIntent,
       userProfile: options?.userProfile,
     })
-    : buildVisionPrompt(options?.fileName);
+    : buildVisionPrompt(options?.fileName, options?.routingContext);
 
   const res = await fetchWithTimeout("https://ark.cn-beijing.volces.com/api/v3/chat/completions", {
     method: "POST",
@@ -388,7 +554,8 @@ async function callDoubao(
     },
     body: JSON.stringify({
       model,
-      max_tokens: isCircle ? 3000 : 1600,
+      // 上传解析优先保证及时返回；完整知识扩展可在保存后按需继续生成。
+      max_tokens: isCircle ? 1000 : 1100,
       // 关闭深度思考：开启时单次请求 100s+ 且消耗数千 reasoning token，交互场景无法接受
       thinking: { type: "disabled" },
       messages: [
@@ -413,6 +580,80 @@ async function callDoubao(
   return String(data.choices?.[0]?.message?.content ?? "");
 }
 
+async function callKimi(
+  imageDataUrl: string,
+  options?: {
+    fileName?: string;
+    mode?: ImportMode;
+    pdfTitle?: string;
+    pageNum?: number;
+    markKind?: "circle" | "ink";
+    userIntent?: string;
+    userProfile?: string;
+    routingContext?: ImportRequest["routingContext"];
+  },
+) {
+  const apiKey = process.env.MOONSHOT_API_KEY || process.env.VITE_MOONSHOT_API_KEY;
+  const model = process.env.MOONSHOT_MODEL_ID || process.env.VITE_MOONSHOT_MODEL_ID || "kimi-k3";
+  if (!apiKey) throw new Error("MOONSHOT_API_KEY not configured");
+
+  const isCircle = options?.mode === "circle_region";
+  const promptText = isCircle
+    ? buildCircleRegionPrompt({
+      pdfTitle: options?.pdfTitle,
+      pageNum: options?.pageNum,
+      fileName: options?.fileName,
+      markKind: options?.markKind,
+      userIntent: options?.userIntent,
+      userProfile: options?.userProfile,
+    })
+    : buildVisionPrompt(options?.fileName, options?.routingContext);
+
+  const res = await fetchWithTimeout("https://api.moonshot.cn/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      // K3 的推理 token 和最终 JSON 共用输出预算；旧的 1100 容易在正文前被截断。
+      max_completion_tokens: isCircle ? 3000 : 4096,
+      // K3 不能关闭思考，上传解析使用 low 以降低等待时间。
+      reasoning_effort: "low",
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: isCircle
+            ? "你是大学学习助手。理解图片中的圈选区域并严格输出 JSON。"
+            : "整理图片中的学习内容，只输出紧凑 JSON。",
+        },
+        {
+          role: "user",
+          content: [
+            { type: "image_url", image_url: { url: imageDataUrl } },
+            { type: "text", text: promptText },
+          ],
+        },
+      ],
+    }),
+  }, apiTimeouts().vision, "Kimi 视觉模型");
+  if (!res.ok) throw new Error(`Kimi ${res.status}: ${await res.text().catch(() => "")}`);
+  const data = await res.json();
+  return String(data.choices?.[0]?.message?.content ?? "");
+}
+
+async function callVisionModel(
+  imageDataUrl: string,
+  options?: Parameters<typeof callDoubao>[1],
+) {
+  if (process.env.MOONSHOT_API_KEY || process.env.VITE_MOONSHOT_API_KEY) {
+    return callKimi(imageDataUrl, options);
+  }
+  return callDoubao(imageDataUrl, options);
+}
+
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
@@ -425,7 +666,7 @@ export default async function handler(req: Request): Promise<Response> {
 
     if (body.kind === "image") {
       if (!body.imageDataUrl) throw new Error("imageDataUrl is required");
-      const raw = await callDoubao(body.imageDataUrl, {
+      const raw = await callVisionModel(body.imageDataUrl, {
         fileName: body.fileName,
         mode: body.mode,
         pdfTitle: body.pdfTitle,
@@ -433,6 +674,7 @@ export default async function handler(req: Request): Promise<Response> {
         markKind: body.markKind,
         userIntent: body.userIntent,
         userProfile: body.userProfile,
+        routingContext: body.routingContext,
       });
 
       if (body.mode === "circle_region") {
@@ -448,7 +690,7 @@ export default async function handler(req: Request): Promise<Response> {
 
     if (body.kind === "text" || body.kind === "link") {
       if (!body.value) throw new Error("value is required");
-      const raw = await callDeepSeek(buildTextPrompt(body.kind, body.value, body.fileName));
+      const raw = await callTextModel(buildTextPrompt(body.kind, body.value, body.fileName, body.routingContext));
       return new Response(JSON.stringify(normalizeResult(extractJson(raw), fallbackTitle)), {
         headers: { "Content-Type": "application/json" },
       });

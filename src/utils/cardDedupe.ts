@@ -48,18 +48,16 @@ export function cardDedupeKey(card: CardData): string | null {
   const anchor = card.sourceAnchor;
   if (anchor?.fileId) {
     return anchor.kind === "pdf"
-      ? `pdf:${anchor.fileId}:${anchor.page ?? ""}`
+      ? `pdf:${anchor.fileId}:${anchor.page ?? ""}:${anchor.contentId ?? ""}`
       : `${anchor.kind}:${anchor.fileId}`;
   }
 
-  // 文案 intro 优先于图片指纹：避免同批注一次用 data URL、一次用静态封面导致无法合并
-  const intro = (card.detailIntro || card.overview || "").trim().slice(0, 36);
-  if (intro) return `intro:${card.source}:${intro}`;
-
+  // 没有可靠来源锚点时，只允许完全相同的上传图片去重。
+  // 相同标题、摘要或 AI 模板文案不代表内容重复，必须保留为多篇。
   const imgFp = imageFingerprint(card.img);
   if (imgFp) return `img:${card.source}:${imgFp}`;
 
-  return `title:${card.source}:${card.title.trim().slice(0, 48)}`;
+  return null;
 }
 
 /** 展示层去重：与 cardDedupeKey 同一套规则 */

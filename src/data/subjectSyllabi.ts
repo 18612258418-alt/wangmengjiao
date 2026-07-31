@@ -1,5 +1,5 @@
 /**
- * 各学科「教学大纲总览」——笔记 Tab 左侧目录
+ * 各学科课程的「章节—知识点」结构
  */
 export type SyllabusNodeKind = "chapter" | "topic";
 
@@ -16,7 +16,7 @@ export interface SubjectSyllabus {
 
 export const SUBJECT_SYLLABI: Record<string, SubjectSyllabus> = {
   physics: {
-    overviewTitle: "大学物理教学大纲总览",
+    overviewTitle: "大学物理课程知识结构",
     nodes: [
       { id: "phy-ch1", kind: "chapter", title: "第一章 力学" },
       { id: "phy-1-1", kind: "topic", title: "1.1 牛顿定律与受力分析" },
@@ -33,7 +33,7 @@ export const SUBJECT_SYLLABI: Record<string, SubjectSyllabus> = {
     ],
   },
   math: {
-    overviewTitle: "高等数学教学大纲总览",
+    overviewTitle: "高等数学课程知识结构",
     nodes: [
       { id: "math-ch1", kind: "chapter", title: "第一章 函数与极限" },
       { id: "math-1-1", kind: "topic", title: "1.1 极限与连续" },
@@ -50,10 +50,13 @@ export const SUBJECT_SYLLABI: Record<string, SubjectSyllabus> = {
       { id: "math-5-1", kind: "topic", title: "5.1 空间向量运算" },
       { id: "math-5-2", kind: "topic", title: "5.2 概率与数学期望" },
       { id: "math-5-3", kind: "topic", title: "5.3 二项式定理" },
+      { id: "math-ch6", kind: "chapter", title: "第六章 多元函数积分学" },
+      { id: "math-6-1", kind: "topic", title: "6.1 重积分" },
+      { id: "math-6-2", kind: "topic", title: "6.2 曲线积分" },
     ],
   },
   chemistry: {
-    overviewTitle: "大学化学教学大纲总览",
+    overviewTitle: "大学化学课程知识结构",
     nodes: [
       { id: "chem-ch1", kind: "chapter", title: "第一章 物质结构" },
       { id: "chem-1-1", kind: "topic", title: "1.1 化学键与分子极性" },
@@ -65,7 +68,7 @@ export const SUBJECT_SYLLABI: Record<string, SubjectSyllabus> = {
     ],
   },
   english: {
-    overviewTitle: "大学英语教学大纲总览",
+    overviewTitle: "大学英语课程知识结构",
     nodes: [
       { id: "eng-ch1", kind: "chapter", title: "第一章 语法体系" },
       { id: "eng-1-1", kind: "topic", title: "1.1 时态与语态" },
@@ -78,10 +81,10 @@ export const SUBJECT_SYLLABI: Record<string, SubjectSyllabus> = {
     ],
   },
   other: {
-    overviewTitle: "社会科学教学大纲总览",
+    overviewTitle: "社会科学课程知识结构",
     nodes: [
       { id: "soc-ch1", kind: "chapter", title: "第一章 经济学基础" },
-      { id: "soc-1-1", kind: "topic", title: "1.1 宏观经济学与 GDP 核算" },
+      { id: "soc-1-1", kind: "topic", title: "1.1 GDP 的含义与核算" },
       { id: "soc-ch2", kind: "chapter", title: "第二章 学习方法论" },
       { id: "soc-2-1", kind: "topic", title: "2.1 思维导图与知识结构化" },
       { id: "soc-2-2", kind: "topic", title: "2.2 费曼学习法" },

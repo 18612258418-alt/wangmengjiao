@@ -7,6 +7,7 @@
 import type { ExamKnowledgeGraph, ExerciseDifficulty } from "../types";
 import { extractJsonObject, parseJsonLoose } from "../utils/json";
 import type { ExamPointLinkInput } from "./examPointLink";
+import { KNOWLEDGE_NETWORK_RULES } from "./knowledgeNetworkRules";
 
 export interface ExamPointProposal {
   label: string;
@@ -57,6 +58,8 @@ export function buildExamPointProposalPrompt(
 
   return `你是一位大学学科教研员。下面这条学生笔记，**没能匹配到现有考点图谱里的任何节点**。
 请判断：它是否实质性地讲解了一个"值得纳入备考、但图谱里目前没有"的考点？如果是，请产出一个规范的新考点草稿。
+
+${KNOWLEDGE_NETWORK_RULES}
 
 ══════════════════ 严格判定（宁缺毋滥，防止无中生有）══════════════════
 1. 只有当笔记包含**明确的知识讲解、定义定理、公式方法或典型考法**时，才考虑建点。

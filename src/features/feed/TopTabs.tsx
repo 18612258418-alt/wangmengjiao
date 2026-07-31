@@ -1,7 +1,7 @@
-export type TopTabId = "notes" | "homework" | "exam" | "paper";
+export type TopTabId = "study" | "notes" | "homework" | "exam" | "paper";
 
 const BASE_TABS: Array<{ id: TopTabId; label: string }> = [
-  { id: "notes", label: "笔记" },
+  { id: "notes", label: "知识" },
   { id: "homework", label: "作业" },
   { id: "exam", label: "备考" },
 ];

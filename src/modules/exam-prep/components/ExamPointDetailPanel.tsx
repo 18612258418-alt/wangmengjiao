@@ -271,7 +271,7 @@ export function ExamPointDetailPanel({
         </div>
         {relatedNotes.length === 0 ? (
           <p className="text-[12px] text-[#B0B5C0] leading-5">
-            暂无关联笔记，可在笔记 Tab 补充该考点内容后自动挂靠
+            暂无相关笔记，可在“学习”中补充这个考点的内容
           </p>
         ) : (
           <ul className="space-y-2">

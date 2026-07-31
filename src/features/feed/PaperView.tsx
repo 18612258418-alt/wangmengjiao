@@ -203,7 +203,7 @@ export function PaperView({
                   <ListChecks size={17} className="text-[#4D5CFF]" />
                   <h3 className="text-[15px] font-bold text-[#020418]">论文大纲与文献笔记</h3>
                 </div>
-                <span className="text-[11px] text-[#9CA3AF]">共挂靠 {new Set(outline.map(item => noteAt(item.noteIndex).card.id)).size} 条笔记</span>
+                <span className="text-[11px] text-[#9CA3AF]">已使用 {new Set(outline.map(item => noteAt(item.noteIndex).card.id)).size} 条笔记</span>
               </div>
               <div className="divide-y divide-[#F0F1F5]">
                 {outline.map((item, index) => {

@@ -21,6 +21,12 @@ interface Transform {
 const MIN_SCALE = 0.2;
 const MAX_SCALE = 2.8;
 const DRAG_THRESHOLD = 4;
+const RELATION_LABEL = {
+  prerequisite: "先修",
+  derivation: "推导",
+  application: "应用",
+  analogy: "类比",
+} as const;
 
 /** 分层 DAG 正交连线：竖 → 横 → 竖，减少曲线交叉 */
 function edgePath(x1: number, y1: number, x2: number, y2: number): string {
@@ -43,15 +49,20 @@ function fitTransform(
   graphH: number,
 ): Transform {
   const pad = 32;
-  const scale = Math.min(
+  const fitScale = Math.min(
     (containerW - pad) / graphW,
     (containerH - pad) / graphH,
-    0.95,
+    1,
   );
+  // 完整网络层级较深，严格“全图塞入”会让节点和文字小到无法阅读。
+  // 默认在适配结果上放大一档，用户仍可通过拖拽/缩放浏览全网。
+  const scale = clampScale(Math.min(1.3, fitScale * 1.55));
+  const scaledWidth = graphW * scale;
+  const scaledHeight = graphH * scale;
   return {
     scale,
-    x: (containerW - graphW * scale) / 2,
-    y: (containerH - graphH * scale) / 2,
+    x: (containerW - scaledWidth) / 2,
+    y: scaledHeight > containerH - pad ? pad / 2 : (containerH - scaledHeight) / 2,
   };
 }
 
@@ -100,13 +111,29 @@ export function ExamGraphCanvas({
   );
 
   const nodeMap = useMemo(() => new Map(nodes.map(n => [n.id, n])), [nodes]);
+  const relationMap = useMemo(
+    () => new Map((graph.relations ?? []).map(relation => [`${relation.from}->${relation.to}`, relation])),
+    [graph.relations],
+  );
+  const displayEdges = useMemo(() => {
+    const seen = new Set(edges.map(edge => `${edge.from}->${edge.to}`));
+    const inferred = (graph.relations ?? [])
+      .filter(relation => !seen.has(`${relation.from}->${relation.to}`))
+      .map(relation => ({ from: relation.from, to: relation.to }));
+    return [...edges, ...inferred];
+  }, [edges, graph.relations]);
 
   const relatedIds = useMemo(() => {
     if (!selectedId) return new Set<string>();
     const point = graph.points.find(p => p.id === selectedId);
     if (!point) return new Set([selectedId]);
-    return new Set([selectedId, ...point.prerequisites, ...point.postrequisites]);
-  }, [graph.points, selectedId]);
+    const relationNeighbors = (graph.relations ?? []).flatMap(relation =>
+      relation.from === selectedId
+        ? [relation.to]
+        : (relation.to === selectedId ? [relation.from] : []),
+    );
+    return new Set([selectedId, ...point.prerequisites, ...point.postrequisites, ...relationNeighbors]);
+  }, [graph.points, graph.relations, selectedId]);
 
   const applyFit = useCallback(() => {
     const el = containerRef.current;
@@ -342,7 +369,7 @@ export function ExamGraphCanvas({
           y={node.y + NODE_R + 7}
           textAnchor="middle"
           fill={active ? "var(--exam-node-active-stroke)" : "#41464F"}
-          fontSize={7.5}
+          fontSize={9}
           fontWeight={active ? 700 : 500}
           pointerEvents="none"
         >
@@ -360,13 +387,6 @@ export function ExamGraphCanvas({
 
   return (
     <div className={`${EXAM_PANEL_SHELL} ${EXAM_PANEL_FILL} flex flex-col min-h-0 overflow-hidden`}>
-      <div className="flex-shrink-0 px-4 pt-3 pb-2.5 border-b border-[#EAEDF2] bg-white">
-        <p className="text-[14px] text-[#020418]" style={{ fontWeight: 700 }}>考点知识图谱</p>
-        <p className="text-[11px] text-[#9CA3AF] mt-0.5">
-          拖拽平移 · 滚轮/双指缩放 · 点击节点查看考点详情
-        </p>
-      </div>
-
       <div
         ref={containerRef}
         className="flex-1 min-h-0 relative overflow-hidden cursor-grab active:cursor-grabbing select-none bg-[#FAFBFD]"
@@ -393,7 +413,7 @@ export function ExamGraphCanvas({
             </defs>
 
             <g transform={`translate(${transform.x}, ${transform.y}) scale(${transform.scale})`}>
-              {edges.map((e, i) => {
+              {displayEdges.map((e, i) => {
                 const from = nodeMap.get(e.from);
                 const to = nodeMap.get(e.to);
                 if (!from || !to) return null;
@@ -403,6 +423,8 @@ export function ExamGraphCanvas({
                 const y2 = to.y - NODE_R;
                 const active = selectedId === e.from || selectedId === e.to;
                 const dimmed = selectedId !== null && !active;
+                const relation = relationMap.get(`${e.from}->${e.to}`);
+                const inferred = relation?.evidence === "ai_inferred";
                 return (
                   <path
                     key={`${e.from}-${e.to}-${i}`}
@@ -412,10 +434,17 @@ export function ExamGraphCanvas({
                     strokeWidth={active ? 1.25 : 0.75}
                     strokeLinejoin="round"
                     strokeLinecap="round"
+                    strokeDasharray={inferred ? "4 3" : undefined}
                     opacity={dimmed ? 0.22 : 1}
                     style={{ transition: "opacity 0.15s" }}
                     markerEnd={active ? "url(#exam-arrow-active)" : "url(#exam-arrow)"}
-                  />
+                  >
+                    <title>
+                      {relation
+                        ? `${RELATION_LABEL[relation.type]}关系 · ${Math.round(relation.confidence * 100)}%${relation.reason ? ` · ${relation.reason}` : ""}`
+                        : "先修关系"}
+                    </title>
+                  </path>
                 );
               })}
               {sortedNodes.map(node => renderNode(node))}
@@ -468,6 +497,14 @@ export function ExamGraphCanvas({
         <span className="flex items-center gap-1.5 text-[10px] text-[#7B8291]">
           <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: "#16A34A", border: "1.5px solid #fff", boxShadow: "0 0 0 1px #16A34A" }} />
           笔记扩展
+        </span>
+        <span className="flex items-center gap-1.5 text-[10px] text-[#7B8291]">
+          <span className="inline-block w-5 border-t border-[#9CA3AF]" />
+          已确认关系
+        </span>
+        <span className="flex items-center gap-1.5 text-[10px] text-[#7B8291]">
+          <span className="inline-block w-5 border-t border-dashed border-[#9CA3AF]" />
+          AI 推测
         </span>
       </div>
     </div>

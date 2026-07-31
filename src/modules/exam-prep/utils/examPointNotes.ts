@@ -105,12 +105,31 @@ function flattenNoteCards(feedGroups: FeedGroup[]): ExamRelatedNote[] {
 }
 
 function cardSearchText(card: CardData): string {
+  // 历史卡片和模型返回的数据可能缺少 items，或把 items 写成单个字符串。
+  // 备考检索只需要可搜索文本，因此在这里做宽容归一化，避免一条旧笔记拖垮整个页面。
+  const keyPoints = Array.isArray(card.aiKeyPoints)
+    ? card.aiKeyPoints.filter((item): item is string => typeof item === "string")
+    : [];
+  const sectionText = Array.isArray(card.detailSections)
+    ? card.detailSections.flatMap(section => {
+        if (!section || typeof section !== "object") return [];
+        const title = typeof section.title === "string" ? [section.title] : [];
+        const rawItems = (section as { items?: unknown }).items;
+        const items = Array.isArray(rawItems)
+          ? rawItems.filter((item): item is string => typeof item === "string")
+          : typeof rawItems === "string"
+            ? [rawItems]
+            : [];
+        return [...title, ...items];
+      })
+    : [];
+
   return [
     card.title,
     card.overview ?? "",
     card.detailIntro ?? "",
-    ...(card.aiKeyPoints ?? []),
-    ...(card.detailSections?.flatMap(s => [s.title, ...s.items]) ?? []),
+    ...keyPoints,
+    ...sectionText,
     card.unifiedDetail ?? "",
   ].join(" ");
 }

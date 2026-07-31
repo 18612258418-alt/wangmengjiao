@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { X, ChevronLeft, ChevronRight, Save } from "lucide-react";
 import { detectClosedShape, type Point } from "./circleDetect";
 import { AiAnalysisPanel, type AiEntry } from "./AiAnalysisPanel";
-import { compressImageForApi } from "../../utils/api";
+import { callDoubao, compressImageForApi, type DeepSeekResult } from "../../utils/api";
 import { isImageFile, openPdfDocument } from "../../utils/pdfjs";
 import { formatCircleRegionAnswer, DEMO_CIRCLE_RESULT, type CircleRegionResult } from "../../prompts/circleRegion";
 import { recordAnalysis, recordClarification, summarizeProfile } from "./userProfile";
@@ -32,6 +32,42 @@ interface Props {
     hasAnnotations: boolean,
     meta?: { sourceAnchor?: SourceAnchor },
   ) => void;
+}
+
+function generalVisionToCircle(data: DeepSeekResult): CircleRegionResult {
+  const sections = (data.detailSections ?? [])
+    .filter(section => section.title && section.items?.length)
+    .map(section => ({
+      title: section.title,
+      content: section.items.join("\n"),
+    }));
+  const intent = data.detailIntro?.trim()
+    || data.overview?.trim()
+    || data.summary?.trim()
+    || data.title?.replace(/^记忆[：:]\s*/, "")
+    || "已识别圈选区域的核心知识。";
+  return {
+    intent,
+    skill: data.skill,
+    sections: sections.length
+      ? sections
+      : [{
+        title: "知识点解析",
+        content: (data.aiKeyPoints ?? []).join("\n") || intent,
+      }],
+    warnings: [],
+  };
+}
+
+function contentFingerprint(dataUrl: string): string {
+  const payload = dataUrl.slice(dataUrl.indexOf(",") + 1);
+  const step = Math.max(1, Math.floor(payload.length / 96));
+  let hash = 2166136261;
+  for (let index = 0; index < payload.length; index += step) {
+    hash ^= payload.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${payload.length.toString(36)}-${(hash >>> 0).toString(36)}`;
 }
 
 type Tool = "pen" | "eraser";
@@ -636,6 +672,7 @@ export function PdfReaderModal({
         fileId: pdfFileId.current,
         fileName: pdfTitle,
         page: pageNum,
+        contentId: contentFingerprint(composite),
       },
     });
     setPageState(pageNum, { saved: true, dirtySinceSave: false });
@@ -691,7 +728,7 @@ export function PdfReaderModal({
 
   const isCircleApiUnavailable = (err: unknown): boolean => {
     const msg = err instanceof Error ? err.message : String(err);
-    return /not configured|429|SetLimitExceeded|TooManyRequests|InvalidEndpointOrModel|Doubao 5\d\d|Doubao 4\d\d|API 404|API 500|API 502|API 503/i.test(msg);
+    return /not configured|429|SetLimitExceeded|TooManyRequests|InvalidEndpointOrModel|Doubao 5\d\d|Doubao 4\d\d|API 404|API 500|API 502|API 503|API 504|超时|timeout|FUNCTION_INVOCATION_TIMEOUT/i.test(msg);
   };
 
   const isDrawingIssue = (err: unknown): boolean => {
@@ -772,33 +809,49 @@ export function PdfReaderModal({
     imageDataUrl: string,
     opts: { markKind: "circle" | "ink"; userIntent?: string },
   ): Promise<CircleRegionResult> => {
-    const res = await fetch("/api/import", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        kind: "image",
-        mode: "circle_region",
-        imageDataUrl,
-        fileName: file.name,
-        pdfTitle,
-        pageNum: currentPageRef.current,
-        markKind: opts.markKind,
-        userIntent: opts.userIntent,
-        userProfile: summarizeProfile(),
-      }),
-    });
-
-    const raw = await res.text();
-    let data = {} as CircleRegionResult & { error?: string };
     try {
-      data = raw ? JSON.parse(raw) : {};
-    } catch {
-      if (!res.ok) throw new Error(`API ${res.status}`);
-      throw new Error("模型返回格式异常，请重新圈选");
+      const res = await fetch("/api/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "image",
+          mode: "circle_region",
+          imageDataUrl,
+          fileName: file.name,
+          pdfTitle,
+          pageNum: currentPageRef.current,
+          markKind: opts.markKind,
+          userIntent: opts.userIntent,
+          userProfile: summarizeProfile(),
+        }),
+      });
+
+      const raw = await res.text();
+      let data = {} as CircleRegionResult & { error?: string };
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        if (!res.ok) throw new Error(`API ${res.status}`);
+        throw new Error("模型返回格式异常");
+      }
+      if (!res.ok) throw new Error(data.error || `API ${res.status}`);
+      if (data.error) throw new Error(data.error);
+      const hasResult = Boolean(
+        data.intent?.trim()
+        || data.sections?.some(section => section.content?.trim())
+        || (data.needClarify && data.clarifyQuestion?.trim())
+      );
+      if (!hasResult) throw new Error("empty analysis");
+      return data;
+    } catch (primaryError) {
+      if (isCircleApiUnavailable(primaryError)) return DEMO_CIRCLE_RESULT;
+      try {
+        const generalResult = await callDoubao(imageDataUrl, opts.markKind === "ink");
+        return generalVisionToCircle(generalResult);
+      } catch {
+        throw primaryError;
+      }
     }
-    if (!res.ok) throw new Error(data.error || `API ${res.status}`);
-    if (data.error) throw new Error(data.error);
-    return data;
   }, [file.name, pdfTitle]);
 
   const updateEntries = useCallback((pageNum: number, fn: (prev: AiEntry[]) => AiEntry[]) => {
@@ -1003,6 +1056,10 @@ export function PdfReaderModal({
       const data = await callCircleApi(compressed, { markKind: "ink" });
       applyResultToEntry(pageNum, entryId, data);
     } catch (err) {
+      if (isCircleApiUnavailable(err)) {
+        applyResultToEntry(pageNum, entryId, DEMO_CIRCLE_RESULT);
+        return;
+      }
       // 笔迹是用户的笔记，保留在画布上；只移除条目
       strokes.forEach(s => { s.entryId = undefined; });
       circleCountRef.current = Math.max(0, circleCountRef.current - 1);

@@ -1,8 +1,13 @@
-import type { ExamKnowledgeGraph, ExamKnowledgePoint } from "../types";
+import type { ExamKnowledgeGraph, ExamKnowledgePoint, ExamKnowledgeRelation } from "../types";
 import { FRESHMAN_MATH_POINTS } from "./examMathFreshmanGraph";
 
-function graph(subjectId: string, title: string, points: ExamKnowledgePoint[]): ExamKnowledgeGraph {
-  return { subjectId, title, points };
+function graph(
+  subjectId: string,
+  title: string,
+  points: ExamKnowledgePoint[],
+  relations: ExamKnowledgeRelation[] = [],
+): ExamKnowledgeGraph {
+  return { subjectId, title, points, relations };
 }
 
 const PHYSICS_POINTS: ExamKnowledgePoint[] = [
@@ -11,7 +16,7 @@ const PHYSICS_POINTS: ExamKnowledgePoint[] = [
     label: "运动学基础",
     chapter: "力学",
     prerequisites: [],
-    postrequisites: ["phy_newton", "phy_energy"],
+    postrequisites: ["phy_newton"],
     examPoints: ["v-t、x-t 图像斜率与面积含义", "匀变速公式选用条件", "抛体运动的分解"],
     answerStrategy: ["画图定正负方向", "列独立方程数=未知量数", "能量法与牛顿定律对照检验"],
     referenceQuestions: [
@@ -23,7 +28,7 @@ const PHYSICS_POINTS: ExamKnowledgePoint[] = [
     label: "牛顿定律",
     chapter: "力学",
     prerequisites: ["phy_kinematics"],
-    postrequisites: ["phy_circular", "phy_gravity"],
+    postrequisites: ["phy_energy", "phy_momentum", "phy_circular", "phy_oscillation"],
     examPoints: ["受力分析：隔离法与整体法", "静摩擦与动摩擦临界", "超重失重加速度关系"],
     answerStrategy: ["先画受力图再列 ΣF=ma", "临界：静摩擦取最大值", "列式注意矢量方向"],
     referenceQuestions: [
@@ -34,13 +39,25 @@ const PHYSICS_POINTS: ExamKnowledgePoint[] = [
     id: "phy_energy",
     label: "机械能守恒",
     chapter: "力学",
-    prerequisites: ["phy_kinematics"],
-    postrequisites: ["phy_circular"],
+    prerequisites: ["phy_newton"],
+    postrequisites: ["phy_circular", "phy_oscillation", "phy_thermo"],
     examPoints: ["守恒条件：只有重力/弹力做功", "功能定理 W=ΔEk", "摩擦生热 Q=fd"],
     answerStrategy: ["先判能否用守恒", "选零势能面", "非守恒用功能定理补摩擦功"],
     referenceQuestions: [
       { stem: "单摆从 30° 释放，求底端速度（绳长 L）。", answerOutline: "mgh=½mv²，v=√(2gL(1-cos30°))。", difficulty: "basic" },
       { stem: "粗糙斜面下滑有摩擦，求末速度。", answerOutline: "用功能定理：mgh-Q=½mv²。", difficulty: "advanced" },
+    ],
+  },
+  {
+    id: "phy_momentum",
+    label: "动量与碰撞",
+    chapter: "力学",
+    prerequisites: ["phy_newton"],
+    postrequisites: [],
+    examPoints: ["冲量定理 $I=\\Delta p$", "动量守恒条件", "完全弹性与非弹性碰撞"],
+    answerStrategy: ["先选系统再判断外力冲量", "分方向列动量守恒", "弹性碰撞再补机械能守恒"],
+    referenceQuestions: [
+      { stem: "两滑块在光滑水平面碰撞并粘在一起，求共同速度。", answerOutline: "系统水平方向动量守恒，列 $m_1v_1+m_2v_2=(m_1+m_2)v$。", difficulty: "basic" },
     ],
   },
   {
@@ -68,11 +85,47 @@ const PHYSICS_POINTS: ExamKnowledgePoint[] = [
     ],
   },
   {
+    id: "phy_oscillation",
+    label: "机械振动",
+    chapter: "振动与波",
+    prerequisites: ["phy_newton", "phy_energy"],
+    postrequisites: ["phy_waves"],
+    examPoints: ["简谐振动方程", "振幅、相位和周期", "受迫振动与共振"],
+    answerStrategy: ["从回复力判断是否简谐", "用初始条件确定振幅和初相", "比较驱动频率与固有频率"],
+    referenceQuestions: [
+      { stem: "弹簧振子质量为 $m$、劲度系数为 $k$，求固有角频率。", answerOutline: "由 $m\\ddot x+kx=0$ 得 $\\omega_0=\\sqrt{k/m}$。", difficulty: "basic" },
+    ],
+  },
+  {
+    id: "phy_waves",
+    label: "机械波",
+    chapter: "振动与波",
+    prerequisites: ["phy_oscillation"],
+    postrequisites: ["phy_optics"],
+    examPoints: ["波函数与相位传播", "波的叠加和干涉", "驻波与多普勒效应"],
+    answerStrategy: ["先确定传播方向和相位差", "用波程差判断干涉", "驻波题找节点与腹点"],
+    referenceQuestions: [
+      { stem: "已知波速 $v$ 和频率 $f$，求波长。", answerOutline: "由 $v=\\lambda f$ 得 $\\lambda=v/f$。", difficulty: "basic" },
+    ],
+  },
+  {
+    id: "phy_thermo",
+    label: "热力学基础",
+    chapter: "热学",
+    prerequisites: ["phy_energy"],
+    postrequisites: [],
+    examPoints: ["理想气体状态方程", "热力学第一定律", "循环过程与热机效率"],
+    answerStrategy: ["先明确系统与过程", "统一 $Q$、$W$ 符号约定", "在 $p-V$ 图中用面积判断功"],
+    referenceQuestions: [
+      { stem: "理想气体等容吸热，内能如何变化？", answerOutline: "等容过程 $W=0$，由 $\\Delta U=Q-W$ 得 $\\Delta U=Q$。", difficulty: "basic" },
+    ],
+  },
+  {
     id: "phy_electric",
     label: "静电场",
     chapter: "电磁学",
     prerequisites: [],
-    postrequisites: ["phy_circuit"],
+    postrequisites: ["phy_gauss_potential"],
     examPoints: ["E 与 φ 关系、等势面", "电容器 C=Q/U", "带电粒子在电场中加速与偏转"],
     answerStrategy: ["先求场强再求力", "动能定理 qU=½mv²", "类平抛分解"],
     referenceQuestions: [
@@ -80,11 +133,23 @@ const PHYSICS_POINTS: ExamKnowledgePoint[] = [
     ],
   },
   {
+    id: "phy_gauss_potential",
+    label: "高斯定理与电势",
+    chapter: "电磁学",
+    prerequisites: ["phy_electric"],
+    postrequisites: ["phy_circuit", "phy_magnetic"],
+    examPoints: ["电通量与高斯定理", "电势差与场强关系", "电容器能量"],
+    answerStrategy: ["利用对称性选择高斯面", "先定零电势点再积分", "场强、电势和势能分清对象"],
+    referenceQuestions: [
+      { stem: "求均匀带电球壳内部的电场。", answerOutline: "取球形高斯面，包围净电荷为零，因此内部场强为零。", difficulty: "basic" },
+    ],
+  },
+  {
     id: "phy_circuit",
     label: "直流电路",
     chapter: "电磁学",
-    prerequisites: ["phy_electric"],
-    postrequisites: ["phy_em_induction"],
+    prerequisites: ["phy_gauss_potential"],
+    postrequisites: ["phy_magnetic"],
     examPoints: ["欧姆定律与功率", "串并联等效", "含源电路欧姆定律与路端电压"],
     answerStrategy: ["画等效电路图", "先求总电阻再分支", "注意内阻分压"],
     referenceQuestions: [
@@ -92,16 +157,64 @@ const PHYSICS_POINTS: ExamKnowledgePoint[] = [
     ],
   },
   {
+    id: "phy_magnetic",
+    label: "磁场与洛伦兹力",
+    chapter: "电磁学",
+    prerequisites: ["phy_newton", "phy_circuit", "phy_gauss_potential"],
+    postrequisites: ["phy_em_induction"],
+    examPoints: ["毕奥-萨伐尔定律与安培环路定理", "洛伦兹力方向", "带电粒子在磁场中的运动"],
+    answerStrategy: ["先用右手定则判方向", "速度垂直磁场时列 $qvB=mv^2/r$", "复合场中分方向分析"],
+    referenceQuestions: [
+      { stem: "带电粒子垂直进入匀强磁场，求轨道半径。", answerOutline: "由 $qvB=mv^2/r$ 得 $r=mv/(qB)$。", difficulty: "advanced" },
+    ],
+  },
+  {
     id: "phy_em_induction",
     label: "电磁感应",
     chapter: "电磁学",
-    prerequisites: ["phy_circuit"],
-    postrequisites: [],
+    prerequisites: ["phy_magnetic", "phy_circuit"],
+    postrequisites: ["phy_ac", "phy_em_wave"],
     examPoints: ["楞次定律「来拒去留」", "法拉第定律 ε=ΔΦ/Δt", "导体棒切割 ε=Blv"],
     answerStrategy: ["先判感应电流方向", "再选公式算大小", "能量守恒检验"],
     referenceQuestions: [
       { stem: "磁铁插入线圈，线圈中感应电流方向？", answerOutline: "楞次：阻碍插入，用安培定则判方向。", difficulty: "basic" },
       { stem: "导体棒在导轨上匀速切割，求感应电流。", answerOutline: "ε=Blv，I=ε/(R+r)。", difficulty: "advanced" },
+    ],
+  },
+  {
+    id: "phy_ac",
+    label: "交流电与变压器",
+    chapter: "电磁学",
+    prerequisites: ["phy_em_induction", "phy_circuit"],
+    postrequisites: ["phy_em_wave"],
+    examPoints: ["正弦交流电有效值", "电感电容的相位关系", "理想变压器匝数比"],
+    answerStrategy: ["区分峰值与有效值", "先画相量关系", "变压器同时使用电压比与功率守恒"],
+    referenceQuestions: [
+      { stem: "理想变压器原副线圈匝数比为 5:1，原线圈 220 V，求副线圈电压。", answerOutline: "由 $U_1/U_2=N_1/N_2$ 得 $U_2=44$ V。", difficulty: "basic" },
+    ],
+  },
+  {
+    id: "phy_em_wave",
+    label: "电磁场与电磁波",
+    chapter: "电磁学",
+    prerequisites: ["phy_em_induction", "phy_ac"],
+    postrequisites: ["phy_optics"],
+    examPoints: ["位移电流与麦克斯韦思想", "电磁波传播速度", "能流密度与偏振"],
+    answerStrategy: ["从变化电场与变化磁场的耦合解释传播", "用 $c=1/\\sqrt{\\mu_0\\varepsilon_0}$", "联系波动与能量传播"],
+    referenceQuestions: [
+      { stem: "真空中电磁波速度由哪些常量决定？", answerOutline: "由真空介电常数和磁导率决定，$c=1/\\sqrt{\\mu_0\\varepsilon_0}$。", difficulty: "basic" },
+    ],
+  },
+  {
+    id: "phy_optics",
+    label: "波动光学",
+    chapter: "光学",
+    prerequisites: ["phy_waves", "phy_em_wave"],
+    postrequisites: ["phy_quantum_intro"],
+    examPoints: ["双缝干涉与光程差", "单缝衍射", "偏振与马吕斯定律"],
+    answerStrategy: ["先写光程差", "判断明暗纹条件", "区分干涉、衍射和偏振的实验条件"],
+    referenceQuestions: [
+      { stem: "双缝间距为 $d$、屏距为 $L$，求条纹间距。", answerOutline: "相邻明纹间距 $\\Delta x=\\lambda L/d$。", difficulty: "basic" },
     ],
   },
   {
@@ -120,7 +233,7 @@ const PHYSICS_POINTS: ExamKnowledgePoint[] = [
     id: "phy_quantum_intro",
     label: "量子初步",
     chapter: "近代物理",
-    prerequisites: [],
+    prerequisites: ["phy_optics"],
     postrequisites: ["phy_photoeffect"],
     examPoints: ["波粒二象性", "氢原子能级跃迁", "德布罗意波长"],
     answerStrategy: ["能级差 hν=Em-En", "吸收/发射光子选择定则", "波长 λ=h/p"],
@@ -128,6 +241,22 @@ const PHYSICS_POINTS: ExamKnowledgePoint[] = [
       { stem: "氢原子从 n=3 跃迁到 n=1 辐射光子能量？", answerOutline: "E=E₃-E₁=-13.6(1/9-1) eV（按能级公式）。", difficulty: "advanced" },
     ],
   },
+];
+
+const PHYSICS_RELATIONS: ExamKnowledgeRelation[] = [
+  { from: "phy_kinematics", to: "phy_newton", type: "prerequisite", confidence: 1, evidence: "curriculum", reason: "运动描述是建立动力学方程的基础" },
+  { from: "phy_newton", to: "phy_energy", type: "derivation", confidence: 0.98, evidence: "curriculum", reason: "功—能关系可由动力学方程推导" },
+  { from: "phy_newton", to: "phy_momentum", type: "derivation", confidence: 0.98, evidence: "curriculum", reason: "冲量定理由牛顿第二定律积分得到" },
+  { from: "phy_energy", to: "phy_thermo", type: "application", confidence: 0.92, evidence: "curriculum", reason: "能量守恒扩展到热力学系统" },
+  { from: "phy_oscillation", to: "phy_waves", type: "prerequisite", confidence: 1, evidence: "curriculum", reason: "波是振动状态在空间中的传播" },
+  { from: "phy_newton", to: "phy_magnetic", type: "application", confidence: 0.95, evidence: "material", reason: "带电粒子运动需要洛伦兹力与牛顿定律联立" },
+  { from: "phy_gauss_potential", to: "phy_circuit", type: "application", confidence: 0.9, evidence: "material", reason: "电势差和电容是电路分析的基础量" },
+  { from: "phy_magnetic", to: "phy_em_induction", type: "prerequisite", confidence: 1, evidence: "curriculum", reason: "电磁感应建立在磁通量变化之上" },
+  { from: "phy_em_induction", to: "phy_ac", type: "application", confidence: 0.96, evidence: "curriculum", reason: "交流电产生和变压器基于电磁感应" },
+  { from: "phy_em_wave", to: "phy_optics", type: "derivation", confidence: 0.95, evidence: "curriculum", reason: "光可视为特定频段的电磁波" },
+  { from: "phy_waves", to: "phy_optics", type: "analogy", confidence: 0.9, evidence: "material", reason: "干涉、衍射和叠加原理具有统一波动结构" },
+  { from: "phy_oscillation", to: "phy_ac", type: "analogy", confidence: 0.72, evidence: "ai_inferred", reason: "相位、频率和共振可用统一数学语言理解" },
+  { from: "phy_optics", to: "phy_quantum_intro", type: "prerequisite", confidence: 0.78, evidence: "ai_inferred", reason: "经典波动光学与光量子理论形成对照" },
 ];
 
 const CHEMISTRY_POINTS: ExamKnowledgePoint[] = [
@@ -300,7 +429,7 @@ const OTHER_POINTS: ExamKnowledgePoint[] = [
 
 const GRAPHS: Record<string, ExamKnowledgeGraph> = {
   math: graph("math", "大一数学 · 考点图谱", FRESHMAN_MATH_POINTS),
-  physics: graph("physics", "大学物理 · 考点图谱", PHYSICS_POINTS),
+  physics: graph("physics", "大学物理 · 考点图谱", PHYSICS_POINTS, PHYSICS_RELATIONS),
   chemistry: graph("chemistry", "大学化学 · 考点图谱", CHEMISTRY_POINTS),
   english: graph("english", "大学外语 · 考点图谱", ENGLISH_POINTS),
   other: graph("other", "综合素养 · 考点图谱", OTHER_POINTS),

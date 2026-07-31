@@ -82,7 +82,7 @@ export function ExamPrepView({
               <p className="text-[15px] text-[#020418] truncate" style={{ fontWeight: 700 }}>
                 {graph.title}
               </p>
-              <p className="text-[11px] text-[#9CA3AF] truncate">考点图谱 · 点击节点查看详情与参考题</p>
+              <p className="text-[11px] text-[#9CA3AF] truncate">拖拽或缩放图谱，点击节点查看详情</p>
             </div>
             {onAskLlm && (
               <button
