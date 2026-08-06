@@ -84,7 +84,7 @@ function pickMostRecentSubject(allFeedGroups: Record<string, FeedGroupType[]>): 
 function legacySubjectIdForCourse(courseName?: string): string | null {
   if (!courseName) return null;
   if (/物理/.test(courseName) && !/实验/.test(courseName)) return "physics";
-  if (/高等数学|数学分析|微积分/.test(courseName)) return "math";
+  if (/高等数学|数学分析|微积分|概率论|数理统计/.test(courseName)) return "math";
   if (/大学英语|英语/.test(courseName)) return "english";
   if (/大学化学|化学/.test(courseName)) return "chemistry";
   return null;

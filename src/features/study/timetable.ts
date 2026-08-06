@@ -164,6 +164,47 @@ function makeCourse(
   };
 }
 
+/**
+ * 新用户首次打开演示站时展示的课程表。
+ * 真实课表一旦导入，会以同学期的数据替换此示例；已有本地课表不会被改动。
+ */
+const DEMO_TIMETABLE: TimetableData = {
+  semester: "2026—2027 学年第一学期",
+  semesterDetection: { source: "sheet_content", confidence: 1 },
+  sourceFileName: "Memo 演示课表.xlsx",
+  sourceSheetName: "2026-2027-1",
+  importedAt: 1786051200000,
+  courses: [
+    makeCourse({ day: "周一", time: "08:00", end: "09:40", course: "大学物理（2）", room: "主楼 F101", teacher: "李老师", weeks: "1-18周" }),
+    makeCourse({ day: "周一", time: "10:10", end: "11:55", course: "高等数学", room: "教4 A503", teacher: "王老师", weeks: "1-18周" }),
+    makeCourse({ day: "周一", time: "13:30", end: "15:15", course: "信号与系统", room: "主楼 C204", teacher: "张老师", weeks: "1-18周" }),
+    makeCourse({ day: "周二", time: "08:00", end: "09:40", course: "模拟电子技术基础 A", room: "主楼 C101", teacher: "陈老师", weeks: "1-18周" }),
+    makeCourse({ day: "周三", time: "08:00", end: "09:40", course: "大学物理（2）", room: "主楼 F101", teacher: "李老师", weeks: "1-18周" }),
+    makeCourse({ day: "周三", time: "10:10", end: "11:55", course: "高等数学", room: "教4 A503", teacher: "王老师", weeks: "1-18周" }),
+    makeCourse({ day: "周五", time: "08:00", end: "09:40", course: "通信专业导论", room: "主楼 B309", teacher: "周老师", weeks: "1-18周" }),
+  ],
+  sourceRows: [
+    ["2026—2027 学年第一学期课程表", "", "", "", "", ""],
+    ["课程名称", "星期", "节次", "教室", "任课教师", "上课周次"],
+    ["大学物理（2）", "周一", "1-2", "主楼 F101", "李老师", "1-18周"],
+    ["高等数学", "周一", "3-4", "教4 A503", "王老师", "1-18周"],
+    ["信号与系统", "周一", "5-6", "主楼 C204", "张老师", "1-18周"],
+    ["模拟电子技术基础 A", "周二", "1-2", "主楼 C101", "陈老师", "1-18周"],
+    ["大学物理（2）", "周三", "1-2", "主楼 F101", "李老师", "1-18周"],
+    ["高等数学", "周三", "3-4", "教4 A503", "王老师", "1-18周"],
+    ["通信专业导论", "周五", "1-2", "主楼 B309", "周老师", "1-18周"],
+  ],
+  sourceMerges: [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }],
+};
+
+function saveDemoTimetable(): TimetableData[] {
+  const items = [DEMO_TIMETABLE];
+  localStorage.setItem(STORAGE_COLLECTION_KEY, JSON.stringify(items));
+  localStorage.setItem(STORAGE_ACTIVE_KEY, DEMO_TIMETABLE.semester);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(DEMO_TIMETABLE));
+  return items;
+}
+
 const HEADER_MATCHERS = {
   course: /课程(?:名称)?|科目|课名/i,
   day: /星期|周次?日|上课日期|week\s*day|day/i,
@@ -487,7 +528,7 @@ export function loadTimetables(): TimetableData[] {
         .filter((item): item is TimetableData => !!item);
     }
     const legacyRaw = localStorage.getItem(STORAGE_KEY);
-    if (!legacyRaw) return [];
+    if (!legacyRaw) return saveDemoTimetable();
     const legacy = normalizeTimetable(JSON.parse(legacyRaw) as TimetableData);
     if (!legacy) return [];
     localStorage.setItem(STORAGE_COLLECTION_KEY, JSON.stringify([legacy]));
