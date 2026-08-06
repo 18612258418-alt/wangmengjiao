@@ -566,7 +566,12 @@ export function SyllabusNotesView({
                         />
                       )}
                       <span className="min-w-0 flex-1">
-                        <span className="text-[9px] font-semibold text-[#4D5CFF]">我的笔记</span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="text-[9px] font-semibold text-[#4D5CFF]">我的笔记</span>
+                          {card.learningContext?.phase === "before_class" && (
+                            <span className="rounded-md bg-[#E8EEFF] px-1.5 py-0.5 text-[9px] font-bold text-[#3E56E8]">预习</span>
+                          )}
+                        </span>
                         <span className="mt-1 block truncate text-[11px] font-bold text-[#020418]">{card.title}</span>
                         <span className="mt-1 block text-[9px] text-[#9CA3AF]">
                           {card.sourceAnchor?.fileName ?? "点击查看笔记原图与重点"}
