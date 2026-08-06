@@ -26,6 +26,14 @@ export function sourceLabel(source: string) {
     zhihu: "知乎",
     evernote: "印象笔记",
     youdao: "网易有道",
+    book: "教材",
+    courseware: "课程资料",
+    notes: "课堂笔记",
+    camera: "拍照记录",
+    pdf: "PDF 文档",
+    web: "网页",
+    audio: "音频",
+    video: "视频",
   };
-  return map[source] ?? source;
+  return map[source] ?? "学习资料";
 }

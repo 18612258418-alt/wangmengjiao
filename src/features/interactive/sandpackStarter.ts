@@ -9,7 +9,7 @@ createRoot(document.getElementById("root")!).render(<App />);
 `;
 
 export const SANDPACK_STYLES = `* { box-sizing: border-box; }
-html, body, #root { margin: 0; padding: 0; min-height: 100%; }
+html, body, #root { margin: 0; padding: 0; min-height: 100%; width: 100%; overflow-x: hidden; }
 body {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: #f8fafc;
@@ -17,6 +17,14 @@ body {
 }
 body { overflow-y: auto; }
 button, input { font: inherit; }
+canvas { display: block; width: 100% !important; max-width: 100% !important; height: auto !important; aspect-ratio: 19 / 9; }
+select, input { max-width: 100%; }
+@media (max-width: 640px) {
+  body > div, #root > div { padding: 12px !important; }
+  div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+  label[style*="display: flex"] { flex-wrap: wrap !important; }
+  label input[type="range"] { flex-basis: 100% !important; width: 100% !important; }
+}
 `;
 
 export const SANDPACK_DEPENDENCIES = {

@@ -257,7 +257,7 @@ ${renderNotes(notes.slice(0, 2))}
 }
 
 【自检】
-- 如果是伽利略斜面、牛顿运动、洛伦兹力、电磁感应等，必须 interactionType=physics_sim，renderStrategy=canvas_animation。
+- 如果是伽利略斜面、牛顿运动、机械能/动量守恒、碰撞与弹簧、洛伦兹力、电磁感应等物理过程，必须 interactionType=physics_sim，renderStrategy=canvas_animation，不能降级为 step_cards。
 - 如果是函数/积分/几何面积，必须 interactionType=math_plot，renderStrategy=canvas_plot。
 - sceneDescription 必须按 5 段写，不可省略，不可只写一句话。
 - 数值控件必须给 min/max/step/default/unit。`;
@@ -320,12 +320,15 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 ■ 若 renderStrategy === "dom_cards"：用 div 做翻卡、步骤推演、对比卡，每步内容明确不同。
 
 【视觉布局规范（必须遵守）】
-- 外层容器：padding 20px，背景 #f8fafc。
-- 卡片：白色背景，圆角 20，padding 20，阴影 0 16px 40px rgba(15,23,42,.08)。
-- 顶部栏：左侧标题（来自 plan.learningGoal 的核心主题，18-20px，font-weight 700），右侧两个圆形按钮"播放/暂停"和"重置"，按钮 36×36 圆形，主色 #2563eb / 灰 #e2e8f0。
-- 画布区：圆角 16，背景 #ffffff 或 #f8fafc，下方留 16px 间距。
-- 控件区：每个控件一行——左侧 label + 当前值，右侧 input[type=range]（占满剩余宽度，accent-color #2563eb）。
-- 输出指标区：3 列等宽卡片，每列展示一个 plan.outputs 指标，数字 22px 加粗。
+- 运行区域位于右侧抽屉内，可用宽度只有 480–620px；必须按窄屏优先设计，严禁出现横向滚动或内容裁切。
+- 这是笔记抽屉中的一个小互动，不是独立实验平台：不要重复标题、说明、导航、源码入口或多层卡片。
+- 外层容器：width 100%，max-width 100%，padding 10px，白色背景；不要设置 min-width、阴影或大圆角套娃。
+- 只保留：一个画面、最多 2 个控制项、最多 2 个即时结果。删除非必要按钮、说明和装饰。
+- 画布区：逻辑坐标可用 760×280，但 CSS 必须 width:100%、height:auto、aspectRatio:"19 / 7"，不可超过 230px 显示高度。
+- 场景元素必须全部位于画布安全区内，左右各留至少 40px，运动物体不得贴边或被裁切。
+- 控件区：第一行 label + 当前值，第二行滑块占满整行。
+- 输出结果放在一行两个轻量色块中，数字 16px；不要使用大型数据卡。
+- 页面总高度必须控制在 400px 内。
 - 配色：主色 #2563eb，辅色 #16a34a（正向）、#f59e0b（警示）、#ef4444（错误），文字主色 #0f172a，弱色 #64748b。
 
 【canvas + RAF 参考骨架（仅供模仿结构，不要逐字复制注释）】
@@ -339,7 +342,7 @@ useEffect(() => {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const W = 760, H = 360;
   canvas.width = W * dpr; canvas.height = H * dpr;
-  canvas.style.width = W + "px"; canvas.style.height = H + "px";
+  canvas.style.width = "100%"; canvas.style.height = "auto";
   ctx.scale(dpr, dpr);
   let raf = 0; let last = performance.now();
   const tick = (now) => {

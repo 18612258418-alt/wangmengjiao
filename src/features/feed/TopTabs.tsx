@@ -1,6 +1,6 @@
-export type TopTabId = "notes" | "homework" | "exam";
+export type TopTabId = "study" | "notes" | "homework" | "exam" | "paper";
 
-const TABS: Array<{ id: TopTabId; label: string }> = [
+const BASE_TABS: Array<{ id: TopTabId; label: string }> = [
   { id: "notes", label: "笔记" },
   { id: "homework", label: "作业" },
   { id: "exam", label: "备考" },
@@ -9,17 +9,23 @@ const TABS: Array<{ id: TopTabId; label: string }> = [
 export function TopTabs({
   activeTab,
   onChangeTab,
+  showPaperTab = false,
 }: {
   activeTab: TopTabId;
   onChangeTab: (id: TopTabId) => void;
+  showPaperTab?: boolean;
 }) {
+  const tabs = showPaperTab
+    ? [...BASE_TABS, { id: "paper" as const, label: "论文" }]
+    : BASE_TABS;
+
   return (
     <div className="flex items-center px-6 pt-3 pb-3 flex-shrink-0">
       <div
         className="inline-flex items-center bg-white rounded-2xl border border-[#EAEDF2] p-1"
         style={{ boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}
       >
-        {TABS.map(tab => {
+        {tabs.map(tab => {
           const active = tab.id === activeTab;
           return (
             <button

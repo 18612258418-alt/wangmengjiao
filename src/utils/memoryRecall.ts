@@ -191,7 +191,12 @@ export function buildRecalledSections(items: RecalledMemory[]): { title: string;
 export function anchorsEquivalent(a: SourceAnchor, b: SourceAnchor): boolean {
   if (a.kind !== b.kind) return false;
   if (a.kind === "pdf") {
-    return Boolean(a.fileId && b.fileId && a.fileId === b.fileId && a.page != null && a.page === b.page);
+    if (!a.fileId || !b.fileId || a.fileId !== b.fileId) return false;
+    if (a.page !== b.page) return false;
+    if (a.contentId || b.contentId) {
+      return Boolean(a.contentId && b.contentId && a.contentId === b.contentId);
+    }
+    return true;
   }
   if (a.kind === "camera") {
     return Boolean(a.fileId && b.fileId && a.fileId === b.fileId);

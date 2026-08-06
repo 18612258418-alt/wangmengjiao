@@ -23,6 +23,89 @@ export interface SourceAnchor {
   fileId?: string;
   fileName?: string;
   page?: number;
+  /** 同一页中的独立圈选/批注指纹；不同内容必须保留为多篇 */
+  contentId?: string;
+}
+
+export interface SourceMemoryUnit {
+  id: string;
+  title: string;
+  pages: number[];
+  contribution: string;
+}
+
+export interface SourceKnowledgeGroup {
+  title: string;
+  summary: string;
+  pages: number[];
+  children?: string[];
+}
+
+export interface SourceDocument {
+  type: "pdf" | "web" | "pptx";
+  title: string;
+  url?: string;
+  page?: number;
+  author?: string;
+  publishedAt?: string;
+  excerpt?: string;
+  paragraphs?: string[];
+  pageCount?: number;
+  pages?: Array<{ page: number; title: string; text: string; notes?: string }>;
+  memoryUnits?: SourceMemoryUnit[];
+  knowledgeGroups?: SourceKnowledgeGroup[];
+}
+
+export interface LearningContext {
+  /** 稳定课程标识；课表时间、教室变化后资料关联仍保留 */
+  courseId?: string;
+  course?: string;
+  subject?: string;
+  chapter?: string;
+  phase?: "before_class" | "in_class" | "after_class" | "homework" | "exam";
+  classTime?: string;
+  location?: string;
+  sourceRole?: "teacher" | "student" | "classmate" | "web";
+  capabilities?: {
+    knowledgeMap?: boolean;
+    interactive?: boolean;
+  };
+}
+
+/** 上传资料经一次识别后得到的统一入库结论。 */
+export type LearningDestination = "knowledge" | "homework" | "exam";
+export type LearningMaterialType =
+  | "courseware"
+  | "textbook"
+  | "note"
+  | "homework"
+  | "exam"
+  | "syllabus"
+  | "schedule_notice"
+  | "reference"
+  | "non_course";
+export type LearningActionType = "preview" | "class_reminder" | "homework" | "review";
+
+export interface LearningAction {
+  type: LearningActionType;
+  title: string;
+  /** YYYY-MM-DDTHH:mm 或 YYYYMMDD；没有可靠时间时留空，禁止编造。 */
+  dueAt?: string;
+  /** 触发该待办的原文证据。 */
+  evidence?: string;
+  completed?: boolean;
+}
+
+export interface IngestionDecision {
+  validCourseContent: boolean;
+  confidence: number;
+  reason: string;
+  materialType: LearningMaterialType;
+  subjectName?: string;
+  courseName?: string;
+  chapterTitle?: string;
+  knowledgePoints: string[];
+  destinations: LearningDestination[];
 }
 
 export interface CardData {
@@ -63,6 +146,14 @@ export interface CardData {
   interactiveSpec?: InteractiveSpec;
   /** 入库时的来源锚点，供同页/同文件记忆召回 */
   sourceAnchor?: SourceAnchor;
+  /** PDF 或网页来源信息，用于从笔记详情返回查看原文 */
+  sourceDocument?: SourceDocument;
+  /** 课程、时空与学习阶段上下文，用于动态组织详情页 */
+  learningContext?: LearningContext;
+  /** AI 对资料有效性、类型和挂靠目标的可追溯判断。 */
+  ingestionDecision?: IngestionDecision;
+  /** 从通知、课件、作业或备考资料中抽取出的待办。 */
+  learningActions?: LearningAction[];
 }
 
 export interface FeedGroup {

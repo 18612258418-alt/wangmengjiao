@@ -596,7 +596,7 @@ function Frame6() {
           </div>
         </div>
       </div>
-      <p className="font-['PingFang_SC:Medium',sans-serif] leading-[normal] not-italic relative shrink-0 text-[28px] text-white tracking-[0.28px] whitespace-nowrap">已同步至AI记忆</p>
+      <p className="font-['PingFang_SC:Medium',sans-serif] leading-[normal] not-italic relative shrink-0 text-[28px] text-white tracking-[0.28px] whitespace-nowrap">已同步至Memo</p>
     </div>
   );
 }

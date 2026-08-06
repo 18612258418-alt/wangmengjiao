@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 
-import type { CardContentType, DetailSection, ExpandedKnowledge, KnowledgeNode, CardData, FeedGroup as FeedGroupType } from "../types";
+import type { CardContentType, DetailSection, ExpandedKnowledge, KnowledgeNode, CardData, FeedGroup as FeedGroupType, IngestionDecision, LearningAction, LearningContext, SourceDocument, SubjectData } from "../types";
 import {
   INITIAL_SUBJECTS,
   TYPE_SOURCE, TYPE_BG,
@@ -44,13 +44,28 @@ import { FormFillModal } from "../features/form-fill/FormFillModal";
 import { PenContextProvider, PenSceneSync } from "../features/pen-context";
 import { HomeworkView } from "../features/feed/HomeworkView";
 import { ExamPrepView } from "../modules/exam-prep";
-import { filterNoteFeedGroups } from "../utils/feedFilters";
+import { PaperView } from "../features/feed/PaperView";
+import { StudyView } from "../features/feed/StudyView";
+import {
+  cleanCourseName,
+  loadTimetable,
+  loadTimetables,
+  parseTimetableFile,
+  saveTimetable,
+  selectTimetableSemester,
+  type TimetableCourse,
+  type TimetableData,
+} from "../features/study/timetable";
+import { filterNoteFeedGroups, isNoteCard } from "../utils/feedFilters";
 import { EditableSubjectName } from "../features/feed/EditableSubjectName";
+import { SUBJECT_SYLLABI } from "../data/subjectSyllabi";
+import { normalizeSourceRouting, type RawSourceRouting } from "../utils/sourceRouting";
 import { RightDrawer } from "../features/drawer/RightDrawer";
 import { SearchOverlay } from "../features/search/SearchOverlay";
 import { Sidebar } from "../features/sidebar/Sidebar";
 import { AddSourceModal, type SourceDraft, isAudioFile } from "../features/source/AddSourceModal";
 import { FlyThumbnail } from "../shared/FlyThumbnail";
+import { parsePptxFile, pptxDocumentText } from "../utils/pptx";
 
 /** 选出最近更新的学科：扫描 allFeedGroups 取出最大日期对应的 subjectId */
 function pickMostRecentSubject(allFeedGroups: Record<string, FeedGroupType[]>): string | null {
@@ -64,6 +79,90 @@ function pickMostRecentSubject(allFeedGroups: Record<string, FeedGroupType[]>): 
     }
   }
   return bestId;
+}
+
+function legacySubjectIdForCourse(courseName?: string): string | null {
+  if (!courseName) return null;
+  if (/物理/.test(courseName) && !/实验/.test(courseName)) return "physics";
+  if (/高等数学|数学分析|微积分|概率论|数理统计/.test(courseName)) return "math";
+  if (/大学英语|英语/.test(courseName)) return "english";
+  if (/大学化学|化学/.test(courseName)) return "chemistry";
+  return null;
+}
+
+interface DetectedSubjectRoute {
+  id: string;
+  name: string;
+}
+
+function stableDetectedSubjectId(name: string): string {
+  let hash = 2166136261;
+  for (const char of name.trim()) {
+    hash ^= char.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16777619);
+  }
+  return `detected_${(hash >>> 0).toString(36)}`;
+}
+
+function detectedSubjectRoute(
+  searchableText: string,
+  suggestedName?: string,
+): DetectedSubjectRoute | null {
+  const text = `${suggestedName ?? ""} ${searchableText}`.trim();
+  if (/高等数学|数学分析|微积分|曲线积分|重积分|极限|导数|定积分/.test(text)) {
+    return { id: "math", name: "高等数学" };
+  }
+  if (/大学物理|力学|电磁学|热力学|光学|振动|波动/.test(text)) {
+    return { id: "physics", name: "大学物理(2)" };
+  }
+  if (/大学英语|英语/.test(text)) return { id: "english", name: "大学英语" };
+  if (/大学化学|无机化学|有机化学|化学/.test(text)) {
+    return { id: "chemistry", name: "大学化学" };
+  }
+  if (/节点电压|节点分析|回路电流|网孔电流|支路电流|基尔霍夫|受控源|电路方程|电路分析/.test(text)) {
+    return { id: "detected_electrical_circuits", name: "电路分析" };
+  }
+
+  const cleanName = suggestedName?.trim();
+  if (
+    cleanName
+    && !/^(其他|其它|专业课|课程资料|未知|综合|社会科学|人文社科|other)$/i.test(cleanName)
+  ) {
+    return { id: stableDetectedSubjectId(cleanName), name: cleanName };
+  }
+  return null;
+}
+
+function detectedSubjectForCard(card: CardData): DetectedSubjectRoute | null {
+  const searchableText = [
+    card.ingestionDecision?.subjectName,
+    card.ingestionDecision?.courseName,
+    ...(card.ingestionDecision?.knowledgePoints ?? []),
+    card.title,
+    card.overview,
+    card.detailIntro,
+    card.learningContext?.chapter,
+  ].filter(Boolean).join(" ");
+  return detectedSubjectRoute(searchableText, card.ingestionDecision?.subjectName);
+}
+
+async function fileContentId(file: File): Promise<string> {
+  try {
+    const sampleSize = 64 * 1024;
+    const head = new Uint8Array(await file.slice(0, sampleSize).arrayBuffer());
+    const tailStart = Math.max(0, file.size - sampleSize);
+    const tail = new Uint8Array(await file.slice(tailStart).arrayBuffer());
+    const sample = new Uint8Array(head.length + tail.length + 8);
+    sample.set(head, 0);
+    sample.set(tail, head.length);
+    new DataView(sample.buffer).setBigUint64(head.length + tail.length, BigInt(file.size));
+    const digest = await crypto.subtle.digest("SHA-256", sample);
+    return Array.from(new Uint8Array(digest).slice(0, 12))
+      .map(byte => byte.toString(16).padStart(2, "0"))
+      .join("");
+  } catch {
+    return `${file.size}-${file.lastModified}`;
+  }
 }
 
 export default function App() {
@@ -85,13 +184,16 @@ export default function App() {
   });
 
   const [activeSubject, setActiveSubject] = useState<string>("__pending__");
-  const [activeTopTab, setActiveTopTab] = useState<TopTabId>("notes");
+  const [activeTopTab, setActiveTopTab] = useState<TopTabId>("study");
+  const [focusedSyllabusEntryId, setFocusedSyllabusEntryId] = useState<string | null>(null);
   const [annotationType, setAnnotationType] = useState<string | null>(null);
   const [drawerCard, setDrawerCard] = useState<CardData | null>(null);
   const [drawerCardDate, setDrawerCardDate] = useState<string>("");
   const [drawerCardSubject, setDrawerCardSubject] = useState<string>("");
   const [showSearch, setShowSearch] = useState(false);
   const [showAddSource, setShowAddSource] = useState(false);
+  const [timetables, setTimetables] = useState<TimetableData[]>(() => loadTimetables());
+  const [timetable, setTimetable] = useState<TimetableData | null>(() => loadTimetable());
   const [pdfReaderFile, setPdfReaderFile] = useState<File | null>(null);
   const [showCamera, setShowCamera] = useState(false);
   const [showScreenshot, setShowScreenshot] = useState(false);
@@ -137,6 +239,152 @@ export default function App() {
     });
   }, [subjects, allFeedGroups]);
 
+  const timetableSubjects = useMemo<SubjectData[]>(() => {
+    if (!timetable) return [];
+    const uniqueCourses = new Map<string, TimetableCourse>();
+    timetable.courses.forEach(course => {
+      if (!uniqueCourses.has(course.courseId)) uniqueCourses.set(course.courseId, course);
+    });
+
+    return Array.from(uniqueCourses.values())
+      .map(course => {
+      const courseName = cleanCourseName(course.course);
+      const linkedCardIds = new Set(
+        Object.entries(allFeedGroups).flatMap(([subjectId, groups]) =>
+          (groups ?? []).flatMap(group =>
+            group.cards.filter(card =>
+              isNoteCard(card) && (
+              subjectId === course.courseId
+              || subjectId === legacySubjectIdForCourse(courseName)
+              || card.learningContext?.courseId === course.courseId
+              )
+            ).map(card => card.id)
+          )
+        ),
+      );
+      const linkedCount = linkedCardIds.size;
+      const meta = [course.teacher, course.weeks].filter(Boolean).join(" · ");
+      return {
+        id: course.courseId,
+        name: courseName,
+        short: courseName,
+        count: linkedCount,
+        unit: "条内容",
+        entries: [],
+        extra: `课程 · ${meta || "已加入学期课表"}`,
+      };
+      })
+      .filter(course => course.count > 0);
+  }, [timetable, allFeedGroups]);
+
+  const detectedSubjects = useMemo<SubjectData[]>(() => {
+    if (!timetable) return [];
+    const timetableCourseIds = new Set(timetable.courses.map(course => course.courseId));
+    const representedLegacyIds = new Set(
+      timetable.courses
+        .map(course => legacySubjectIdForCourse(cleanCourseName(course.course)))
+        .filter((id): id is string => !!id),
+    );
+    return sortedSubjects.flatMap(subjectItem => {
+      if (timetableCourseIds.has(subjectItem.id) || representedLegacyIds.has(subjectItem.id)) return [];
+      const uploadedCards = (allFeedGroups[subjectItem.id] ?? [])
+        .flatMap(group => group.cards)
+        .filter(card =>
+          isNoteCard(card)
+          && !!card.sourceAnchor
+          && card.ingestionDecision?.validCourseContent !== false,
+        );
+      const count = new Set(uploadedCards.map(card => card.id)).size;
+      if (count === 0) return [];
+      return [{
+        ...subjectItem,
+        count,
+        unit: "条内容",
+        extra: "由上传资料自动识别",
+      }];
+    });
+  }, [timetable, sortedSubjects, allFeedGroups]);
+
+  const sidebarSubjects = timetable
+    ? [...timetableSubjects, ...detectedSubjects]
+    : sortedSubjects;
+
+  // 修复历史上被“当前选中课程”覆盖归属的上传资料。
+  // 仅处理带原始来源且能明确判断学科的卡片，不改动用户手工创建的内容。
+  const routeRepairingCardsRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (dbLoading) return;
+    Object.entries(allFeedGroups).forEach(([storedSubjectId, groups]) => {
+      groups.forEach(group => {
+        group.cards.forEach(card => {
+          if (!isNoteCard(card) || !card.sourceAnchor) return;
+          const detectedSubject = detectedSubjectForCard(card);
+          if (!detectedSubject) return;
+          const detectedSubjectId = detectedSubject.id;
+
+          const validEntryIds = new Set(
+            SUBJECT_SYLLABI[detectedSubjectId]?.nodes.map(node => node.id) ?? [],
+          );
+          const hasForeignSyllabusEntry = !!card.syllabusEntryId
+            && !validEntryIds.has(card.syllabusEntryId);
+          if (detectedSubjectId === storedSubjectId) {
+            if (hasForeignSyllabusEntry) {
+              updateCard(storedSubjectId, group.date, card.id, {
+                syllabusEntryId: undefined,
+                unread: true,
+              });
+            }
+            return;
+          }
+
+          const storedCourse = timetable?.courses.find(course => course.courseId === storedSubjectId);
+          if (storedCourse && legacySubjectIdForCourse(storedCourse.course) === detectedSubjectId) return;
+
+          const repairKey = `${storedSubjectId}:${group.date}:${card.id}:${detectedSubjectId}`;
+          if (routeRepairingCardsRef.current.has(repairKey)) return;
+          routeRepairingCardsRef.current.add(repairKey);
+
+          if (!subjects.some(subject => subject.id === detectedSubjectId)) {
+            addSubject({
+              id: detectedSubjectId,
+              name: detectedSubject.name,
+              short: detectedSubject.name,
+              count: 0,
+              unit: "条内容",
+              entries: [],
+              extra: "由上传资料自动识别",
+            }, { silent: true });
+          }
+
+          void moveCardToSubject(card.id, storedSubjectId, group.date, detectedSubjectId)
+            .then(() => {
+              const context = card.learningContext;
+              if (!context?.courseId) return;
+              updateCard(detectedSubjectId, group.date, card.id, {
+                syllabusEntryId: undefined,
+                unread: true,
+                learningContext: {
+                  chapter: context.chapter,
+                  phase: context.phase,
+                  sourceRole: context.sourceRole,
+                  capabilities: context.capabilities,
+                },
+              });
+            })
+            .finally(() => routeRepairingCardsRef.current.delete(repairKey));
+        });
+      });
+    });
+  }, [dbLoading, allFeedGroups, timetable, subjects, addSubject, moveCardToSubject, updateCard]);
+
+  useEffect(() => {
+    if (dbLoading || timetableSubjects.length === 0) return;
+    const existingIds = new Set(subjects.map(item => item.id));
+    timetableSubjects.forEach(courseSubject => {
+      if (!existingIds.has(courseSubject.id)) addSubject(courseSubject, { silent: true });
+    });
+  }, [dbLoading, timetableSubjects, subjects, addSubject]);
+
   // 首次有数据时锚定默认学科为「最近有更新的学科」
   useEffect(() => {
     if (didInitSubjectRef.current) return;
@@ -151,7 +399,7 @@ export default function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get("tab");
-    if (tab === "notes" || tab === "homework" || tab === "exam") {
+    if (tab === "study" || tab === "notes" || tab === "homework" || tab === "exam" || tab === "paper") {
       setActiveTopTab(tab);
     }
     const subject = params.get("subject");
@@ -161,8 +409,51 @@ export default function App() {
     }
   }, [subjects]);
 
-  const subject = subjects.find(s => s.id === activeSubject) ?? subjects[0];
-  const feedGroups = allFeedGroups[activeSubject] ?? [];
+  const activeCourseForView = timetable?.courses.find(course => course.courseId === activeSubject);
+  const subject = subjects.find(s => s.id === activeSubject)
+    ?? (activeCourseForView
+      ? {
+          id: activeCourseForView.courseId,
+          name: cleanCourseName(activeCourseForView.course),
+          short: cleanCourseName(activeCourseForView.course),
+          count: 0,
+          unit: "条内容",
+          entries: [],
+          extra: "来自学期课表",
+        }
+      : subjects[0]);
+  const examSubjectId = legacySubjectIdForCourse(activeCourseForView?.course) ?? subject?.id;
+  const examSubject = subject && examSubjectId
+    ? { ...subject, id: examSubjectId }
+    : subject;
+  const feedGroups = useMemo(() => {
+    const activeCourse = timetable?.courses.find(course => course.courseId === activeSubject);
+    if (!activeCourse) return allFeedGroups[activeSubject] ?? [];
+
+    const legacySubjectId = legacySubjectIdForCourse(activeCourse.course);
+    const candidateGroups = [
+      ...(allFeedGroups[activeSubject] ?? []),
+      ...(legacySubjectId ? (allFeedGroups[legacySubjectId] ?? []) : []),
+      ...Object.values(allFeedGroups).flatMap(groups =>
+        (groups ?? []).map(group => ({
+          ...group,
+          cards: group.cards.filter(card => card.learningContext?.courseId === activeSubject),
+        })).filter(group => group.cards.length > 0)
+      ),
+    ];
+    const byDate = new Map<string, FeedGroupType>();
+    candidateGroups.forEach(group => {
+      const existing = byDate.get(group.date);
+      const cards = [...(existing?.cards ?? []), ...group.cards];
+      const uniqueCards = Array.from(new Map(cards.map(card => [card.id, card])).values());
+      byDate.set(group.date, {
+        ...group,
+        cards: uniqueCards,
+        label: `新增了${uniqueCards.length}个记忆`,
+      });
+    });
+    return Array.from(byDate.values()).sort((a, b) => Number(b.date) - Number(a.date));
+  }, [activeSubject, allFeedGroups, timetable]);
 
   const examNoteFeedGroups = useMemo(
     () => filterNoteFeedGroups(feedGroups),
@@ -173,9 +464,12 @@ export default function App() {
   const handleCloseAnnotation = () => setAnnotationType(null);
 
   const handleOpenCard = (card: CardData, date: string, subjectId?: string) => {
+    const actualSubjectId = subjectId ?? Object.entries(allFeedGroups).find(([, groups]) =>
+      groups?.some(group => group.cards.some(item => item.id === card.id))
+    )?.[0] ?? activeSubject;
     setDrawerCard(card);
     setDrawerCardDate(date);
-    setDrawerCardSubject(subjectId ?? activeSubject);
+    setDrawerCardSubject(actualSubjectId);
   };
 
   const handleOpenRecalledCard = (item: RecalledMemory) => {
@@ -187,7 +481,10 @@ export default function App() {
     const unreadCards = cardsForSyllabusEntry(feedGroups, entryId).filter(({ card }) => card.unread);
     if (unreadCards.length === 0) return;
     for (const { card, date } of unreadCards) {
-      updateCard(activeSubject, date, card.id, { unread: false });
+      const sourceSubjectId = Object.entries(allFeedGroups).find(([, groups]) =>
+        groups?.some(group => group.cards.some(item => item.id === card.id))
+      )?.[0] ?? activeSubject;
+      updateCard(sourceSubjectId, date, card.id, { unread: false });
     }
   };
 
@@ -242,7 +539,7 @@ export default function App() {
     return null;
   };
 
-  const applyNewCard = (
+  const applyNewCard = async (
     targetSubjectId: string, newTitle: string, aiSummary: string,
     aType: string, capturedImg: string,
     overview?: string, detailIntro?: string, detailSections?: DetailSection[],
@@ -257,9 +554,38 @@ export default function App() {
     homeworkTasks?: string[],
     taskDueDate?: string,
     sourceAnchor?: SourceAnchor,
-  ): "created" | "updated" => {
+    learningContext?: LearningContext,
+    sourceDocument?: SourceDocument,
+    ingestionDecision?: IngestionDecision,
+    learningActions?: LearningAction[],
+    syllabusEntryId?: string,
+  ): Promise<"created" | "updated"> => {
     const now = new Date();
     const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
+    // 导入资料已有 AI 学科判断时，只允许明确匹配到的课表课程覆盖归属。
+    // 不能因为用户上传前停留在某门课程，就把“高等数学”错误保存到“大学物理”。
+    const inheritedActiveCourseId = !learningContext && !ingestionDecision
+      ? activeSubject
+      : undefined;
+    const activeCourse = timetable?.courses.find(course =>
+      course.courseId === (learningContext?.courseId ?? inheritedActiveCourseId),
+    );
+    if (activeCourse) {
+      targetSubjectId = activeCourse.courseId;
+      learningContext = {
+        ...learningContext,
+        courseId: activeCourse.courseId,
+        course: activeCourse.course,
+        classTime: learningContext?.classTime ?? `${activeCourse.day} ${activeCourse.time}—${activeCourse.end}`,
+        location: learningContext?.location ?? activeCourse.room,
+        phase: learningContext?.phase ?? (hasAnnotations ? "in_class" : "after_class"),
+        sourceRole: learningContext?.sourceRole ?? "student",
+        capabilities: {
+          knowledgeMap: true,
+          interactive: learningContext?.capabilities?.interactive ?? false,
+        },
+      };
+    }
 
     const surfaces = classifyCardSurfaces({
       contentType: contentType ?? "note",
@@ -282,6 +608,11 @@ export default function App() {
       ...(unifiedDetail ? { unifiedDetail } : {}),
       hasAnnotations,
       ...(sourceAnchor ? { sourceAnchor } : {}),
+      ...(learningContext ? { learningContext } : {}),
+      ...(sourceDocument ? { sourceDocument } : {}),
+      ...(ingestionDecision ? { ingestionDecision } : {}),
+      ...(learningActions?.length ? { learningActions } : {}),
+      ...(syllabusEntryId ? { syllabusEntryId } : {}),
       time: timeStr,
       unread: true as const,
     };
@@ -321,6 +652,11 @@ export default function App() {
           unifiedDetail: snapshot.unifiedDetail,
           hasAnnotations: snapshot.hasAnnotations,
           sourceAnchor: snapshot.sourceAnchor,
+          learningContext: snapshot.learningContext,
+          sourceDocument: snapshot.sourceDocument,
+          ingestionDecision: snapshot.ingestionDecision,
+          learningActions: snapshot.learningActions,
+          syllabusEntryId: snapshot.syllabusEntryId,
           time: snapshot.time,
           unread: snapshot.unread,
         });
@@ -425,14 +761,23 @@ export default function App() {
       ...(skillRawSections ? { skillRawSections } as Partial<CardData> : {}),
       ...(unifiedDetail ? { unifiedDetail } : {}),
       ...(sourceAnchor ? { sourceAnchor } : {}),
+      ...(learningContext ? { learningContext } : {}),
+      ...(sourceDocument ? { sourceDocument } : {}),
+      ...(ingestionDecision ? { ingestionDecision } : {}),
+      ...(learningActions?.length ? { learningActions } : {}),
+      ...(syllabusEntryId ? { syllabusEntryId } : {}),
     };
 
     setNewCardId(newId);
     setTimeout(() => setNewCardId(null), 3500);
 
-    const subjectShort = INITIAL_SUBJECTS.find(s => s.id === targetSubjectId)?.short ?? "社会科学";
+    const subjectShort = subjects.find(s => s.id === targetSubjectId)?.short
+      ?? activeCourse?.course
+      ?? ingestionDecision?.subjectName
+      ?? INITIAL_SUBJECTS.find(s => s.id === targetSubjectId)?.short
+      ?? "待确认课程";
     rememberSavedCard(sourceAnchor, targetSubjectId, todayKey, newCard);
-    addCard({
+    await addCard({
       targetSubjectId,
       card: newCard,
       date: todayKey,
@@ -452,10 +797,11 @@ export default function App() {
 
     // 后台静默：把新笔记自动归类到教学大纲条目，让它进入对应目录并打"新增"红点。
     // 失败/无把握时保持 syllabusEntryId 为空 → 仍留在「最近上传与批注」兜底。
-    if (newCard.contentType !== "homework") {
+    if (newCard.contentType !== "homework" && !newCard.syllabusEntryId) {
+      const syllabusSubjectId = legacySubjectIdForCourse(activeCourse?.course) ?? targetSubjectId;
       classifyNoteSyllabusEntry(
         {
-          subjectId: targetSubjectId,
+          subjectId: syllabusSubjectId,
           contentType: newCard.contentType,
           title: newCard.title,
           overview: newCard.overview,
@@ -472,7 +818,7 @@ export default function App() {
             setDrawerCard(prev => prev && prev.id === newId ? { ...prev, syllabusEntryId: entryId, unread: true } : prev);
           }
         })
-        .catch(err => console.warn("[import] 大纲自动归类失败，留在最近上传", err));
+        .catch(err => console.warn("[import] 知识点自动归类失败，保留为独立知识点", err));
     }
 
     // 后台静默：若导入时没识别出作业，再用专项链从笔记正文抽取夹带的作业/待办，
@@ -508,10 +854,14 @@ export default function App() {
 
     // 后台静默：把新笔记挂靠到备考考点图谱（挂不上就反向抽取新考点补图谱），
     // 让它出现在对应考点的「相关笔记」里（备考闭环）。
-    if (newCard.contentType !== "homework") {
+    if (
+      newCard.contentType !== "homework"
+      && (newCard.ingestionDecision?.destinations.includes("exam") ?? false)
+    ) {
+      const examGraphSubjectId = legacySubjectIdForCourse(activeCourse?.course) ?? targetSubjectId;
       linkOrProposeExamPoints(
         {
-          subjectId: targetSubjectId,
+          subjectId: examGraphSubjectId,
           contentType: newCard.contentType,
           title: newCard.title,
           overview: newCard.overview,
@@ -626,7 +976,7 @@ export default function App() {
         console.error("[processImage] Doubao failed:", err);
         const fallback = buildFallbackCardPayload(aType);
         applyWithMinDelay(() => {
-          const saved = applyNewCard(
+          void applyNewCard(
             fallback.targetSubjectId,
             fallback.title,
             fallback.summary,
@@ -648,15 +998,16 @@ export default function App() {
             undefined,
             undefined,
             options?.sourceAnchor,
-          );
+          ).then(saved => {
+            if (saved === "created") {
+              showToast("AI 接口暂不可用，已用演示内容保存");
+            }
+          });
           setSidebarLoading(false);
           if (!options?.skipFly) {
             setFlyPhase("fading");
             setTimeout(() => setFlyPhase("idle"), 600);
             flyTimers.current.forEach(clearTimeout);
-          }
-          if (saved === "created") {
-            showToast("AI 接口暂不可用，已用演示内容保存");
           }
         });
       });
@@ -794,7 +1145,7 @@ export default function App() {
         .join(" ")
         .replace(/\s+/g, " ")
         .trim();
-      if (text) pageTexts.push(text);
+      if (text) pageTexts.push(`[第 ${pageNo} 页]\n${text}`);
     }
     const text = pageTexts.join("\n\n");
     if (!text.trim()) throw new Error("未能从 PDF 中抽取到可读文本，可能是扫描版 PDF。");
@@ -817,15 +1168,62 @@ export default function App() {
     return canvas.toDataURL("image/jpeg", 0.82);
   };
 
-  const normalizeSubjectId = (id?: string) => subjects.some(s => s.id === id) ? id! : (activeSubject !== "all" && activeSubject !== "__pending__" ? activeSubject : "other");
+  const normalizeSubjectId = (id?: string, subjectName?: string, fallbackText = "") => {
+    if (id && subjects.some(subject => subject.id === id)) return id;
+    const detected = detectedSubjectRoute(fallbackText, subjectName);
+    if (detected) return detected.id;
+    if (id && id !== "other") return id;
+    const activeCourseId = timetable?.courses.some(course => course.courseId === activeSubject)
+      ? activeSubject
+      : null;
+    if (activeCourseId) return activeCourseId;
+    return activeSubject !== "all" && activeSubject !== "__pending__" ? activeSubject : "other";
+  };
 
-  const callImportApi = async (payload: Record<string, unknown>) => {
+  type ImportApiResult = Partial<SourceDraft> & RawSourceRouting & {
+    targetSubjectId?: string;
+    memoryUnits?: SourceDocument["memoryUnits"];
+    knowledgeGroups?: SourceDocument["knowledgeGroups"];
+  };
+
+  const sourceRoutingContext = () => {
+    const uniqueCourses = new Map<string, { id: string; name: string; teacher?: string }>();
+    timetable?.courses.forEach(course => {
+      if (!uniqueCourses.has(course.courseId)) {
+        uniqueCourses.set(course.courseId, {
+          id: course.courseId,
+          name: course.course,
+          ...(course.teacher ? { teacher: course.teacher } : {}),
+        });
+      }
+    });
+    const currentCourse = timetable?.courses.find(course => course.courseId === activeSubject);
+    return {
+      currentSubjectId: legacySubjectIdForCourse(currentCourse?.course) ?? (
+        SUBJECT_SYLLABI[activeSubject] ? activeSubject : undefined
+      ),
+      currentCourseId: currentCourse?.courseId,
+      currentCourseName: currentCourse?.course,
+      semester: timetable?.semester,
+      courses: [...uniqueCourses.values()],
+      syllabusCatalog: Object.entries(SUBJECT_SYLLABI).flatMap(([subjectId, syllabus]) =>
+        syllabus.nodes
+          .filter(node => node.kind === "topic")
+          .map(node => ({ subjectId, id: node.id, title: node.title })),
+      ),
+    };
+  };
+
+  const callImportApi = async (
+    payload: Record<string, unknown>,
+    retryMalformed = true,
+  ): Promise<ImportApiResult> => {
     let res: Response;
     try {
       res = await fetch("/api/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, routingContext: sourceRoutingContext() }),
       });
     } catch {
       throw new Error(
@@ -847,9 +1245,15 @@ export default function App() {
     }
     if (!res.ok) {
       const msg = data.error || "";
+      if (
+        retryMalformed
+        && /Bad escaped character|模型返回格式异常|No JSON in model response/i.test(msg)
+      ) {
+        return callImportApi(payload, false);
+      }
       if (msg.includes("not configured")) {
         throw new Error(
-          `${msg}。请在项目根目录创建 .env.local 并配置 DOUBAO_API_KEY / DEEPSEEK_API_KEY（可参考 .env.local.example）。`,
+          `${msg}。图片识别请在项目根目录的 .env.local 配置 MOONSHOT_API_KEY 和 MOONSHOT_MODEL_ID；文本解析另需 DEEPSEEK_API_KEY。`,
         );
       }
       if (msg.includes("InvalidEndpointOrModel") || msg.includes("ModelNotOpen") || msg.includes("does not exist")) {
@@ -859,14 +1263,34 @@ export default function App() {
       }
       throw new Error(msg || `解析失败（HTTP ${res.status}）`);
     }
-    return data as Partial<SourceDraft> & { targetSubjectId?: string };
+    return data as ImportApiResult;
   };
 
   const sourceDraftFromImport = (
-    data: Partial<SourceDraft> & { targetSubjectId?: string },
+    data: ImportApiResult,
     sourceKind: SourceDraft["sourceKind"],
     originalName: string,
   ): SourceDraft => {
+    const routingText = [
+      data.title,
+      data.summary,
+      data.overview,
+      data.detailIntro,
+      data.chapterTitle,
+      ...(Array.isArray(data.knowledgePoints) ? data.knowledgePoints : []),
+    ].filter((item): item is string => typeof item === "string").join(" ");
+    const normalizedSubjectId = normalizeSubjectId(
+      data.targetSubjectId,
+      typeof data.subjectName === "string" ? data.subjectName : undefined,
+      routingText,
+    );
+    const routing = normalizeSourceRouting(data, {
+      subjectId: legacySubjectIdForCourse(
+        timetable?.courses.find(course => course.courseId === data.targetCourseId)?.course,
+      ) ?? normalizedSubjectId,
+      courses: sourceRoutingContext().courses,
+      fallbackText: routingText,
+    });
     return {
       id: `draft_${Date.now()}`,
       status: "ready",
@@ -874,7 +1298,8 @@ export default function App() {
       originalName,
       title: data.title || "记忆：导入资料整理",
       summary: data.summary || "资料已解析完成，可确认保存为记忆卡。",
-      targetSubjectId: normalizeSubjectId(data.targetSubjectId),
+      targetSubjectId: normalizedSubjectId,
+      targetCourseId: routing.targetCourseId,
       img: data.img || (sourceKind === "text" || sourceKind === "link" ? TYPE_BG.notes ?? imgNotesBg : undefined),
       overview: data.overview,
       detailIntro: data.detailIntro,
@@ -884,11 +1309,21 @@ export default function App() {
       knowledgeTree: Array.isArray(data.knowledgeTree) ? data.knowledgeTree : [],
       nextAction: data.nextAction,
       skill: data.skill,
+      ingestionDecision: routing.decision,
+      learningActions: routing.learningActions,
+      learningPhase: routing.learningPhase,
+      syllabusEntryId: routing.syllabusEntryId,
+      autoArchive: routing.autoArchive,
       ...(() => {
+        const actionHomeworkTasks = routing.learningActions
+          .filter(action => action.type === "homework")
+          .map(action => action.title);
+        const actionDueDate = routing.learningActions
+          .find(action => action.type === "homework" && action.dueAt)?.dueAt?.replace(/\D/g, "").slice(0, 8);
         const surfaces = classifyCardSurfaces({
-          contentType: data.contentType,
-          homeworkTasks: data.homeworkTasks,
-          taskDueDate: data.taskDueDate,
+          contentType: routing.decision.destinations.includes("homework") ? "homework" : data.contentType,
+          homeworkTasks: data.homeworkTasks?.length ? data.homeworkTasks : actionHomeworkTasks,
+          taskDueDate: data.taskDueDate || actionDueDate,
           nextAction: data.nextAction,
         });
         return {
@@ -906,80 +1341,364 @@ export default function App() {
     return sourceDraftFromImport(data, kind, kind === "link" ? value : "粘贴文本");
   };
 
+  const buildPptxStructureFallback = (
+    document: Awaited<ReturnType<typeof parsePptxFile>>,
+    file: File,
+    sourceAnchor: SourceAnchor,
+    contentId: string,
+    reason: string,
+  ): SourceDraft => {
+    const readablePages = document.pages.filter(page => page.text.trim() || page.notes?.trim());
+    const searchableText = [
+      document.title,
+      ...readablePages.map(page => `${page.title} ${page.text} ${page.notes ?? ""}`),
+    ].join(" ");
+    const detected = detectedSubjectRoute(searchableText);
+    const pageSections = readablePages.slice(0, 8).map(page => ({
+      title: `P${page.page} · ${page.title}`,
+      items: [page.text || page.notes || "本页为图示或版式内容，请打开课件原页查看。"],
+    }));
+    const title = `记忆：${document.title.replace(/\.pptx$/i, "").slice(0, 20)}`;
+
+    return {
+      id: `draft_${Date.now()}`,
+      status: "ready",
+      sourceKind: "file",
+      originalName: file.name,
+      title,
+      summary: `已读取 ${document.pageCount} 页课件结构。智能解析服务暂时繁忙，原始课件和页面内容已保留，可先入库后再生成学习梳理。`,
+      targetSubjectId: detected?.id ?? "other",
+      img: document.coverDataUrl,
+      overview: readablePages.length
+        ? readablePages.slice(0, 3).map(page => `P${page.page} ${page.title}：${page.text.slice(0, 160)}`).join("\n")
+        : "该 PPT 主要由图片或图表构成，已保留原始课件供查看。",
+      detailIntro: "已完成 PPT 文件级读取；待模型服务恢复后可基于整份课件补全知识结构。",
+      detailSections: pageSections,
+      aiKeyPoints: readablePages.map(page => page.title).filter((title, index, values) => title && values.indexOf(title) === index).slice(0, 6),
+      nextAction: "打开课件查看原页；稍后可重新生成完整的知识梳理。",
+      skill: "theory_concept",
+      contentType: "note",
+      ingestionDecision: {
+        validCourseContent: true,
+        confidence: 0.6,
+        reason: `已识别为 PPT 课程资料；智能整理暂未完成（${reason.slice(0, 80)}）。`,
+        materialType: "courseware",
+        ...(detected ? { subjectName: detected.name } : {}),
+        knowledgePoints: readablePages.map(page => page.title).filter(Boolean).slice(0, 12),
+        destinations: ["knowledge"],
+      },
+      learningPhase: "before_class",
+      autoArchive: false,
+      sourceAnchor,
+      sourceDocument: {
+        type: "pptx",
+        title: file.name,
+        pageCount: document.pageCount,
+        pages: document.pages,
+        paragraphs: readablePages.slice(0, 3).map(page => `P${page.page} ${page.title}：${page.text.slice(0, 180)}`),
+        excerpt: contentId,
+      },
+    };
+  };
+
   const analyzeSourceFile = async (
     file: File,
     onProgress: (update: Partial<SourceDraft>) => void = () => undefined,
   ): Promise<SourceDraft> => {
+    if (/\.(xlsx|xls|csv)$/i.test(file.name)) {
+      onProgress({ summary: "正在识别课程、星期、节次、时间和教室..." });
+      const parsed = await parseTimetableFile(file);
+      return {
+        id: `timetable_${Date.now()}`,
+        status: "ready",
+        sourceKind: "timetable",
+        originalName: file.name,
+        title: `${parsed.semester}课表`,
+        summary: `已识别 ${new Set(parsed.courses.map(course => course.courseId)).size} 门课程、${parsed.courses.length} 个上课时段，请确认后导入。`,
+        targetSubjectId: "other",
+        timetable: parsed,
+      };
+    }
+
+    if (/\.ppt$/i.test(file.name)) {
+      throw new Error("旧版 .ppt 暂不能在浏览器中可靠解析，请先用 PowerPoint 另存为 .pptx 后上传。");
+    }
+
+    const contentId = await fileContentId(file);
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    const sourceAnchor: SourceAnchor = {
+      kind: isPdf ? "pdf" : "upload",
+      fileId: `${file.size}-${contentId}`,
+      fileName: file.name,
+      contentId,
+    };
+    const sourceDocument: SourceDocument | undefined = isPdf
+      ? { type: "pdf", title: file.name }
+      : undefined;
+    const attachSource = (draft: SourceDraft): SourceDraft => ({
+      ...draft,
+      sourceAnchor,
+      ...(sourceDocument ? { sourceDocument } : {}),
+    });
+
+    if (/\.pptx$/i.test(file.name)) {
+      onProgress({ summary: "正在读取整份 PPT 的页面结构、正文和备注..." });
+      const document = await parsePptxFile(file);
+      const readablePages = document.pages.filter(page => page.text.trim() || page.notes?.trim());
+      if (readablePages.length === 0) {
+        onProgress({ summary: "这份课件以图片为主，已保留 PPT 结构；可先入库，稍后再生成梳理。" });
+        return buildPptxStructureFallback(
+          document,
+          file,
+          sourceAnchor,
+          contentId,
+          "未提取到可读文字",
+        );
+      }
+      onProgress({ summary: `已读取 ${document.pageCount} 页，正在融合跨页知识结构...` });
+      let data: ImportApiResult;
+      try {
+        data = await callImportApi({
+          kind: "text",
+          value: pptxDocumentText(document),
+          fileName: file.name,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (/429|overloaded|超时|timeout|5\d\d/i.test(message)) {
+          onProgress({ summary: "智能解析服务暂时繁忙，已保留整份 PPT 的页面结构，可先入库。" });
+          return buildPptxStructureFallback(document, file, sourceAnchor, contentId, message);
+        }
+        throw error;
+      }
+      const draft = sourceDraftFromImport(data, "file", file.name);
+      return {
+        ...draft,
+        img: document.coverDataUrl ?? draft.img,
+        sourceAnchor: {
+          kind: "upload",
+          fileId: `${file.size}-${contentId}`,
+          fileName: file.name,
+          contentId,
+        },
+        sourceDocument: {
+          type: "pptx",
+          title: file.name,
+          pageCount: document.pageCount,
+          pages: document.pages,
+          memoryUnits: data.memoryUnits ?? [],
+          knowledgeGroups: data.knowledgeGroups ?? [],
+          paragraphs: readablePages.slice(0, 3).map(page =>
+            `P${page.page} ${page.title}：${page.text.slice(0, 180)}`,
+          ),
+        },
+      };
+    }
+
     // 音频：先转录，再分析
     if (isAudioFile(file)) {
       const transcript = await transcribeAudio(file, onProgress);
       onProgress({ summary: "🔍 转录完成，正在分析内容..." });
       const prefix = `[来源：语音录音]\n文件名：${file.name}\n\n`;
       const draft = await analyzeTextSource("text", `${prefix}${transcript}`);
-      return { ...draft, sourceKind: "audio", transcript };
+      return attachSource({ ...draft, sourceKind: "audio", transcript });
     }
 
     if (file.type.startsWith("image/")) {
       const imageDataUrl = await readFileAsDataUrl(file);
       const compressedImage = await compressImageForApi(imageDataUrl);
-      const data = await callImportApi({ kind: "image", imageDataUrl: compressedImage, fileName: file.name });
-      return sourceDraftFromImport(data, "image", file.name);
+      let data;
+      try {
+        data = await callImportApi({ kind: "image", imageDataUrl: compressedImage, fileName: file.name });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/超时|timeout|504|FUNCTION_INVOCATION_TIMEOUT/i.test(message)) throw error;
+        onProgress({ summary: "首次识别超时，正在压缩图片后自动重试..." });
+        const retryImage = await compressImageForApi(imageDataUrl, { maxSide: 960, quality: 0.6 });
+        data = await callImportApi({ kind: "image", imageDataUrl: retryImage, fileName: file.name });
+      }
+      return attachSource(sourceDraftFromImport(data, "image", file.name));
     }
 
     if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
       try {
         const text = await extractPdfText(file);
-        return analyzeTextSource("text", `文件名：${file.name}\n\n${text}`);
+        const draft = await analyzeTextSource("text", `文件名：${file.name}\n\n${text}`);
+        return attachSource({ ...draft, sourceKind: "file", originalName: file.name });
       } catch (textErr) {
         console.warn("[pdf] text extraction failed, fallback to vision", textErr);
         const imageDataUrl = await compressImageForApi(await renderPdfFirstPageImage(file));
-        const data = await callImportApi({ kind: "image", imageDataUrl, fileName: file.name });
-        return sourceDraftFromImport(data, "file", file.name);
+        try {
+          const data = await callImportApi({ kind: "image", imageDataUrl, fileName: file.name });
+          return attachSource(sourceDraftFromImport(data, "file", file.name));
+        } catch (importErr) {
+          console.warn("[pdf] import endpoint failed, fallback to vision endpoint", importErr);
+          try {
+            const data = await callDoubao(imageDataUrl, false);
+            return attachSource(sourceDraftFromImport(
+              { ...data, targetSubjectId: data.subjectId },
+              "file",
+              file.name,
+            ));
+          } catch (visionErr) {
+            console.warn("[pdf] vision endpoint unavailable, preserve source for later analysis", visionErr);
+            const baseName = file.name.replace(/\.[^.]+$/, "").replace(/^圈选/, "").trim() || "圈选知识点";
+            return attachSource(sourceDraftFromImport({
+              title: `记忆：${baseName.slice(0, 20)}`,
+              summary: "已保留圈选内容并归入当前课程，可打开原图继续查看和整理。",
+              targetSubjectId: normalizeSubjectId(),
+              img: imageDataUrl,
+              overview: "这份内容来自你圈选的原始资料，原始画面已完整保留。",
+              detailIntro: "圈选内容",
+              detailSections: [],
+              aiKeyPoints: [],
+              expandedKnowledge: [],
+              knowledgeTree: [],
+              nextAction: "打开原图核对圈选内容，或稍后重新生成知识解析。",
+              skill: "theory_concept",
+            }, "file", file.name));
+          }
+        }
       }
     }
 
     if (file.type.startsWith("text/") || file.name.endsWith(".md") || file.name.endsWith(".txt")) {
       const text = await readFileAsText(file);
-      return analyzeTextSource("text", text);
+      return attachSource(await analyzeTextSource("text", text));
     }
 
-    throw new Error("当前演示版先支持图片、PDF、txt、md 及音频；Word 下一步接服务端解析。");
+    throw new Error("当前支持图片、PDF、PPTX、txt、md、音频和 Excel 课表；Word 与旧版 PPT 暂需先转换。");
   };
 
-  const confirmSourceDraft = (draft: SourceDraft) => {
+  const confirmSourceDraft = async (draft: SourceDraft, options?: { keepOpen?: boolean }) => {
+    if (draft.ingestionDecision?.validCourseContent === false) {
+      showToast(`未入库：${draft.ingestionDecision.reason}`);
+      return;
+    }
     const preassignedId = `new_${Date.now()}`;
     const now = new Date();
     const todayKey = `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, "0")}${now.getDate().toString().padStart(2, "0")}`;
 
-    applyNewCard(
-      draft.targetSubjectId,
-      draft.title,
-      draft.summary,
-      "notes",
-      draft.img || imgNotesBg,
-      draft.overview,
-      draft.detailIntro,
-      draft.detailSections,
-      draft.aiKeyPoints,
-      draft.expandedKnowledge ?? [],
-      draft.knowledgeTree ?? [],
-      draft.nextAction || "资料已保存，可继续生成习题、查看知识脉络或补充批注。",
-      draft.skill,
-      undefined,
-      false,
-      preassignedId,
-      undefined,
-      draft.contentType,
-      draft.homeworkTasks,
-      draft.taskDueDate,
-    );
-    if (draft.openTab === "homework") setActiveTopTab("homework");
+    const resolvedCourseId = draft.targetCourseId
+      ?? (timetable?.courses.some(course => course.courseId === draft.targetSubjectId)
+        ? draft.targetSubjectId
+        : undefined);
+    const linkedCourse = resolvedCourseId
+      ? timetable?.courses.find(course => course.courseId === resolvedCourseId)
+      : undefined;
+    const sourcePhase: LearningContext["phase"] =
+      draft.learningPhase
+      ?? (draft.sourceKind === "file" || draft.sourceKind === "link" ? "before_class" : "after_class");
+    const resolvedTargetSubjectId = linkedCourse?.courseId ?? draft.targetSubjectId;
+    if (
+      !linkedCourse
+      && !subjects.some(subject => subject.id === resolvedTargetSubjectId)
+    ) {
+      const subjectName = draft.ingestionDecision?.subjectName?.trim()
+        || (resolvedTargetSubjectId === "detected_electrical_circuits" ? "电路分析" : "待确认课程");
+      addSubject({
+        id: resolvedTargetSubjectId,
+        name: subjectName,
+        short: subjectName,
+        count: 0,
+        unit: "条内容",
+        entries: [],
+        extra: "由上传资料自动识别",
+      }, { silent: true });
+    }
+
+    const pptxGroups = draft.sourceDocument?.type === "pptx" && draft.contentType !== "homework"
+      ? (draft.sourceDocument.knowledgeGroups ?? [])
+        .filter(group => group.title.trim() && group.pages.length > 0)
+        .slice(0, 12)
+      : [];
+    const cardGroups = pptxGroups.length > 1 ? pptxGroups : [null];
+    const createdCardIds: string[] = [];
+
+    for (const [index, group] of cardGroups.entries()) {
+      const cardId = index === 0 ? preassignedId : `new_${Date.now()}_${index}`;
+      createdCardIds.push(cardId);
+      const groupPages = group?.pages.filter(page => Number.isFinite(page)) ?? [];
+      const firstPage = groupPages[0];
+      const groupChildren = group?.children?.filter(Boolean) ?? [];
+      const groupSourceAnchor = group && draft.sourceAnchor
+        ? {
+            ...draft.sourceAnchor,
+            page: firstPage,
+            contentId: `${draft.sourceAnchor.contentId ?? draft.sourceAnchor.fileId ?? "pptx"}:group:${index}`,
+          }
+        : draft.sourceAnchor;
+      const groupSourceDocument = group && draft.sourceDocument
+        ? {
+            ...draft.sourceDocument,
+            page: firstPage,
+            excerpt: group.summary,
+          }
+        : draft.sourceDocument;
+      const groupDecision = group && draft.ingestionDecision
+        ? {
+            ...draft.ingestionDecision,
+            knowledgePoints: [group.title, ...groupChildren],
+          }
+        : draft.ingestionDecision;
+
+      await applyNewCard(
+        resolvedTargetSubjectId,
+        group ? `记忆：${group.title}` : draft.title,
+        group?.summary || draft.summary,
+        "notes",
+        draft.img || imgNotesBg,
+        group?.summary || draft.overview,
+        group?.summary || draft.detailIntro,
+        groupChildren.length
+          ? [{ title: "包含内容", items: groupChildren }]
+          : draft.detailSections,
+        groupChildren.length ? groupChildren : draft.aiKeyPoints,
+        draft.expandedKnowledge ?? [],
+        draft.knowledgeTree ?? [],
+        draft.nextAction || "资料已保存，可继续生成习题、查看知识脉络或补充批注。",
+        draft.skill,
+        undefined,
+        false,
+        cardId,
+        undefined,
+        draft.contentType,
+        index === 0 ? draft.homeworkTasks : undefined,
+        index === 0 ? draft.taskDueDate : undefined,
+        groupSourceAnchor,
+        {
+          ...(linkedCourse ? {
+            courseId: linkedCourse.courseId,
+            course: linkedCourse.course,
+            classTime: `${linkedCourse.day} ${linkedCourse.time}—${linkedCourse.end}`,
+            location: linkedCourse.room,
+          } : {}),
+          chapter: draft.ingestionDecision?.chapterTitle,
+          phase: sourcePhase,
+          sourceRole: sourcePhase === "before_class" ? "teacher" : "student",
+          capabilities: { knowledgeMap: true, interactive: false },
+        },
+        groupSourceDocument,
+        groupDecision,
+        index === 0 ? draft.learningActions : undefined,
+        group ? undefined : draft.syllabusEntryId,
+      );
+    }
+    if (draft.openTab === "homework" || draft.ingestionDecision?.destinations.includes("homework")) setActiveTopTab("homework");
     else setActiveTopTab("notes");
+    setActiveSubject(resolvedTargetSubjectId);
+    if (!options?.keepOpen) setShowAddSource(false);
+    const destinationName = linkedCourse?.course
+      ?? subjects.find(item => item.id === resolvedTargetSubjectId)?.short
+      ?? "当前课程";
     const tabHint =
-      draft.openTab === "homework"
-        ? "已保存至笔记，并在作业中生成待办"
-        : "已保存至笔记";
-    showToast(`${tabHint}，AI 正在后台生成详情`);
+      draft.openTab === "homework" || draft.ingestionDecision?.destinations.includes("homework")
+        ? `已挂靠到${destinationName}，并在作业中生成待办`
+        : draft.ingestionDecision?.destinations.includes("exam")
+          ? `已挂靠到${destinationName}的知识与备考中`
+          : `已挂靠到${destinationName}的知识中`;
+    const groupHint = createdCardIds.length > 1 ? `，形成 ${createdCardIds.length} 个跨页知识对象` : "";
+    showToast(`${draft.autoArchive ? "已自动识别并入库：" : ""}${tabHint}${groupHint}`);
 
     // 后台静默预生成详情页内容（DeepSeek），完成后回写卡片，用户下次打开即可直接查看
     const prompt = buildDetailPagePrompt({
@@ -997,7 +1716,7 @@ export default function App() {
       (chunk) => { buffer += chunk; },
       () => {
         if (buffer.trim()) {
-          updateCard(draft.targetSubjectId, todayKey, preassignedId, { unifiedDetail: buffer });
+          updateCard(resolvedTargetSubjectId, todayKey, preassignedId, { unifiedDetail: buffer });
           setDrawerCard(prev => prev && prev.id === preassignedId ? { ...prev, unifiedDetail: buffer } : prev);
         }
       },
@@ -1057,41 +1776,89 @@ export default function App() {
 
         <Sidebar
           activeSubject={activeSubject}
-          onSelectSubject={(id) => { didInitSubjectRef.current = true; setActiveSubject(id); }}
+          onSelectSubject={(id) => {
+            didInitSubjectRef.current = true;
+            setActiveSubject(id);
+            setFocusedSyllabusEntryId(null);
+            if (activeTopTab === "study") setActiveTopTab("notes");
+            if (id !== "other" && activeTopTab === "paper") setActiveTopTab("notes");
+          }}
           isLoading={sidebarLoading}
-          subjects={sortedSubjects}
+          subjects={sidebarSubjects}
           onOpenSearch={() => setShowSearch(true)}
           onUploadFile={() => setShowAddSource(true)}
           onCreateSubject={() => setShowCreateSubject(true)}
+          onOpenStudy={() => {
+            setActiveTopTab("study");
+          }}
+          isStudyActive={activeTopTab === "study"}
+          isTimetableLinked={timetableSubjects.length > 0}
         />
 
         <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#F5F6FA]">
           {subject ? (
             <>
-              {/* 学科头部 */}
-              <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-2 flex-shrink-0">
-                <div className="min-w-0">
-                  <EditableSubjectName
-                    name={subject?.short ?? ""}
-                    onRename={(next) => {
-                      if (subject) updateSubject({ ...subject, name: next, short: next.slice(0, 6) });
-                    }}
-                  />
-                </div>
-                <AnnotationMenu
-                  onOpenAnnotation={handleOpenAnnotation}
-                  onOpenPdfReader={(file) => setPdfReaderFile(file)}
-                  onOpenCamera={() => setShowCamera(true)}
-                  onOpenScreenshot={() => setShowScreenshot(true)}
-                  onOpenVoice={() => setShowVoice(true)}
-                  onOpenDemo={() => setOnboardingMode("demo")}
-                />
-              </div>
+              {activeTopTab !== "study" && (
+                <>
+                  {/* 课程头部 */}
+                  <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-2 flex-shrink-0">
+                    <div className="min-w-0">
+                      <EditableSubjectName
+                        name={subject?.short ?? ""}
+                        onRename={(next) => {
+                          if (subject) updateSubject({ ...subject, name: next, short: next.slice(0, 6) });
+                        }}
+                      />
+                    </div>
+                    <AnnotationMenu
+                      onOpenAnnotation={handleOpenAnnotation}
+                      onOpenPdfReader={(file) => setPdfReaderFile(file)}
+                      onOpenCamera={() => setShowCamera(true)}
+                      onOpenScreenshot={() => setShowScreenshot(true)}
+                      onOpenVoice={() => setShowVoice(true)}
+                      onOpenDemo={() => setOnboardingMode("demo")}
+                    />
+                  </div>
 
-              <TopTabs
-                activeTab={activeTopTab}
-                onChangeTab={setActiveTopTab}
-              />
+                  <TopTabs
+                    activeTab={activeTopTab}
+                    onChangeTab={setActiveTopTab}
+                    showPaperTab={activeSubject === "other"}
+                  />
+                </>
+              )}
+
+              {activeTopTab === "study" && (
+                <StudyView
+                  onNavigateCourse={(courseId, destination, syllabusEntryId) => {
+                    didInitSubjectRef.current = true;
+                    setActiveSubject(courseId);
+                    setActiveTopTab(destination);
+                    setFocusedSyllabusEntryId(destination === "notes" ? (syllabusEntryId ?? null) : null);
+                    const params = new URLSearchParams(window.location.search);
+                    params.set("subject", courseId);
+                    params.set("tab", destination);
+                    window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
+                  }}
+                  timetable={timetable}
+                  timetables={timetables}
+                  onSelectSemester={(semester) => {
+                    const selected = selectTimetableSemester(semester);
+                    if (!selected) return;
+                    setTimetable(selected);
+                    const visibleCourses = selected.courses;
+                    if (
+                      activeSubject !== "all"
+                      && activeSubject !== "other"
+                      && !visibleCourses.some(course => course.courseId === activeSubject)
+                    ) {
+                      setActiveSubject(visibleCourses[0]?.courseId ?? "all");
+                    }
+                    showToast(`已切换到${semester}`);
+                  }}
+                  allFeedGroups={allFeedGroups}
+                />
+              )}
 
               {activeTopTab === "notes" && (
                 <SyllabusNotesView
@@ -1099,7 +1866,50 @@ export default function App() {
                   feedGroups={feedGroups}
                   onOpenCard={handleOpenCard}
                   onOpenEntry={handleOpenSyllabusEntry}
+                  onMarkCardRead={(card, date) => {
+                    if (!card.unread) return;
+                    const sourceSubjectId = Object.entries(allFeedGroups).find(([, groups]) =>
+                      groups?.some(group => group.cards.some(item => item.id === card.id))
+                    )?.[0] ?? activeSubject;
+                    updateCard(sourceSubjectId, date, card.id, { unread: false });
+                  }}
+                  onJudgeAnswer={async (question, referenceAnswer, userAnswer) => {
+                    try {
+                      const feedback = await callText(
+                        `你是大学物理助教。请判断学生答案是否正确，并指出缺失的关键步骤。
+题目：${question}
+参考答案：${referenceAnswer}
+学生答案：${userAnswer}
+第一行只能写“正确”或“需完善”，第二行用不超过80字给出具体反馈。`,
+                        { maxTokens: 300 },
+                      );
+                      const correct = feedback.trim().startsWith("正确");
+                      const cleanedFeedback = feedback.replace(/^(正确|需完善)[：:\s]*/, "").trim();
+                      return {
+                        correct,
+                        feedback: /第一行只能写|第二行用|题目：|参考答案：/.test(cleanedFeedback)
+                          ? (correct
+                            ? "关键方程和各项物理意义回答正确，表达完整。"
+                            : "请对照参考答案补充关键公式、物理量含义和判断依据。")
+                          : (cleanedFeedback || "已完成判断。"),
+                      };
+                    } catch {
+                      const keyTerms = referenceAnswer
+                        .split(/[，。；、\s=（）()]+/)
+                        .filter(term => term.length >= 2)
+                        .slice(0, 8);
+                      const matches = keyTerms.filter(term => userAnswer.includes(term)).length;
+                      return {
+                        correct: matches >= Math.min(2, keyTerms.length),
+                        feedback: matches >= Math.min(2, keyTerms.length)
+                          ? "关键结论基本正确，可再补充公式、单位或推导步骤。"
+                          : `建议补充这些关键内容：${keyTerms.slice(0, 3).join("、")}。`,
+                      };
+                    }
+                  }}
+                  onAddSource={() => setShowAddSource(true)}
                   newCardId={newCardId}
+                  initialEntryId={focusedSyllabusEntryId}
                 />
               )}
 
@@ -1116,10 +1926,18 @@ export default function App() {
 
               {activeTopTab === "exam" && (
                 <ExamPrepView
-                  subject={subject}
+                  subject={examSubject}
                   feedGroups={examNoteFeedGroups}
                   onOpenNote={(card, date) => handleOpenCard(card as CardData, date)}
                   onAskLlm={(prompt) => callTextStreamed(prompt, { maxTokens: 4000 })}
+                />
+              )}
+
+              {activeTopTab === "paper" && activeSubject === "other" && (
+                <PaperView
+                  subject={subject}
+                  feedGroups={feedGroups}
+                  onOpenNote={handleOpenCard}
                 />
               )}
             </>
@@ -1150,10 +1968,24 @@ export default function App() {
 
         <AddSourceModal
           isOpen={showAddSource}
-          subjects={sortedSubjects}
+          subjects={subjects}
           onClose={() => setShowAddSource(false)}
           onAnalyzeFile={analyzeSourceFile}
           onConfirmDraft={confirmSourceDraft}
+          onConfirmTimetable={(data) => {
+            const nextTimetables = saveTimetable(data);
+            setTimetables(nextTimetables);
+            setTimetable(data);
+            setShowAddSource(false);
+            setActiveTopTab("study");
+            showToast(`已识别为${data.semester}，导入 ${new Set(data.courses.map(course => course.courseId)).size} 门课程`);
+          }}
+          courseOptions={Array.from(
+            new Map((timetable?.courses ?? []).map(course => [
+              course.courseId,
+              { id: course.courseId, name: course.course },
+            ])).values(),
+          )}
         />
 
         {showCreateSubject && (

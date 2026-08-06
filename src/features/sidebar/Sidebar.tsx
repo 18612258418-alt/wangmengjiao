@@ -1,14 +1,6 @@
+import { CalendarDays } from "lucide-react";
 import { imgLoadingSpinner } from "../../data/initialData";
 import type { SubjectData } from "../../types";
-
-function subjectUpdateLabel(extra?: string): string {
-  if (!extra) return "暂无更新";
-  const timePart = extra.split("·")[0]?.trim();
-  if (!timePart) return "暂无更新";
-  if (timePart.includes("创建")) return timePart;
-  if (timePart.includes("更新")) return timePart;
-  return `${timePart}更新`;
-}
 
 export function Sidebar({
   activeSubject,
@@ -18,6 +10,9 @@ export function Sidebar({
   onOpenSearch,
   onUploadFile,
   onCreateSubject,
+  onOpenStudy,
+  isStudyActive = false,
+  isTimetableLinked = false,
 }: {
   activeSubject: string;
   onSelectSubject: (id: string) => void;
@@ -26,6 +21,9 @@ export function Sidebar({
   onOpenSearch: () => void;
   onUploadFile: () => void;
   onCreateSubject?: () => void;
+  onOpenStudy?: () => void;
+  isStudyActive?: boolean;
+  isTimetableLinked?: boolean;
 }) {
   return (
     <aside className="flex-shrink-0 bg-[#F5F6FA] h-full flex flex-col z-10" style={{ width: "clamp(200px, 22%, 320px)" }}>
@@ -49,7 +47,7 @@ export function Sidebar({
                 </radialGradient>
               </defs>
             </svg>
-            <span className="text-[17px] text-[#020418]" style={{ fontWeight: 600 }}>AI记忆</span>
+            <span className="text-[17px] text-[#020418]" style={{ fontWeight: 600 }}>Memo</span>
           </div>
 
           {/* Icon toolbar: upload + search */}
@@ -102,10 +100,34 @@ export function Sidebar({
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-6 pb-4 space-y-1.5">
+      <nav className="flex-1 overflow-y-auto px-6 pb-4">
+        <button
+          type="button"
+          onClick={onOpenStudy}
+          className={`mb-4 flex w-full items-center gap-3 rounded-2xl border px-4 py-3.5 text-left transition-all duration-200 ${
+            isStudyActive
+              ? "border-[#C9CFFF] bg-[#EEF0FF] text-[#4D5CFF] shadow-[0_6px_16px_rgba(77,92,255,0.08)]"
+              : "border-[#E4E7EF] bg-white text-[#020418] hover:border-[#C9CFFF] hover:bg-[#F8F8FF]"
+          }`}
+        >
+          <span className={`flex h-8 w-8 items-center justify-center rounded-xl ${
+            isStudyActive ? "bg-[#DDE2FF] text-[#4D5CFF]" : "bg-[#EEF0FF] text-[#4D5CFF]"
+          }`}>
+            <CalendarDays size={17} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[14px] font-bold">课程表</span>
+          </span>
+        </button>
+
+        <div className="mb-2 px-1">
+          <span className="text-[10px] font-semibold tracking-[0.08em] text-[#9CA3AF]">我的课程</span>
+        </div>
+
+        <div className="space-y-1.5">
         {subjects.map((s, index) => {
-          const isActive = activeSubject === s.id;
-          const color = ["#4D5CFF", "#10B981", "#F59E0B", "#EC4899", "#8B5CF6", "#0EA5E9"][index % 6];
+          const isActive = !isStudyActive && activeSubject === s.id;
+          const color = ["#4D5CFF", "#20B486", "#F59E0B", "#EC4899", "#8B5CF6", "#0EA5E9", "#F97316", "#14B8A6"][index % 8];
           return (
             <button
               key={s.id}
@@ -116,30 +138,32 @@ export function Sidebar({
                   : "border-[#E4E7EF] bg-white hover:bg-[#F5F6FA]"
               }`}
             >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
-                    <span className={`text-[15px] ${isActive ? "text-[#4D5CFF]" : "text-[#020418]"}`} style={{ fontWeight: 700 }}>
-                      {s.short}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-[#9CA3AF] truncate mt-1 ml-4">{subjectUpdateLabel(s.extra)}</p>
-                </div>
-                <span className={`text-[12px] ${isActive ? "text-[#4D5CFF]" : "text-[#7B8291]"} flex-shrink-0`}>
-                  {s.count}
+              <div className="flex items-center justify-between gap-3">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: color }} />
+                  <span className={`truncate text-[15px] ${isActive ? "text-[#4D5CFF]" : "text-[#020418]"}`} style={{ fontWeight: 700 }}>
+                    {s.short.replace(/^[\s:：;；、，,]+/, "")}
+                  </span>
                 </span>
+                {s.count > 0 && (
+                  <span className={`whitespace-nowrap text-[11px] ${isActive ? "text-[#4D5CFF]" : "text-[#7B8291]"} flex-shrink-0`}>
+                    {s.count}
+                  </span>
+                )}
               </div>
             </button>
           );
         })}
 
-        <button
-          onClick={onCreateSubject}
-          className="w-full text-left rounded-2xl px-4 py-3 transition-all duration-200 border border-dashed border-[#C9D0E3] bg-white hover:bg-[#F5F6FA]"
-        >
-          <span className="text-[13px] text-[#4D5CFF]" style={{ fontWeight: 700 }}>+ 新建学科</span>
-        </button>
+        {!isTimetableLinked && (
+          <button
+            onClick={onCreateSubject}
+            className="w-full text-left rounded-2xl px-4 py-3 transition-all duration-200 border border-dashed border-[#C9D0E3] bg-white hover:bg-[#F5F6FA]"
+          >
+            <span className="text-[13px] text-[#4D5CFF]" style={{ fontWeight: 700 }}>+ 新建学科</span>
+          </button>
+        )}
+        </div>
       </nav>
 
       <style>{`

@@ -353,7 +353,7 @@ export function OnboardingScreen({
         ) : (
           <div style={{ textAlign: "center", padding: "0 24px" }}>
             <p style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, fontWeight: 400, lineHeight: 1.6, letterSpacing: 0.2 }}>
-              尝试各场景下触发 AI 记忆的交互方式
+              尝试各场景下触发 Memo 的交互方式
             </p>
           </div>
         )}

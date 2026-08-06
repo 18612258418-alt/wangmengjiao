@@ -26,7 +26,7 @@ export default function App() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const W = 760, H = 360;
     canvas.width = W * dpr; canvas.height = H * dpr;
-    canvas.style.width = W + "px"; canvas.style.height = H + "px";
+    canvas.style.width = "100%"; canvas.style.height = "auto";
     ctx.scale(dpr, dpr);
 
     const groundY = 280;
@@ -153,8 +153,8 @@ export default function App() {
   }, []);
 
   return (
-    <div style={{ padding: 20, background: "#f8fafc", minHeight: 540 }}>
-      <div style={{ maxWidth: 800, margin: "0 auto", background: "#fff", borderRadius: 20, padding: 20, boxShadow: "0 16px 40px rgba(15,23,42,.08)" }}>
+    <div style={{ width: "100%", maxWidth: "100%", padding: 12, background: "#f8fafc", minHeight: 520 }}>
+      <div style={{ width: "100%", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <div>
             <p style={{ fontSize: 18, fontWeight: 700, margin: 0, color: "#0f172a" }}>伽利略理想斜面实验</p>
@@ -169,7 +169,7 @@ export default function App() {
         </div>
 
         <div style={{ borderRadius: 16, overflow: "hidden", border: "1px solid #e2e8f0", marginBottom: 16 }}>
-          <canvas ref={canvasRef} style={{ display: "block", width: "100%", height: 360 }} />
+          <canvas ref={canvasRef} style={{ display: "block", width: "100%", height: "auto", aspectRatio: "19 / 9" }} />
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
@@ -183,7 +183,7 @@ export default function App() {
           </label>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
           {[
             { label: "最大上升高度", value: hud.height.toFixed(2), unit: "m" },
             { label: "当前速度", value: hud.velocity.toFixed(2), unit: "m/s" },

@@ -26,6 +26,19 @@ export interface ExamKnowledgeGraph {
   subjectId: string;
   title: string;
   points: ExamKnowledgePoint[];
+  relations?: ExamKnowledgeRelation[];
+}
+
+export type ExamRelationType = "prerequisite" | "derivation" | "application" | "analogy";
+export type ExamRelationEvidence = "curriculum" | "material" | "ai_inferred";
+
+export interface ExamKnowledgeRelation {
+  from: string;
+  to: string;
+  type: ExamRelationType;
+  confidence: number;
+  evidence: ExamRelationEvidence;
+  reason?: string;
 }
 
 export type CardContentType = "note" | "homework";

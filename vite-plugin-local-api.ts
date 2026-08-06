@@ -9,6 +9,8 @@ const API_LOADERS: Record<string, () => Promise<{ default: ApiHandler }>> = {
   "/api/deepseek": () => import("./api/deepseek"),
 };
 
+const EXISTING_ONLINE_API = "https://www.imemo-space.cn";
+
 function applyEnv(mode: string, root: string) {
   // preview 使用 production mode，同时加载 development 与 production 下的 .env.local
   for (const m of [mode, "development", "production"]) {
@@ -28,6 +30,12 @@ function applyEnv(mode: string, root: string) {
   }
   if (!process.env.DEEPSEEK_MODEL_ID && process.env.VITE_DEEPSEEK_MODEL_ID) {
     process.env.DEEPSEEK_MODEL_ID = process.env.VITE_DEEPSEEK_MODEL_ID;
+  }
+  if (!process.env.MOONSHOT_API_KEY && process.env.VITE_MOONSHOT_API_KEY) {
+    process.env.MOONSHOT_API_KEY = process.env.VITE_MOONSHOT_API_KEY;
+  }
+  if (!process.env.MOONSHOT_MODEL_ID && process.env.VITE_MOONSHOT_MODEL_ID) {
+    process.env.MOONSHOT_MODEL_ID = process.env.VITE_MOONSHOT_MODEL_ID;
   }
 }
 
@@ -62,7 +70,9 @@ function toWebRequest(req: Connect.IncomingMessage, body?: string): Request {
 async function writeWebResponse(res: Connect.ServerResponse, webRes: Response) {
   res.statusCode = webRes.status;
   webRes.headers.forEach((value, key) => {
-    if (key.toLowerCase() === "transfer-encoding") return;
+    const lower = key.toLowerCase();
+    // Node fetch 已自动解压上游响应，不能继续转发旧的压缩与长度标记。
+    if (lower === "transfer-encoding" || lower === "content-encoding" || lower === "content-length") return;
     res.setHeader(key, value);
   });
   const buffer = Buffer.from(await webRes.arrayBuffer());
@@ -92,8 +102,30 @@ function mountLocalApi(
 
     try {
       applyEnv(mode, root);
-      const mod = await loader();
       const body = await readBody(req);
+      const needsOnlineApi =
+        (pathname === "/api/deepseek" && !process.env.DEEPSEEK_API_KEY)
+        || (pathname === "/api/doubao" && !process.env.DOUBAO_API_KEY)
+        || (
+          pathname === "/api/import"
+          && !process.env.DEEPSEEK_API_KEY
+          && !process.env.DOUBAO_API_KEY
+          && !process.env.MOONSHOT_API_KEY
+          // 已明确选择 Kimi 时，不要静默转发旧站，否则会把缺少 Key 伪装成旧视觉接口超时。
+          && !process.env.MOONSHOT_MODEL_ID
+        );
+
+      if (needsOnlineApi) {
+        const upstream = await fetch(`${EXISTING_ONLINE_API}${pathname}`, {
+          method: req.method ?? "POST",
+          headers: { "Content-Type": req.headers["content-type"] ?? "application/json" },
+          body,
+        });
+        await writeWebResponse(res, upstream);
+        return;
+      }
+
+      const mod = await loader();
       const webRes = await mod.default(toWebRequest(req, body));
       await writeWebResponse(res, webRes);
     } catch (err) {

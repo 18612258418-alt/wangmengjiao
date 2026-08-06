@@ -11,5 +11,10 @@ export const DEMO_SCREENSHOT_ANCHOR: SourceAnchor = {
 export const DEMO_SCREENSHOT_CARD_ID = "note_screenshot_demo_physics_ch12";
 
 export function sourceAnchorKey(anchor: SourceAnchor): string {
-  return `${anchor.kind}:${anchor.fileId ?? ""}`;
+  return [
+    anchor.kind,
+    anchor.fileId ?? "",
+    anchor.page ?? "",
+    anchor.contentId ?? "",
+  ].join(":");
 }

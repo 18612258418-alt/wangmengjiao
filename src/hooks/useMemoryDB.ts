@@ -10,6 +10,7 @@ import { BUILTIN_SUBJECT_LABELS, INITIAL_ALL_FEEDS, INITIAL_SUBJECTS } from "../
 import { BUILTIN_SYLLABUS_BY_CARD } from "../data/subjectSyllabi";
 import { DEMO_SEED_PATCH, DEMO_SEED_PATCH_KEY } from "../data/demoSeedCards";
 import { ENABLE_HOMEWORK_DEMO_SEED, HOMEWORK_SEED_PATCH, HOMEWORK_SEED_PATCH_KEY } from "../data/homeworkSeedCards";
+import { PREVIEW_SEED_PATCH, PREVIEW_SEED_PATCH_KEY } from "../data/previewSeedCard";
 import { BUILTIN_CARD_META } from "../data/builtinCardMeta";
 import type { MergeUndoSnapshot } from "../utils/memoryMerge";
 
@@ -36,7 +37,7 @@ export interface MemoryDBHook {
   updateSummary: (subjectId: string, date: string, newSummary: string) => Promise<void>;
   updateCard: (subjectId: string, date: string, cardId: string, updates: Partial<CardData>) => Promise<void>;
   updateSubject: (subject: SubjectData) => void;
-  addSubject: (subject: SubjectData) => void;
+  addSubject: (subject: SubjectData, options?: { silent?: boolean }) => void;
   moveCardToSubject: (cardId: string, fromSubjectId: string, date: string, toSubjectId: string) => Promise<void>;
   showToast: (
     msg: string,
@@ -98,6 +99,11 @@ export function useMemoryDB(): MemoryDBHook {
         if (ENABLE_HOMEWORK_DEMO_SEED && !localStorage.getItem(HOMEWORK_SEED_PATCH_KEY)) {
           await applySeedPatch(HOMEWORK_SEED_PATCH, INITIAL_SUBJECTS);
           localStorage.setItem(HOMEWORK_SEED_PATCH_KEY, "1");
+        }
+
+        if (!localStorage.getItem(PREVIEW_SEED_PATCH_KEY)) {
+          await applySeedPatch(PREVIEW_SEED_PATCH, INITIAL_SUBJECTS);
+          localStorage.setItem(PREVIEW_SEED_PATCH_KEY, "1");
         }
 
         // Back-fill skill + aiKeyPoints for existing built-in cards (one-time migration)
@@ -235,31 +241,30 @@ export function useMemoryDB(): MemoryDBHook {
         putSubject(updated).catch(() => {});
         return updated;
       }));
-      if (!silent) {
-        showToast("已保存到本地 ✓");
-      }
     }
 
-    void (async () => {
-      try {
-        const existingFGs = await getAllFeedGroups();
-        const existingFG  = existingFGs.find(fg => fg.id === fgKey);
-        await Promise.all([
-          putCard({ ...card, subjectId: targetSubjectId, date }),
-          putFeedGroup({
-            id:        fgKey,
-            subjectId: targetSubjectId,
-            date,
-            label:     existingFG
-              ? `新增了${(existingFG.label.match(/\d+/) ? Number(existingFG.label.match(/\d+/)![0]) : 0) + 1}个记忆`
-              : "新增了1个记忆",
-            summary,
-          }),
-        ]);
-      } catch (err) {
-        console.error("[useMemoryDB] addCard persist failed", err);
+    try {
+      const existingFGs = await getAllFeedGroups();
+      const existingFG  = existingFGs.find(fg => fg.id === fgKey);
+      await Promise.all([
+        putCard({ ...card, subjectId: targetSubjectId, date }),
+        putFeedGroup({
+          id:        fgKey,
+          subjectId: targetSubjectId,
+          date,
+          label:     existingFG
+            ? `新增了${(existingFG.label.match(/\d+/) ? Number(existingFG.label.match(/\d+/)![0]) : 0) + 1}个记忆`
+            : "新增了1个记忆",
+          summary,
+        }),
+      ]);
+      if (cardIsNew && !silent) {
+        showToast("已保存到本地 ✓");
       }
-    })();
+    } catch (err) {
+      console.error("[useMemoryDB] addCard persist failed", err);
+      throw new Error("本地保存失败，请重试。");
+    }
   }, [showToast]);
 
   const removeCardInternal = useCallback(async (
@@ -404,11 +409,11 @@ export function useMemoryDB(): MemoryDBHook {
     putSubject(subject).catch(() => {});
   }, []);
 
-  const addSubject = useCallback((subject: SubjectData) => {
+  const addSubject = useCallback((subject: SubjectData, options?: { silent?: boolean }) => {
     setSubjects(prev => prev.some(s => s.id === subject.id) ? prev : [...prev, subject]);
     setAllFeedGroups(prev => ({ ...prev, [subject.id]: prev[subject.id] ?? [] }));
     putSubject(subject).catch(() => {});
-    showToast(`已创建学科「${subject.short}」`);
+    if (!options?.silent) showToast(`已创建学科「${subject.short}」`);
   }, [showToast]);
 
   const moveCardToSubject = useCallback(async (

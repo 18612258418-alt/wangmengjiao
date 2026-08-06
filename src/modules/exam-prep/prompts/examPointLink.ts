@@ -1,6 +1,7 @@
 import type { CardContentType, DetailSection, ExamKnowledgeGraph } from "../types";
 import { getExamKnowledgeGraph } from "../data/examKnowledgeGraphs";
 import { extractJsonObject, parseJsonLoose } from "../utils/json";
+import { KNOWLEDGE_NETWORK_RULES } from "./knowledgeNetworkRules";
 
 /** 单条考点挂靠判定 */
 export interface ExamPointLinkItem {
@@ -66,6 +67,8 @@ export function buildExamPointLinkPrompt(
 
   return `你是一位熟悉大学课程教学大纲与期末考查范围的学科教研员。
 你的任务是：阅读学生刚上传的学习笔记，判断其**实质性涵盖**了哪些「备考考点知识图谱」节点，以便把该笔记自动挂靠到对应考点的详情侧栏。
+
+${KNOWLEDGE_NETWORK_RULES}
 
 ══════════════════ 判定原则（宁缺毋滥）══════════════════
 1. 只有笔记中出现**明确的知识讲解、定义定理、公式推导、解题方法、典型例题或考试要点**时，才可挂靠到某考点。

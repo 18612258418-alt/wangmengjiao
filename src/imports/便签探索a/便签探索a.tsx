@@ -977,7 +977,7 @@ function Frame12() {
               </div>
             </div>
           </div>
-          <p className="font-['PingFang_SC:Heavy',sans-serif] leading-[40px] not-italic relative shrink-0 text-[#020418] text-[36px] whitespace-nowrap">AI记忆</p>
+          <p className="font-['PingFang_SC:Heavy',sans-serif] leading-[40px] not-italic relative shrink-0 text-[#020418] text-[36px] whitespace-nowrap">Memo</p>
         </div>
       </div>
     </div>
