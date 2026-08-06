@@ -169,32 +169,44 @@ function makeCourse(
  * 真实课表一旦导入，会以同学期的数据替换此示例；已有本地课表不会被改动。
  */
 const DEMO_TIMETABLE: TimetableData = {
-  semester: "2026—2027 学年第一学期",
+  semester: "2025—2026 学年第二学期",
   semesterDetection: { source: "sheet_content", confidence: 1 },
-  sourceFileName: "Memo 演示课表.xlsx",
-  sourceSheetName: "2026-2027-1",
+  sourceFileName: "学生个人课表_120251210107 (4).xls",
+  sourceSheetName: "Sheet1",
   importedAt: 1786051200000,
   courses: [
-    makeCourse({ day: "周一", time: "08:00", end: "09:40", course: "大学物理（2）", room: "主楼 F101", teacher: "李老师", weeks: "1-18周" }),
-    makeCourse({ day: "周一", time: "10:10", end: "11:55", course: "高等数学", room: "教4 A503", teacher: "王老师", weeks: "1-18周" }),
-    makeCourse({ day: "周一", time: "13:30", end: "15:15", course: "信号与系统", room: "主楼 C204", teacher: "张老师", weeks: "1-18周" }),
-    makeCourse({ day: "周二", time: "08:00", end: "09:40", course: "模拟电子技术基础 A", room: "主楼 C101", teacher: "陈老师", weeks: "1-18周" }),
-    makeCourse({ day: "周三", time: "08:00", end: "09:40", course: "大学物理（2）", room: "主楼 F101", teacher: "李老师", weeks: "1-18周" }),
-    makeCourse({ day: "周三", time: "10:10", end: "11:55", course: "高等数学", room: "教4 A503", teacher: "王老师", weeks: "1-18周" }),
-    makeCourse({ day: "周五", time: "08:00", end: "09:40", course: "通信专业导论", room: "主楼 B309", teacher: "周老师", weeks: "1-18周" }),
+    makeCourse({ day: "周一", time: "08:00", end: "09:40", course: "大学物理（2）", room: "主楼F101", teacher: "李克强", weeks: "1-8,11-14周" }),
+    makeCourse({ day: "周二", time: "08:00", end: "09:40", course: "模拟电子技术基础A", room: "主楼C101", teacher: "樊冰", weeks: "1-8,11-14周" }),
+    makeCourse({ day: "周三", time: "08:00", end: "09:40", course: "大学物理（2）", room: "主楼F101", teacher: "李克强", weeks: "1-8,11-14周" }),
+    makeCourse({ day: "周四", time: "08:00", end: "09:40", course: "模拟电子技术基础A", room: "主楼C101", teacher: "樊冰", weeks: "1-8,11-14周" }),
+    makeCourse({ day: "周五", time: "08:00", end: "09:40", course: "通信专业导论", room: "主楼B309", teacher: "祁兵、孙毅、吴润泽", weeks: "1-8周" }),
+    makeCourse({ day: "周一", time: "10:00", end: "11:40", course: "概率论与数理统计B", room: "教4A503", teacher: "郑宏文", weeks: "1-8,11-16周" }),
+    makeCourse({ day: "周二", time: "10:00", end: "11:40", course: "复变函数与积分变换", room: "教4A401", teacher: "贺琛", weeks: "1-8,11-14周" }),
+    makeCourse({ day: "周三", time: "10:00", end: "11:40", course: "概率论与数理统计B", room: "教4A503", teacher: "郑宏文", weeks: "1-8,11-16周" }),
+    makeCourse({ day: "周四", time: "10:00", end: "11:40", course: "复变函数与积分变换", room: "教4A401", teacher: "贺琛", weeks: "1-8,11-14周" }),
+    makeCourse({ day: "周五", time: "10:00", end: "11:40", course: "形势与政策（3）", room: "教3A313", teacher: "姜良杰", weeks: "1-4周" }),
+    makeCourse({ day: "周一", time: "14:00", end: "15:40", course: "信号与系统", room: "主楼C204", teacher: "周振宇", weeks: "1-8,11-14周" }),
+    makeCourse({ day: "周三", time: "14:00", end: "15:40", course: "信号与系统", room: "主楼C204", teacher: "周振宇", weeks: "1-8,11-14周" }),
+    makeCourse({ day: "周一", time: "16:00", end: "17:40", course: "物理实验（2）", room: "物理1", teacher: "何小武", weeks: "3-13周" }),
+    makeCourse({ day: "周二", time: "16:00", end: "17:40", course: "模拟电子技术基础实验A", room: "教5D204（电子1）", teacher: "樊冰", weeks: "11-18周" }),
   ],
   sourceRows: [
-    ["2026—2027 学年第一学期课程表", "", "", "", "", ""],
-    ["课程名称", "星期", "节次", "教室", "任课教师", "上课周次"],
-    ["大学物理（2）", "周一", "1-2", "主楼 F101", "李老师", "1-18周"],
-    ["高等数学", "周一", "3-4", "教4 A503", "王老师", "1-18周"],
-    ["信号与系统", "周一", "5-6", "主楼 C204", "张老师", "1-18周"],
-    ["模拟电子技术基础 A", "周二", "1-2", "主楼 C101", "陈老师", "1-18周"],
-    ["大学物理（2）", "周三", "1-2", "主楼 F101", "李老师", "1-18周"],
-    ["高等数学", "周三", "3-4", "教4 A503", "王老师", "1-18周"],
-    ["通信专业导论", "周五", "1-2", "主楼 B309", "周老师", "1-18周"],
+    ["华北电力大学 王菁 学生个人课表", "", "", "", "", "", "", ""],
+    ["学年学期：2026–2027–1 班级：通信2501 专业：通信工程 院系：电气与电子工程学院 打印日期：2026–07–28", "", "", "", "", "", "", ""],
+    ["", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"],
+    ["第1、2节\n(01,02)\n08:00–09:40", "大学物理(2)\n李克强\n1–8,11–14([周])[01–02节]\n主楼F101", "模拟电子技术基础A\n樊冰\n1–8,11–14([周])[01–02节]\n主楼C101", "大学物理(2)\n李克强\n1–8,11–14([周])[01–02节]\n主楼F101", "模拟电子技术基础A\n樊冰\n1–8,11–14([周])[01–02节]\n主楼C101", "通信专业导论\n祁兵,孙毅,吴润泽\n1–8([周])[01–02节]\n主楼B309", "", ""],
+    ["第3、4节\n(03,04)\n10:00–11:40", "概率论与数理统计B\n郑宏文\n1–8,11–16([周])[03–04节]\n教4A503", "复变函数与积分变换\n贺琛\n1–8,11–14([周])[03–04节]\n教4A401", "概率论与数理统计B\n郑宏文\n1–8,11–16([周])[03–04节]\n教4A503", "复变函数与积分变换\n贺琛\n1–8,11–14([周])[03–04节]\n教4A401", "形势与政策(3)\n姜良杰\n1–4([周])[03–04节]\n教3A313", "", ""],
+    ["第5、6节\n(05,06)\n14:00–15:40", "信号与系统\n周振宇\n1–8,11–14([周])[05–06节]\n主楼C204", "", "信号与系统\n周振宇\n1–8,11–14([周])[05–06节]\n主楼C204", "", "", "", ""],
+    ["第7、8节\n(07,08)\n16:00–17:40", "物理实验(2)\n何小武\n3–13([周])[07–08节]\n物理1", "模拟电子技术基础实验A\n樊冰\n11–18([周])[07–08节]\n教5D204（电子1）", "", "", "", "", ""],
+    ["第9、10节\n(09,10)\n19:00–20:40", "", "", "", "", "", "", ""],
+    ["第11、12节\n(11,12)\n12:00–13:40", "", "", "", "", "", "", ""],
+    ["", "：工程训练 樊春雨,邵卓 9–10周;物理实验(2) 何小武 3–13周;模拟电子技术基础实验A 樊冰 11–18周;", "", "", "", "", "", ""],
   ],
-  sourceMerges: [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }],
+  sourceMerges: [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 7 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 7 } },
+    { s: { r: 9, c: 1 }, e: { r: 9, c: 7 } },
+  ],
 };
 
 function saveDemoTimetable(): TimetableData[] {
@@ -528,12 +540,24 @@ export function loadTimetables(): TimetableData[] {
         .filter((item): item is TimetableData => !!item && item.courses.length > 0);
       // Earlier previews could persist an empty timetable collection. Treat that
       // as an uninitialised demo instead of leaving the deployed page blank.
-      return stored.length > 0 ? stored : saveDemoTimetable();
+      if (stored.length === 0) return saveDemoTimetable();
+      // Upgrade only the old built-in sample. Never replace a timetable uploaded
+      // by the user, even when it belongs to the same semester.
+      const legacyDemo = stored.find(item => item.sourceFileName === "Memo 演示课表.xlsx");
+      if (!legacyDemo) return stored;
+      const upgraded = stored.map(item => item === legacyDemo ? DEMO_TIMETABLE : item);
+      localStorage.setItem(STORAGE_COLLECTION_KEY, JSON.stringify(upgraded));
+      if (localStorage.getItem(STORAGE_ACTIVE_KEY) === legacyDemo.semester) {
+        localStorage.setItem(STORAGE_ACTIVE_KEY, DEMO_TIMETABLE.semester);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(DEMO_TIMETABLE));
+      }
+      return upgraded;
     }
     const legacyRaw = localStorage.getItem(STORAGE_KEY);
     if (!legacyRaw) return saveDemoTimetable();
     const legacy = normalizeTimetable(JSON.parse(legacyRaw) as TimetableData);
     if (!legacy || legacy.courses.length === 0) return saveDemoTimetable();
+    if (legacy.sourceFileName === "Memo 演示课表.xlsx") return saveDemoTimetable();
     localStorage.setItem(STORAGE_COLLECTION_KEY, JSON.stringify([legacy]));
     return [legacy];
   } catch {
