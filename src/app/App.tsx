@@ -184,7 +184,7 @@ export default function App() {
   });
 
   const [activeSubject, setActiveSubject] = useState<string>("__pending__");
-  const [activeTopTab, setActiveTopTab] = useState<TopTabId>("notes");
+  const [activeTopTab, setActiveTopTab] = useState<TopTabId>("study");
   const [focusedSyllabusEntryId, setFocusedSyllabusEntryId] = useState<string | null>(null);
   const [annotationType, setAnnotationType] = useState<string | null>(null);
   const [drawerCard, setDrawerCard] = useState<CardData | null>(null);
