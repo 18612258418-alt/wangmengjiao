@@ -60,7 +60,6 @@ const todayCourses: CourseItem[] = [
     color: "#FF3D67",
     status: "quiet",
     current: true,
-    contentLabel: "打开课堂笔记",
   },
   {
     day: "周一",
@@ -291,7 +290,7 @@ function enrichCourse(
   );
   const attachedCard = course.current ? (afterClass ?? linked[0]) : (beforeClass ?? afterClass ?? linked[0]);
   if (course.current) {
-    return { ...course, attachedCard, status: "quiet", contentLabel: "打开课堂笔记" };
+    return { ...course, attachedCard, status: "quiet" };
   }
   if (beforeClass) {
     const previewAction = beforeClass.learningActions?.find(action =>
@@ -678,21 +677,7 @@ export function StudyView({
                                 {[item.teacher, item.weeks].filter(Boolean).join(" · ")}
                               </p>
                             )}
-                            {item.current && week === 1 && selectedDay === 0 && mode === "today" && (
-                              <span className="mt-1.5 inline-flex rounded bg-[#E9F9F1] px-1.5 py-0.5 text-[8px] font-bold text-[#0A9B67]">上课中</span>
-                            )}
                           </div>
-                          {item.current && week === 1 && selectedDay === 0 && mode === "today" && (
-                            <button
-                              onClick={event => {
-                                event.stopPropagation();
-                                openContent();
-                              }}
-                              className="flex-shrink-0 rounded-lg border border-[#4D5CFF] bg-[#4D5CFF] px-3 py-2 text-[10px] font-semibold text-white shadow-[0_4px_10px_rgba(77,92,255,0.16)] hover:bg-[#3F4FE8]"
-                            >
-                              打开课堂笔记
-                            </button>
-                          )}
                           {showReviewDemo && week === 1 && selectedDay === 0 && mode === "today" && (
                             <button
                               onClick={event => {
