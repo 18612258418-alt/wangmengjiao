@@ -116,7 +116,7 @@ export function Sidebar({
             <CalendarDays size={17} />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-[14px] font-bold">学期课表</span>
+            <span className="block text-[14px] font-bold">课程表</span>
           </span>
         </button>
 

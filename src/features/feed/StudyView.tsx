@@ -316,6 +316,29 @@ function enrichCourse(
   };
 }
 
+const COURSE_TINTS = [
+  { background: "#EEF2FF", border: "#D9E0FF", text: "#4453B8" },
+  { background: "#ECF9F5", border: "#D3F0E7", text: "#287A65" },
+  { background: "#FFF7E8", border: "#F8E8C6", text: "#9A6A22" },
+  { background: "#FFF0F5", border: "#F5DCE7", text: "#A34D70" },
+  { background: "#F4F0FF", border: "#E4DAFA", text: "#6F55A9" },
+  { background: "#EAF7FC", border: "#D4ECF5", text: "#2E718C" },
+] as const;
+
+function courseTint(courseName: string) {
+  const normalized = normalizeCourseName(courseName);
+  const hash = Array.from(normalized).reduce((sum, char) => sum + (char.codePointAt(0) ?? 0), 0);
+  return COURSE_TINTS[hash % COURSE_TINTS.length];
+}
+
+function courseNameInText(value: string, timetable: TimetableData): string | null {
+  const normalizedValue = normalizeCourseName(value);
+  if (!normalizedValue) return null;
+  return [...new Set(timetable.courses.map(course => cleanCourseName(course.course)))]
+    .sort((a, b) => b.length - a.length)
+    .find(course => normalizedValue.includes(normalizeCourseName(course))) ?? null;
+}
+
 function SourceSheetPreview({ timetable }: { timetable: TimetableData }) {
   const rows = timetable.sourceRows ?? [];
   const starts = new Map<string, { rowSpan: number; colSpan: number }>();
@@ -337,13 +360,20 @@ function SourceSheetPreview({ timetable }: { timetable: TimetableData }) {
     <div className="inline-block min-w-full overflow-hidden rounded-xl border border-[#DDE1EA] bg-white shadow-sm">
       <table className="border-collapse text-[10px] text-[#303644]">
         <tbody>
-          {rows.map((row, rowIndex) => (
+          {rows.map((row, rowIndex) => {
+            const rowCourses = [...new Set(row.map(value => courseNameInText(value ?? "", timetable)).filter((course): course is string => !!course))];
+            const singleRowCourse = rowCourses.length === 1 ? rowCourses[0] : null;
+            return (
             <tr key={rowIndex}>
               {Array.from({ length: columnCount }, (_, columnIndex) => {
                 const key = `${rowIndex}:${columnIndex}`;
                 if (covered.has(key)) return null;
                 const merge = starts.get(key);
                 const value = row[columnIndex] ?? "";
+                const matchedCourse = rowIndex > 1
+                  ? (courseNameInText(value, timetable) ?? singleRowCourse)
+                  : null;
+                const tint = matchedCourse ? courseTint(matchedCourse) : null;
                 return (
                   <td
                     key={key}
@@ -352,13 +382,14 @@ function SourceSheetPreview({ timetable }: { timetable: TimetableData }) {
                     className={`min-w-[96px] whitespace-pre-line border border-[#E1E5EE] px-3 py-2 align-middle ${
                       rowIndex <= 1 ? "bg-[#F3F5FA] font-semibold text-[#242A36]" : "bg-white"
                     }`}
+                    style={tint ? { backgroundColor: tint.background, color: tint.text } : undefined}
                   >
                     {value || "\u00a0"}
                   </td>
                 );
               })}
             </tr>
-          ))}
+          )})}
         </tbody>
       </table>
     </div>
@@ -436,41 +467,26 @@ export function StudyView({
       <div className="mx-auto max-w-[1040px] pt-6">
         {previewReminderVisible && previewReminderCourse && (
           <div className="mb-4 flex items-center gap-3 rounded-2xl border border-[#D9DFFF] bg-[#F1F4FF] px-4 py-3">
-            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white text-[#4D5CFF] shadow-sm">
-              <Bell size={18} strokeWidth={2.2} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-[12px] font-bold text-[#15182A]">
-                明天有{previewReminderCourse.course}，可以提前预习
-              </p>
-              <p className="mt-1 truncate text-[10px] text-[#737B91]">
-                {previewReminderCourse.attachedCard?.title.replace(/^记忆：/, "")}
-              </p>
-            </div>
-            <div className="flex flex-shrink-0 items-center gap-2">
-              <button
-                onClick={() => {
-                  setPreviewFormat("video");
-                  setPreviewPlaying(false);
-                }}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[#CCD3FF] bg-white px-3 py-2 text-[10px] font-semibold text-[#4D5CFF] hover:bg-[#F9FAFF]"
-              >
-                <Play size={12} fill="currentColor" />
-                看视频
-                <span className="font-normal text-[#9AA1B3]">8分钟</span>
-              </button>
-              <button
-                onClick={() => {
-                  setPreviewFormat("podcast");
-                  setPreviewPlaying(false);
-                }}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[#CCD3FF] bg-white px-3 py-2 text-[10px] font-semibold text-[#4D5CFF] hover:bg-[#F9FAFF]"
-              >
-                <Headphones size={13} />
-                听播客
-                <span className="font-normal text-[#9AA1B3]">12分钟</span>
-              </button>
-            </div>
+            <button
+              onClick={() => {
+                setPreviewFormat("video");
+                setPreviewPlaying(false);
+              }}
+              className="flex min-w-0 flex-1 items-center gap-3 text-left"
+              aria-label={`查看${previewReminderCourse.course}的预习详情`}
+            >
+              <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white text-[#4D5CFF] shadow-sm">
+                <Bell size={18} strokeWidth={2.2} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[12px] font-bold text-[#15182A]">
+                  明天有{previewReminderCourse.course}，可以提前预习
+                </span>
+                <span className="mt-1 block truncate text-[10px] text-[#737B91]">
+                  {previewReminderCourse.attachedCard?.title.replace(/^记忆：/, "")}
+                </span>
+              </span>
+            </button>
             <button
               onClick={() => {
                 setPreviewReminderVisible(false);
@@ -487,7 +503,7 @@ export function StudyView({
           <div>
             <div className="flex items-center gap-2">
               <CalendarDays size={19} className="text-[#4D5CFF]" />
-              <h1 className="text-[22px] font-bold text-[#020418]">学期课表</h1>
+              <h1 className="text-[22px] font-bold text-[#020418]">课程表</h1>
             </div>
             <div className="relative">
               <button
@@ -531,7 +547,7 @@ export function StudyView({
             onClick={() => setShowTimetableSource(true)}
             className="rounded-lg border border-[#E5E7EF] bg-white px-3 py-2 text-[10px] font-semibold text-[#7B8291] hover:border-[#D6DBFF] hover:text-[#4D5CFF]"
           >
-            查看源文件
+            学期课表
           </button>
         </header>
 
@@ -570,19 +586,6 @@ export function StudyView({
                   回到本周
                 </button>
               )}
-              <div className="inline-flex rounded-xl border border-[#E4E7EF] bg-white p-1">
-                {(["today", "week"] as ViewMode[]).map(item => (
-                  <button
-                    key={item}
-                    onClick={() => setMode(item)}
-                    className={`rounded-lg px-4 py-1.5 text-[11px] font-semibold transition-colors ${
-                      mode === item ? "bg-[#EEF0FF] text-[#4D5CFF]" : "text-[#7B8291]"
-                    }`}
-                  >
-                    {item === "today" ? "日课表" : "周课表"}
-                  </button>
-                ))}
-              </div>
             </div>
           </div>
 
@@ -757,36 +760,59 @@ export function StudyView({
           }}
         >
           <div
-            className="w-full max-w-[560px] overflow-hidden rounded-3xl bg-white shadow-[0_24px_80px_rgba(15,23,42,0.24)]"
+            className="relative w-full max-w-[560px] overflow-hidden rounded-3xl bg-white shadow-[0_24px_80px_rgba(15,23,42,0.24)]"
             onClick={event => event.stopPropagation()}
           >
-            <header className="flex items-center justify-between border-b border-[#ECEEF4] px-6 py-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#EEF0FF] text-[#4D5CFF]">
-                  {previewFormat === "video" ? <Play size={16} fill="currentColor" /> : <Headphones size={17} />}
-                </div>
-                <div>
-                  <p className="text-[13px] font-bold text-[#15182A]">
-                    {previewFormat === "video" ? "视频预习" : "播客预习"}
-                  </p>
-                  <p className="mt-0.5 text-[10px] text-[#8B92A3]">{previewReminderCourse.course} · 电磁感应与楞次定律</p>
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  setPreviewFormat(null);
-                  setPreviewPlaying(false);
-                }}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-[#F5F6FA] text-[#7B8291] hover:text-[#4D5CFF]"
-                aria-label="关闭预习播放器"
-              >
-                <X size={15} />
-              </button>
-            </header>
+            <button
+              onClick={() => {
+                setPreviewFormat(null);
+                setPreviewPlaying(false);
+              }}
+              className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-[#7B8291] shadow-sm hover:text-[#4D5CFF]"
+              aria-label="关闭预习详情"
+            >
+              <X size={15} />
+            </button>
 
             <div className="p-6">
+              <section className="rounded-2xl border border-[#E5E8F4] bg-[#F8F9FD] p-4">
+                <p className="text-[10px] font-bold text-[#6872C8]">本次预习</p>
+                <p className="mt-1 text-[14px] font-bold text-[#202541]">
+                  {previewReminderCourse.attachedCard?.title.replace(/^记忆：/, "")}
+                </p>
+                <p className="mt-2 text-[11px] leading-5 text-[#697187]">
+                  {previewReminderCourse.attachedCard?.overview ?? "先熟悉本节核心概念，带着问题进入课堂。"}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {(previewReminderCourse.attachedCard?.aiKeyPoints ?? ["核心概念", "课堂重点"])
+                    .slice(0, 3)
+                    .map(point => (
+                      <span key={point} className="rounded-md bg-white px-2 py-1 text-[9px] font-semibold text-[#5866D8] ring-1 ring-[#E1E5FF]">{point}</span>
+                    ))}
+                </div>
+                <p className="mt-3 text-[9px] text-[#8C94A6]">
+                  资料：{previewReminderCourse.attachedCard?.sourceDocument?.title ?? "课程预习资料"}
+                  {previewReminderCourse.attachedCard?.sourceDocument?.page ? ` · 第 ${previewReminderCourse.attachedCard.sourceDocument.page} 页` : ""}
+                </p>
+              </section>
+
+              <div className="mt-4 inline-flex rounded-xl border border-[#E1E5F1] bg-[#F7F8FC] p-1">
+                <button
+                  onClick={() => { setPreviewFormat("video"); setPreviewPlaying(false); }}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-[10px] font-semibold ${previewFormat === "video" ? "bg-white text-[#4D5CFF] shadow-sm" : "text-[#7B8291]"}`}
+                >
+                  <Play size={11} fill="currentColor" /> 视频预习 · 8分钟
+                </button>
+                <button
+                  onClick={() => { setPreviewFormat("podcast"); setPreviewPlaying(false); }}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-[10px] font-semibold ${previewFormat === "podcast" ? "bg-white text-[#4D5CFF] shadow-sm" : "text-[#7B8291]"}`}
+                >
+                  <Headphones size={12} /> 播客预习 · 12分钟
+                </button>
+              </div>
+
               {previewFormat === "video" ? (
-                <div className="relative flex aspect-[16/8] items-center justify-center overflow-hidden rounded-2xl bg-[linear-gradient(135deg,#202B5B_0%,#4D5CFF_58%,#8C9AFF_100%)]">
+                <div className="relative mt-4 flex h-[232px] items-center justify-center overflow-hidden rounded-2xl bg-[linear-gradient(135deg,#202B5B_0%,#4D5CFF_58%,#8C9AFF_100%)]">
                   <div className="absolute left-6 top-5 text-white">
                     <p className="text-[10px] font-semibold text-white/70">课前 8 分钟</p>
                     <p className="mt-1 text-[18px] font-bold">从磁通量到楞次定律</p>
@@ -809,7 +835,7 @@ export function StudyView({
                   </div>
                 </div>
               ) : (
-                <div className="rounded-2xl bg-[#F4F1FF] px-6 py-7">
+                <div className="mt-4 flex h-[232px] items-center rounded-2xl bg-[#F4F1FF] px-6 py-7">
                   <div className="flex items-center gap-4">
                     <button
                       onClick={() => setPreviewPlaying(value => !value)}
@@ -878,16 +904,22 @@ export function StudyView({
                       return (
                         <div key={`${day}-${time}`} className="min-h-[86px] border-b border-r border-[#E1E5EE] p-2 last:border-r-0">
                           <div className="space-y-1.5">
-                            {cellCourses.map(course => (
-                              <div key={course.id ?? `${course.course}-${course.weeks}`} className="rounded-lg bg-[#EEF0FF] p-2">
-                                <p className="text-[10px] font-bold leading-4 text-[#303A88]">{course.course}</p>
+                            {cellCourses.map(course => {
+                              const tint = courseTint(course.course);
+                              return (
+                              <div
+                                key={course.id ?? `${course.course}-${course.weeks}`}
+                                className="rounded-lg border p-2"
+                                style={{ backgroundColor: tint.background, borderColor: tint.border }}
+                              >
+                                <p className="text-[10px] font-bold leading-4" style={{ color: tint.text }}>{course.course}</p>
                                 <p className="mt-1 text-[9px] text-[#7B8291]">{course.room}</p>
                                 {course.teacher && <p className="mt-1 text-[8px] text-[#7B8291]">{course.teacher}</p>}
                                 {(course.weeks || course.weekRule) && (
                                   <p className="mt-1 text-[8px] text-[#9CA3AF]">{course.weeks || course.weekRule}</p>
                                 )}
                               </div>
-                            ))}
+                            )})}
                           </div>
                         </div>
                       );
