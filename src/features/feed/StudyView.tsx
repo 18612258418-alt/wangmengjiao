@@ -836,21 +836,6 @@ export function StudyView({
                 </div>
               )}
 
-              <div className="mt-5 flex items-center justify-between gap-4">
-                <p className="text-[10px] leading-5 text-[#7B8291]">
-                  两种形式对应同一份知识内容，学习记录会统一归入课程。
-                </p>
-                <button
-                  onClick={() => onNavigateCourse(
-                    previewReminderCourse.courseId ?? courseIdForName(previewReminderCourse.course),
-                    "notes",
-                    previewReminderCourse.attachedCard?.syllabusEntryId,
-                  )}
-                  className="flex-shrink-0 rounded-xl bg-[#4D5CFF] px-4 py-2.5 text-[11px] font-semibold text-white hover:bg-[#3F4FE8]"
-                >
-                  进入完整预习
-                </button>
-              </div>
             </div>
           </div>
         </div>
