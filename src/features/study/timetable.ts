@@ -523,18 +523,21 @@ export function loadTimetables(): TimetableData[] {
   try {
     const collectionRaw = localStorage.getItem(STORAGE_COLLECTION_KEY);
     if (collectionRaw) {
-      return (JSON.parse(collectionRaw) as TimetableData[])
+      const stored = (JSON.parse(collectionRaw) as TimetableData[])
         .map(normalizeTimetable)
-        .filter((item): item is TimetableData => !!item);
+        .filter((item): item is TimetableData => !!item && item.courses.length > 0);
+      // Earlier previews could persist an empty timetable collection. Treat that
+      // as an uninitialised demo instead of leaving the deployed page blank.
+      return stored.length > 0 ? stored : saveDemoTimetable();
     }
     const legacyRaw = localStorage.getItem(STORAGE_KEY);
     if (!legacyRaw) return saveDemoTimetable();
     const legacy = normalizeTimetable(JSON.parse(legacyRaw) as TimetableData);
-    if (!legacy) return [];
+    if (!legacy || legacy.courses.length === 0) return saveDemoTimetable();
     localStorage.setItem(STORAGE_COLLECTION_KEY, JSON.stringify([legacy]));
     return [legacy];
   } catch {
-    return [];
+    return saveDemoTimetable();
   }
 }
 
