@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, FileText, Link2 } from "lucide-react";
 import type { CardData, FeedGroup, SubjectData } from "../../types";
 import { getSubjectSyllabus, type SyllabusNode } from "../../data/subjectSyllabi";
 import { RECENT_NOTES_ENTRY_ID } from "../../utils/cardSurfaces";
@@ -30,12 +30,14 @@ export function SyllabusNotesView({
   feedGroups,
   onOpenCard,
   onOpenEntry,
+  onOpenLinkedPdf,
   newCardId,
 }: {
   subject: SubjectData;
   feedGroups: FeedGroup[];
   onOpenCard: (card: CardData, date: string) => void;
   onOpenEntry?: (entryId: string) => void;
+  onOpenLinkedPdf?: () => void;
   newCardId: string | null;
 }) {
   const syllabus = getSubjectSyllabus(subject.id);
@@ -48,6 +50,7 @@ export function SyllabusNotesView({
     [feedGroups, topicIds],
   );
   const noteCount = useMemo(() => collectNoteCards(feedGroups).length, [feedGroups]);
+  const hasLinkedPdf = subject.id === "other";
 
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
 
@@ -70,6 +73,13 @@ export function SyllabusNotesView({
     ),
     [feedGroups, selectedEntryId],
   );
+
+  const selectedSourceCount = useMemo(() => {
+    const sources = new Set(selectedCards.map(({ card }) => (
+      card.sourceAnchor?.fileName || card.sourceDocument?.title || card.source
+    )));
+    return sources.size + (hasLinkedPdf ? 1 : 0);
+  }, [selectedCards, hasLinkedPdf]);
 
   const selectedTitle = useMemo(() => {
     if (!selectedEntryId || selectedEntryId === RECENT_NOTES_ENTRY_ID) return null;
@@ -95,7 +105,7 @@ export function SyllabusNotesView({
             {syllabus.overviewTitle}
           </h3>
           <p className="text-[11px] text-[#9CA3AF] leading-snug mt-1">
-            已关联 {litCount}/{topicIds.length} 个条目 · 共 {noteCount} 条记忆
+            已学习 {litCount}/{topicIds.length} 个主题 · 共 {noteCount + (hasLinkedPdf ? 1 : 0)} 条笔记
           </p>
         </div>
         <div className="flex-1 min-w-0 px-6 pt-3 pb-3">
@@ -105,7 +115,7 @@ export function SyllabusNotesView({
                 {selectedTitle}
               </p>
               <p className="text-[11px] text-[#9CA3AF] leading-snug mt-1">
-                {selectedCards.length} 条知识碎片 · 点击卡片查看详情
+                {selectedCards.length + (hasLinkedPdf ? 1 : 0)} 条相关笔记 · {selectedSourceCount} 份来源资料
               </p>
             </>
           ) : (
@@ -180,9 +190,16 @@ export function SyllabusNotesView({
         </aside>
 
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          {selectedEntryId && selectedCards.length > 0 ? (
+          {(selectedEntryId && selectedCards.length > 0) || hasLinkedPdf ? (
             <div className="flex-1 overflow-y-auto px-6 pt-3 pb-8">
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                {hasLinkedPdf && (
+                  <button onClick={onOpenLinkedPdf} className="rounded-2xl border border-[#C9CEFF] bg-gradient-to-br from-[#F4F5FF] to-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                    <div className="flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#4D5CFF] text-white"><FileText size={17}/></span><div className="min-w-0"><span className="rounded-full bg-white px-2 py-1 text-[9px] font-semibold text-[#4D5CFF]">多页 PDF 笔记</span><h3 className="mt-3 text-[13px] font-bold leading-5">社会比较如何影响冲动消费</h3></div></div>
+                    <p className="mt-3 text-[10px] leading-5 text-[#626977]">参考《社会比较与青年消费研究报告》：理论类型与作用路径第 2-4 页；研究设计与变量测量第 6-7 页。</p>
+                    <div className="mt-4 flex items-center text-[10px] font-semibold text-[#4D5CFF]"><Link2 size={12} className="mr-1"/>打开原 PDF 并继续批注</div>
+                  </button>
+                )}
                 {selectedCards.map(({ card, date }) => (
                   <MemoryCard
                     key={card.id}
@@ -197,11 +214,11 @@ export function SyllabusNotesView({
             <div className="flex-1 flex flex-col items-center justify-center gap-2 px-8 text-center">
               <p className="text-[14px] text-[#7B8291]">
                 {selectedEntryId
-                  ? "该条目暂无关联记忆"
-                  : "请从左侧大纲选择已点亮的条目"}
+                  ? "这个主题还没有学习记录"
+                  : "从左侧选择一个已经学习的主题"}
               </p>
               <p className="text-[12px] text-[#B0B5C0] max-w-sm">
-                导入或批注的学习内容会归入对应大纲条目；未关联的条目显示为灰色，暂不可点击。
+                课堂记录、笔记和资料会出现在对应主题下；还没开始学习的主题暂时显示为灰色。
               </p>
             </div>
           )}

@@ -59,12 +59,15 @@ export function HomeworkView({
   feedGroups,
   onUpdateCard,
   onUploadCheck,
+  initialTaskQuery,
 }: {
   subject: SubjectData;
   feedGroups: FeedGroup[];
   onUpdateCard?: (cardId: string, date: string, updates: Partial<CardData>) => void;
   /** 「上传检查」按钮：打开上传入口 */
   onUploadCheck?: () => void;
+  /** 从今日待办进入时，优先选中包含该关键词的作业 */
+  initialTaskQuery?: string | null;
 }) {
   const days = useMemo(() => buildHomeworkByDay(feedGroups), [feedGroups]);
   const totalTasks = days.reduce((n, d) => n + d.items.length, 0);
@@ -97,6 +100,17 @@ export function HomeworkView({
       setSelectedKey(null);
     }
   }, [subject.id, firstTask?.card.id, firstTask?.taskIndex, firstTask?.dateKey]);
+
+  useEffect(() => {
+    if (!initialTaskQuery) return;
+    for (const day of days) {
+      const item = day.items.find(x => x.task.includes(initialTaskQuery));
+      if (item) {
+        setSelectedKey(taskKey(item, day.dateKey));
+        return;
+      }
+    }
+  }, [days, initialTaskQuery]);
 
   const breakdown = useMemo(
     () =>

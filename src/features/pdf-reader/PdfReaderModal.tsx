@@ -123,6 +123,7 @@ export function PdfReaderModal({
   const [tool, setTool] = useState<Tool>("pen");
   const [toast, setToast] = useState("");
   const [loadError, setLoadError] = useState("");
+  const isWritableReview = /总复习|典型题解|可手写/.test(file.name);
 
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
   const annotCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -1464,7 +1465,7 @@ export function PdfReaderModal({
           {!hasAnnotations && !isRendering && totalPages > 0 && (
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 pointer-events-none">
               <div className="bg-white/95 backdrop-blur-sm text-[#7B8291] text-[12px] px-5 py-3 rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.08)] border border-[#EAEDF2] text-center leading-5">
-                手指/触控笔圈选 · 上下滑动翻页 → AI 即时解析
+                {isWritableReview ? "直接用笔在题目旁作答 · 停笔 2 秒 → AI 判断对错" : "手指/触控笔圈选 · 上下滑动翻页 → AI 即时解析"}
               </div>
             </div>
           )}

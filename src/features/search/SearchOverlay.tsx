@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import type { CardData, FeedGroup, SubjectData } from "../../types";
 import { sourceLabel } from "../../shared/SourceIcon";
 import { CardDetailContent } from "../drawer/CardDetailContent";
+import { SOURCE_LIBRARY_ITEMS } from "../source/SourceLibraryView";
 
 function highlightText(text: string, query: string) {
   if (!query || query.length < 2) return <>{text}</>;
@@ -20,13 +21,14 @@ function highlightText(text: string, query: string) {
 }
 
 export function SearchOverlay({
-  isOpen, onClose, allFeedGroups, subjects, onUpdateCard,
+  isOpen, onClose, allFeedGroups, subjects, onUpdateCard, onOpenSource,
 }: {
   isOpen: boolean;
   onClose: () => void;
   allFeedGroups: Record<string, FeedGroup[]>;
   subjects: SubjectData[];
   onUpdateCard: (subjectId: string, date: string, cardId: string, updates: Partial<CardData>) => void;
+  onOpenSource: (sourceId: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [selectedCard, setSelectedCard] = useState<CardData | null>(null);
@@ -71,7 +73,21 @@ export function SearchOverlay({
     return grouped;
   }, [query, allFeedGroups, subjects]);
 
-  const totalCount = results.reduce((n, g) => n + g.cards.length, 0);
+  const sourceResults = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (q.length < 2) return [];
+    return SOURCE_LIBRARY_ITEMS.filter(source => [
+      source.title,
+      source.creator,
+      source.type,
+      source.lastPosition,
+      ...source.contexts,
+      ...source.notes.flatMap(note => [note.title, note.anchor]),
+    ].join(" ").toLowerCase().includes(q));
+  }, [query]);
+
+  const totalCount = sourceResults.length + results.reduce((n, g) => n + g.cards.length, 0);
+  const hasResults = sourceResults.length > 0 || results.length > 0;
 
   if (!isOpen) return null;
 
@@ -83,6 +99,16 @@ export function SearchOverlay({
 
   const ResultList = ({ compact }: { compact?: boolean }) => (
     <>
+      {sourceResults.length > 0 && <div>
+        <div style={{ padding: compact ? "8px 16px 4px" : "10px 20px 6px", fontSize: 11, fontWeight: 700, color: "#9CA3AF", letterSpacing: 0.8, textTransform: "uppercase" }}>
+          资料 · {sourceResults.length} 项
+        </div>
+        {sourceResults.map(source => <button key={source.id} onClick={() => onOpenSource(source.id)} style={{display:"flex",gap:10,alignItems:"center",width:"100%",textAlign:"left",padding:compact?"10px 16px":"12px 20px",background:"none",border:"none",borderLeft:"3px solid transparent",cursor:"pointer"}} onMouseEnter={e=>{e.currentTarget.style.background="#F5F6FA"}} onMouseLeave={e=>{e.currentTarget.style.background="none"}}>
+          <span style={{display:"grid",placeItems:"center",width:48,height:34,borderRadius:7,flexShrink:0,background:"#EEF0FF",color:"#4D5CFF",fontSize:10,fontWeight:700}}>{source.type}</span>
+          <div style={{minWidth:0,flex:1}}><p style={{fontSize:13,fontWeight:600,color:"#020418",lineHeight:1.5,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{highlightText(source.title,query)}</p><p style={{fontSize:11,color:"#9CA3AF",margin:0}}>{source.creator} · {source.lastPosition}</p></div>
+          <span style={{fontSize:11,color:"#4D5CFF"}}>打开</span>
+        </button>)}
+      </div>}
       {results.map(group => (
         <div key={group.subjectId}>
           <div style={{ padding: compact ? "8px 16px 4px" : "10px 20px 6px", fontSize: 11, fontWeight: 700, color: "#9CA3AF", letterSpacing: 0.8, textTransform: "uppercase" }}>
@@ -138,7 +164,7 @@ export function SearchOverlay({
             <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
           <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)}
-            placeholder="搜索记忆卡片..."
+            placeholder="搜索记忆和资料..."
             style={{ flex: 1, background: "none", border: "none", outline: "none", fontSize: 15, color: "#020418" }}
           />
           {query && (
@@ -164,13 +190,13 @@ export function SearchOverlay({
           </div>
         )}
 
-        {query.trim().length >= 2 && results.length === 0 && (
+        {query.trim().length >= 2 && !hasResults && (
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <p style={{ fontSize: 14, color: "#B0B5C0" }}>没有找到「{query}」相关记忆</p>
           </div>
         )}
 
-        {results.length > 0 && isWide && (
+        {hasResults && isWide && (
           <>
             <div style={{ width: 320, flexShrink: 0, overflowY: "auto", borderRight: "1px solid #EAEDF2", background: "#fff", padding: "8px 0" }}>
               <ResultList />
@@ -197,7 +223,7 @@ export function SearchOverlay({
           </>
         )}
 
-        {results.length > 0 && !isWide && (
+        {hasResults && !isWide && (
           <div style={{ flex: 1, overflowY: "auto", background: "#fff", paddingTop: 8 }}>
             <ResultList compact />
             {selectedCard && (

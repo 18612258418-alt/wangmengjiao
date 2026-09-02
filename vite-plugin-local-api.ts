@@ -5,6 +5,7 @@ type ApiHandler = (req: Request) => Promise<Response>;
 
 const API_LOADERS: Record<string, () => Promise<{ default: ApiHandler }>> = {
   "/api/import": () => import("./api/import"),
+  "/api/audio": () => import("./api/audio"),
   "/api/doubao": () => import("./api/doubao"),
   "/api/deepseek": () => import("./api/deepseek"),
 };

@@ -45,6 +45,18 @@ const INK_MARK_GUIDE = `【标记类型判断】
 在 clarifyQuestion 里用一句话向用户提问并给出你猜的 1-2 个可能方向（如「你是想让我解释这个定理，还是检查你写的推导？」），
 此时 sections 输出空数组 []，intent 写你的最佳猜测。能确定时不要反问，直接解析。`;
 
+const WRITABLE_REVIEW_GRADING_GUIDE = `【当前场景：在真实复习题解上手写作答】
+这是一份“总复习用典型题目解答”的原始电子版。黑色印刷内容是原资料中的标准推导或答案，红色笔迹是学生刚写下的作答。
+你的首要任务不是讲解整页，也不是描述笔迹，而是把红色作答与它附近同编号的黑色题解逐步比较并立即判定。
+
+判定要求：
+1. 明确输出“正确”“部分正确”或“需要订正”；只评价红色笔迹，不把黑色原解误认为学生作答。
+2. 检查最终结论，也检查关键变形、符号、定义域、积分常数和上下限；等价写法应判正确。
+3. 找到错误时只指出第一个关键错误，并给一个最小订正提示，不直接抄完全部标准解。
+4. 红色笔迹太少或无法确定对应题号时，needClarify=true，并询问用户是否已写完或请其圈住题号与完整作答。
+5. sections 固定优先使用三个标题：“判断结果”“对照依据”“下一步订正”；warnings 只写本题最容易再犯的一点。
+6. intent 用一句用户语言概括，例如“你正在作答 5-4，想确认分部积分是否正确”。`;
+
 export interface CircleRegionPromptOpts {
   pdfTitle?: string;
   pageNum?: number;
@@ -59,6 +71,7 @@ export interface CircleRegionPromptOpts {
 
 export function buildCircleRegionPrompt(opts?: CircleRegionPromptOpts): string {
   const isInk = opts?.markKind === "ink";
+  const isWritableReview = /总复习|典型题解|可手写/.test(`${opts?.pdfTitle ?? ""} ${opts?.fileName ?? ""}`);
   const ctx: string[] = [];
   if (opts?.pdfTitle) ctx.push(`文档：${opts.pdfTitle}`);
   if (opts?.pageNum) ctx.push(`当前页码：第 ${opts.pageNum} 页`);
@@ -73,14 +86,16 @@ export function buildCircleRegionPrompt(opts?: CircleRegionPromptOpts): string {
     ? `【用户已说明本次标记的意图】${opts.userIntent.trim()}。请严格按该意图解析，needClarify 必须为 false。\n`
     : "";
 
-  const sceneLine = isInk
+  const sceneLine = isWritableReview && isInk
+    ? "附件截图来自真实高数复习题解。截图中的黑色内容是原资料，红色内容是用户在页面上用笔写下的答案或推导。"
+    : isInk
     ? "附件截图包含用户用红色笔迹做的手写标记（下划线、问号、手写文字、箭头等）及其周边原文。"
     : "附件是用户圈选区域的截图（可能只是一道题的一部分、一个公式或一段定义）。圈选范围以外的内容已被涂白，图片边缘可能残留被截断的不完整文字——请忽略空白区域和残缺字符，只解析完整可见的内容。";
 
   return `${contextLine}${profileLine}${intentLine}${sceneLine}请深度解析并输出以下 JSON：
 ${CIRCLE_REGION_OUTPUT_SCHEMA}
 
-${isInk ? `${INK_MARK_GUIDE}\n\n` : ""}${CIRCLE_REGION_RULES}`;
+${isWritableReview && isInk ? `${WRITABLE_REVIEW_GRADING_GUIDE}\n\n` : isInk ? `${INK_MARK_GUIDE}\n\n` : ""}${CIRCLE_REGION_RULES}`;
 }
 
 export interface CircleRegionSection {

@@ -28,6 +28,14 @@ export interface SourceDraft {
   taskDueDate?: string;
   /** 保存后建议打开的 Tab */
   openTab?: "homework" | null;
+  /** 当前解析由真实 AI 服务还是无 Key 的本地演示完成 */
+  processingMode?: "ai" | "local-demo";
+  /** Source 被切成了怎样的可定位片段 */
+  fragmentSummary?: string;
+  /** AI 从片段中提出、等待确认的记忆候选 */
+  memoryCandidates?: string[];
+  /** 建议建立的 Context Graph 关联 */
+  autoRelations?: string[];
   error?: string;
 }
 
@@ -87,12 +95,14 @@ function TranscriptPreview({ text }: { text: string }) {
 export function AddSourceModal({
   isOpen,
   subjects,
+  activeContext,
   onClose,
   onAnalyzeFile,
   onConfirmDraft,
 }: {
   isOpen: boolean;
   subjects: SubjectData[];
+  activeContext?: string | null;
   onClose: () => void;
   onAnalyzeFile: (
     file: File,
@@ -186,12 +196,21 @@ export function AddSourceModal({
         <div className="px-6 py-5 border-b border-[#EAEDF2] flex items-start justify-between">
           <div>
             <p className="text-[18px] text-[#020418]" style={{ fontWeight: 800 }}>添加资料</p>
-            <p className="text-[12px] text-[#7B8291] mt-1">支持图片、PDF、文本及音频；先解析成预览卡，确认后再保存，避免污染资料库。</p>
+            <p className="text-[12px] text-[#7B8291] mt-1">原件会先保存。AI 自动整理高置信内容，只有新研究、冲突判断等重要变化需要你确认。</p>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-[#F0F2F5] hover:bg-[#E5E7EB] text-[#020418]">×</button>
         </div>
 
         <div className="px-6 pt-5 pb-4">
+          {activeContext && (
+            <div className="mb-3 flex items-center rounded-2xl border border-[#DDE1FF] bg-[#F4F5FF] px-4 py-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-semibold text-[#4D5CFF]">已根据课表识别当前情境</p>
+                <p className="mt-1 truncate text-[12px] font-bold text-[#252936]">{activeContext}</p>
+              </div>
+              <span className="rounded-full bg-white px-2.5 py-1 text-[9px] text-[#4D5CFF]">资料将优先关联本次课堂</span>
+            </div>
+          )}
           <label className="block rounded-3xl border border-dashed border-[#C9D0E3] bg-[#F8FAFF] p-6 text-center cursor-pointer hover:bg-[#F3F6FF]">
             <input
               type="file"
@@ -221,7 +240,6 @@ export function AddSourceModal({
               <p className="text-[13px] text-[#9CA3AF]">添加资料后，这里会显示逐条解析进度和确认入口。</p>
             </div>
           ) : items.map(item => {
-            const subject = subjects.find(s => s.id === item.targetSubjectId);
             const visual = getSourceVisual(item);
             return (
               <div key={item.id} className="rounded-3xl border border-[#EAEDF2] bg-white p-4 flex gap-4">
@@ -256,26 +274,39 @@ export function AddSourceModal({
                     <TranscriptPreview text={item.transcript} />
                   )}
                   {item.status === "ready" && (
+                    <>
+                    <div className="mt-3 rounded-2xl border border-[#E4E7F2] bg-[#FAFBFF] p-3">
+                      <div className="flex items-center">
+                        <span className="text-[10px] text-[#4D5CFF]" style={{fontWeight:800}}>AI 对这份资料的理解</span>
+                        <span className={`ml-auto rounded-full px-2 py-1 text-[9px] ${item.processingMode === "local-demo" ? "bg-[#FFF7E8] text-[#B66A0A]" : "bg-[#EEF8F3] text-[#21845A]"}`}>
+                          {item.processingMode === "local-demo" ? "本地演示解析" : "AI 真实解析"}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        <div className="rounded-xl bg-white p-2.5">
+                          <span className="text-[9px] text-[#8A909C]">原始资料</span>
+                          <p className="mt-1 text-[10px] text-[#252936]">保留原貌，可随时回看</p>
+                        </div>
+                        <div className="rounded-xl bg-white p-2.5">
+                          <span className="text-[9px] text-[#8A909C]">从原文中提取</span>
+                          <p className="mt-1 text-[10px] text-[#252936]">{item.fragmentSummary ?? "已建立可定位片段"}</p>
+                        </div>
+                        <div className="rounded-xl bg-white p-2.5">
+                          <span className="text-[9px] text-[#8A909C]">处理方式</span>
+                          <p className="mt-1 text-[10px] text-[#252936]">普通关系自动整理，重要变化再询问</p>
+                        </div>
+                      </div>
+                      {!!item.memoryCandidates?.length && <div className="mt-3"><span className="text-[9px] font-bold text-[#7B8291]">AI 提取了这些理解</span><div className="mt-1.5 space-y-1">{item.memoryCandidates.map((candidate,index)=><p key={`${candidate}-${index}`} className="rounded-lg bg-white px-2.5 py-2 text-[10px] text-[#41464F]">{index+1}. {candidate}</p>)}</div></div>}
+                      {!!item.autoRelations?.length && <div className="mt-3"><div className="flex items-center"><span className="text-[9px] font-bold text-[#7B8291]">AI 认为它与这些内容有关</span><span className="ml-auto text-[9px] text-[#21845A]">将自动整理，可随时修改</span></div><div className="mt-1.5 flex flex-wrap gap-1.5">{item.autoRelations.map(relation=><span key={relation} className="rounded-full bg-[#EEF0FF] px-2 py-1 text-[9px] text-[#4D5CFF]">{relation}<button aria-label={`移除关联 ${relation}`} className="ml-1 text-[#929AFF]" onClick={()=>updateItem(item.id,{autoRelations:item.autoRelations?.filter(x=>x!==relation)})}>×</button></span>)}</div></div>}
+                      {item.processingMode === "local-demo" && <p className="mt-3 text-[9px] leading-4 text-[#B66A0A]">当前未配置模型服务，因此只演示完整处理流程，不声称已理解文件真实内容。</p>}
+                    </div>
                     <div className="mt-3 flex items-center justify-between gap-3">
-                      <select
-                        value={item.targetSubjectId}
-                        onChange={e => updateItem(item.id, { targetSubjectId: e.target.value })}
-                        className="appearance-none rounded-xl border border-[#EAEDF2] bg-[#F8FAFB] py-2 pl-3 text-[12px] outline-none"
-                        style={{
-                          minWidth: 96,
-                          paddingRight: 30,
-                          backgroundImage:
-                            "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238A93A6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")",
-                          backgroundRepeat: "no-repeat",
-                          backgroundPosition: "right 11px center",
-                        }}
-                      >
-                        {subjects.map(s => <option key={s.id} value={s.id}>{s.short}</option>)}
-                      </select>
+                      <p className="text-[10px] leading-4 text-[#8A909C]">不会把资料塞进单一文件夹；同一份内容可以同时服务学习、研究和计划。</p>
                       <button onClick={() => confirmItem(item)} className="rounded-xl bg-[#4D5CFF] px-4 py-2 text-[12px] text-white" style={{ fontWeight: 800 }}>
-                        确认保存到{subject?.short ?? "学科"}
+                        保存这些理解
                       </button>
                     </div>
+                    </>
                   )}
                 </div>
               </div>

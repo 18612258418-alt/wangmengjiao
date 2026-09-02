@@ -22,6 +22,9 @@ import { SyllabusNotesView } from "../features/feed/SyllabusNotesView";
 import { TopTabs, type TopTabId } from "../features/feed/TopTabs";
 import { AnnotationMenu } from "../features/feed/AnnotationMenu";
 import { PdfReaderModal } from "../features/pdf-reader/PdfReaderModal";
+import { WritableReviewModal } from "../features/review/WritableReviewModal";
+import { StudyTaskModal, type StudyTaskKind } from "../features/today/StudyTaskModal";
+import { LinkedPdfNoteModal } from "../features/pdf-reader/LinkedPdfNoteModal";
 import { CameraModal } from "../features/camera/CameraModal";
 import { CameraAgentModal } from "../features/camera/cameraAgent/CameraAgentModal";
 import { isCameraAgentEnabled } from "../features/camera/cameraAgent/config";
@@ -50,9 +53,10 @@ import { EditableSubjectName } from "../features/feed/EditableSubjectName";
 import { RightDrawer } from "../features/drawer/RightDrawer";
 import { SearchOverlay } from "../features/search/SearchOverlay";
 import { Sidebar, type WorkspaceId } from "../features/sidebar/Sidebar";
-import { GoalsView, KnowledgeView, TodayView } from "../features/workspace/WorkspaceViews";
+import { ClassSessionPanel, GoalsView, KnowledgeView, TodayView } from "../features/workspace/WorkspaceViews";
 import { ResearchHome, ResearchWorkspace } from "../features/workspace/ResearchWorkspace";
 import { AddSourceModal, type SourceDraft, isAudioFile } from "../features/source/AddSourceModal";
+import { SourceLibraryView } from "../features/source/SourceLibraryView";
 import { FlyThumbnail } from "../shared/FlyThumbnail";
 
 /** 选出最近更新的学科：扫描 allFeedGroups 取出最大日期对应的 subjectId */
@@ -90,6 +94,9 @@ export default function App() {
   const [activeSubject, setActiveSubject] = useState<string>("__pending__");
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceId>("today");
   const [researchDetailOpen, setResearchDetailOpen] = useState(false);
+  const [activeResearchTitle, setActiveResearchTitle] = useState("短视频平台与大学生冲动消费研究");
+  const [activeClassSession, setActiveClassSession] = useState<string | null>(null);
+  const [todayTaskFocus, setTodayTaskFocus] = useState<string | null>(null);
   const [memorySuggestedTask, setMemorySuggestedTask] = useState<string | null>(null);
   const [activeTopTab, setActiveTopTab] = useState<TopTabId>("notes");
   const [annotationType, setAnnotationType] = useState<string | null>(null);
@@ -97,8 +104,12 @@ export default function App() {
   const [drawerCardDate, setDrawerCardDate] = useState<string>("");
   const [drawerCardSubject, setDrawerCardSubject] = useState<string>("");
   const [showSearch, setShowSearch] = useState(false);
+  const [sourceSearchTarget, setSourceSearchTarget] = useState<string | null>(null);
   const [showAddSource, setShowAddSource] = useState(false);
   const [pdfReaderFile, setPdfReaderFile] = useState<File | null>(null);
+  const [showWritableReview, setShowWritableReview] = useState(false);
+  const [activeTodayTask, setActiveTodayTask] = useState<StudyTaskKind | null>(null);
+  const [showLinkedPdfNote, setShowLinkedPdfNote] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [showScreenshot, setShowScreenshot] = useState(false);
   const [screenshotMergeNotice, setScreenshotMergeNotice] = useState<{
@@ -826,6 +837,49 @@ export default function App() {
 
   const normalizeSubjectId = (id?: string) => subjects.some(s => s.id === id) ? id! : (activeSubject !== "all" && activeSubject !== "__pending__" ? activeSubject : "other");
 
+  const buildLocalDemoDraft = (
+    sourceKind: SourceDraft["sourceKind"],
+    originalName: string,
+    rawText = "",
+  ): SourceDraft => {
+    const cleanName = originalName.replace(/\.[^.]+$/, "") || "导入资料";
+    const compact = rawText.replace(/\s+/g, " ").trim();
+    const isResearch = /研究|报告|论文|样本|调查|访谈|社会比较|消费/.test(`${cleanName} ${compact}`);
+    const isPhysics = /物理|力学|电磁|振动|波/.test(`${cleanName} ${compact}`);
+    const isMath = /数学|积分|导数|函数|概率/.test(`${cleanName} ${compact}`);
+    const targetSubjectId = isPhysics ? "physics" : isMath ? "math" : "other";
+    const excerpt = compact.slice(0, 88);
+    const memoryCandidates = isResearch
+      ? ["资料中的核心结论需要与样本和方法一起理解", "发现一条可用于当前研究的证据", "研究限制可能影响结论的适用范围"]
+      : ["识别出资料的核心主题与关键概念", "形成一条可继续补充的知识理解", "发现一个值得后续验证或练习的重点"];
+    return {
+      id: `draft_${Date.now()}`,
+      status: "ready",
+      sourceKind,
+      originalName,
+      title: `记忆：${cleanName.slice(0, 18)}`,
+      summary: excerpt ? `本地演示解析：${excerpt}${compact.length > 88 ? "…" : ""}` : "已保存原始资料，并生成可确认的记忆候选。",
+      targetSubjectId,
+      processingMode: "local-demo",
+      fragmentSummary: sourceKind === "audio" ? "按时间段形成语音片段（演示）" : sourceKind === "image" ? "识别为 1 个可定位图像区域（演示）" : "按标题与段落形成可定位片段（演示）",
+      memoryCandidates,
+      autoRelations: isResearch
+        ? ["研究：短视频与大学生冲动消费", "知识：社会比较与研究方法", "来源：当前上传资料"]
+        : [`学习：${isPhysics ? "大学物理" : isMath ? "高等数学" : "待识别专题"}`, "知识：核心概念", "来源：当前上传资料"],
+      overview: "原始资料已经保留。当前展示的是从资料片段中形成的理解候选，确认后才会写入长期记忆。",
+      detailIntro: "本地演示模式不会调用远端模型，适合验证资料进入记忆系统后的产品流程。",
+      detailSections: [{ title: "资料处理结果", items: memoryCandidates }],
+      aiKeyPoints: memoryCandidates,
+      expandedKnowledge: [],
+      knowledgeTree: [],
+      nextAction: "确认值得长期保存的记忆候选，并检查自动关联是否准确。",
+      skill: isResearch ? "literature_essay" : "theory_concept",
+      contentType: "note",
+      homeworkTasks: [],
+      openTab: null,
+    };
+  };
+
   const callImportApi = async (payload: Record<string, unknown>) => {
     let res: Response;
     try {
@@ -891,6 +945,14 @@ export default function App() {
       knowledgeTree: Array.isArray(data.knowledgeTree) ? data.knowledgeTree : [],
       nextAction: data.nextAction,
       skill: data.skill,
+      processingMode: "ai",
+      fragmentSummary: sourceKind === "audio" ? "已按时间段转录并定位" : "已按页面与段落建立证据片段",
+      memoryCandidates: Array.isArray(data.aiKeyPoints) ? data.aiKeyPoints.slice(0, 3) : [],
+      autoRelations: [
+        `学习：${subjects.find(s => s.id === normalizeSubjectId(data.targetSubjectId))?.short ?? "待识别专题"}`,
+        "知识：AI 识别的核心主题",
+        "来源：当前上传资料",
+      ],
       ...(() => {
         const surfaces = classifyCardSurfaces({
           contentType: data.contentType,
@@ -908,9 +970,15 @@ export default function App() {
     };
   };
 
-  const analyzeTextSource = async (kind: "link" | "text", value: string): Promise<SourceDraft> => {
-    const data = await callImportApi({ kind, value, fileName: kind === "link" ? value : undefined });
-    return sourceDraftFromImport(data, kind, kind === "link" ? value : "粘贴文本");
+  const analyzeTextSource = async (kind: "link" | "text", value: string, sourceName?: string): Promise<SourceDraft> => {
+    const originalName = sourceName ?? (kind === "link" ? value : "粘贴文本");
+    try {
+      const data = await callImportApi({ kind, value, fileName: kind === "link" ? value : undefined });
+      return sourceDraftFromImport(data, kind, originalName);
+    } catch (error) {
+      console.warn("[import] AI service unavailable, using local demo parser", error);
+      return buildLocalDemoDraft(kind, originalName, value);
+    }
   };
 
   const analyzeSourceFile = async (
@@ -919,35 +987,51 @@ export default function App() {
   ): Promise<SourceDraft> => {
     // 音频：先转录，再分析
     if (isAudioFile(file)) {
-      const transcript = await transcribeAudio(file, onProgress);
+      let transcript: string;
+      try {
+        transcript = await transcribeAudio(file, onProgress);
+      } catch (error) {
+        console.warn("[audio] ASR unavailable, using local demo transcript", error);
+        transcript = `【本地演示转录】${file.name}：当前未配置语音识别服务。系统已保留音频原件；配置 ASR 后会按时间点生成真实转录与证据片段。`;
+      }
       onProgress({ summary: "🔍 转录完成，正在分析内容..." });
       const prefix = `[来源：语音录音]\n文件名：${file.name}\n\n`;
-      const draft = await analyzeTextSource("text", `${prefix}${transcript}`);
-      return { ...draft, sourceKind: "audio", transcript };
+      const draft = await analyzeTextSource("text", `${prefix}${transcript}`, file.name);
+      return { ...draft, sourceKind: "audio", originalName: file.name, transcript, fragmentSummary: "按时间段形成语音证据片段" };
     }
 
     if (file.type.startsWith("image/")) {
       const imageDataUrl = await readFileAsDataUrl(file);
       const compressedImage = await compressImageForApi(imageDataUrl);
-      const data = await callImportApi({ kind: "image", imageDataUrl: compressedImage, fileName: file.name });
-      return sourceDraftFromImport(data, "image", file.name);
+      try {
+        const data = await callImportApi({ kind: "image", imageDataUrl: compressedImage, fileName: file.name });
+        return sourceDraftFromImport(data, "image", file.name);
+      } catch (error) {
+        console.warn("[image] vision service unavailable, using local demo parser", error);
+        return { ...buildLocalDemoDraft("image", file.name), img: compressedImage };
+      }
     }
 
     if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
       try {
         const text = await extractPdfText(file);
-        return analyzeTextSource("text", `文件名：${file.name}\n\n${text}`);
+        return analyzeTextSource("text", `文件名：${file.name}\n\n${text}`, file.name);
       } catch (textErr) {
         console.warn("[pdf] text extraction failed, fallback to vision", textErr);
         const imageDataUrl = await compressImageForApi(await renderPdfFirstPageImage(file));
-        const data = await callImportApi({ kind: "image", imageDataUrl, fileName: file.name });
-        return sourceDraftFromImport(data, "file", file.name);
+        try {
+          const data = await callImportApi({ kind: "image", imageDataUrl, fileName: file.name });
+          return sourceDraftFromImport(data, "file", file.name);
+        } catch (error) {
+          console.warn("[pdf] vision service unavailable, using local demo parser", error);
+          return { ...buildLocalDemoDraft("file", file.name), img: imageDataUrl, fragmentSummary: "扫描 PDF：当前以首页建立演示证据片段" };
+        }
       }
     }
 
     if (file.type.startsWith("text/") || file.name.endsWith(".md") || file.name.endsWith(".txt")) {
       const text = await readFileAsText(file);
-      return analyzeTextSource("text", text);
+      return analyzeTextSource("text", text, file.name);
     }
 
     throw new Error("当前演示版先支持图片、PDF、txt、md 及音频；Word 下一步接服务端解析。");
@@ -1067,6 +1151,7 @@ export default function App() {
           activeSubject={activeSubject}
           onSelectWorkspace={(id) => {
             setActiveWorkspace(id);
+            setActiveClassSession(null);
             if (id === "course") setActiveTopTab("notes");
             if (id === "project") setResearchDetailOpen(false);
           }}
@@ -1075,38 +1160,67 @@ export default function App() {
             setActiveSubject(id);
             setActiveWorkspace("course");
             setActiveTopTab("notes");
+            setActiveClassSession(null);
           }}
           isLoading={sidebarLoading}
           subjects={sortedSubjects}
           onOpenSearch={() => setShowSearch(true)}
           onUploadFile={() => setShowAddSource(true)}
+          todayCount={memorySuggestedTask ? 3 : 2}
         />
 
         <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#F5F6FA]">
           {activeWorkspace === "today" && (
             <TodayView
-              onCourse={() => { setActiveWorkspace("course"); setActiveTopTab("homework"); }}
-              onProject={() => { setActiveWorkspace("project"); setResearchDetailOpen(true); }}
+              onTask={setActiveTodayTask}
+              onClassSession={(subjectId,title) => {
+                didInitSubjectRef.current = true;
+                setActiveSubject(subjectId);
+                setActiveWorkspace("activity");
+                setActiveTopTab("notes");
+                setTodayTaskFocus(null);
+                setActiveClassSession(title);
+              }}
+              onPractice={() => {
+                didInitSubjectRef.current = true;
+                setActiveSubject("math");
+                setActiveClassSession(null);
+                setShowWritableReview(true);
+              }}
+              onProject={() => { setActiveWorkspace("project"); setActiveResearchTitle("短视频平台与大学生冲动消费研究"); setResearchDetailOpen(true); }}
               onGoals={() => setActiveWorkspace("goals")}
               memorySuggestion={memorySuggestedTask}
             />
           )}
           {activeWorkspace === "knowledge" && <KnowledgeView />}
+          {activeWorkspace === "sources" && <SourceLibraryView openSourceId={sourceSearchTarget} onOpened={() => setSourceSearchTarget(null)} />}
           {activeWorkspace === "goals" && <GoalsView onAddToday={setMemorySuggestedTask} />}
           {activeWorkspace === "project" && subject && (
             researchDetailOpen ? <>
               <div className="flex items-start justify-between gap-3 px-7 pt-6 pb-2 flex-shrink-0">
-                <div><button onClick={() => setResearchDetailOpen(false)} className="text-[11px] font-semibold text-[#4D5CFF]">← 返回研究列表</button><h1 className="mt-2 text-[23px] font-bold text-[#171A24]">短视频平台与大学生冲动消费研究</h1></div>
+                <div><button onClick={() => setResearchDetailOpen(false)} className="text-[11px] font-semibold text-[#4D5CFF]">← 返回研究列表</button><h1 className="mt-2 text-[23px] font-bold text-[#171A24]">{activeResearchTitle}</h1></div>
                 <AnnotationMenu onOpenAnnotation={handleOpenAnnotation} onOpenPdfReader={(file) => setPdfReaderFile(file)} onOpenCamera={() => setShowCamera(true)} onOpenScreenshot={() => setShowScreenshot(true)} onOpenVoice={() => setShowVoice(true)} onOpenDemo={() => setOnboardingMode("demo")} />
               </div>
               <ResearchWorkspace onAddSource={() => setShowAddSource(true)}>
                 <PaperView subject={subjects.find(s => s.id === "other") ?? subject} feedGroups={allFeedGroups.other ?? []} onOpenNote={(card,date) => handleOpenCard(card,date,"other")} />
               </ResearchWorkspace>
-            </> : <ResearchHome onOpen={() => setResearchDetailOpen(true)} />
+            </> : <ResearchHome onOpen={(title) => { setActiveResearchTitle(title); setResearchDetailOpen(true); }} />
+          )}
+          {activeWorkspace === "activity" && subject && activeClassSession && (
+            <ClassSessionPanel
+              courseTitle={activeClassSession}
+              onAddSource={() => setShowAddSource(true)}
+              onClose={() => { setActiveClassSession(null); setActiveWorkspace("today"); }}
+              onOpenArea={(area) => {
+                setActiveClassSession(null);
+                setActiveWorkspace("course");
+                setActiveTopTab(area);
+              }}
+            />
           )}
           {activeWorkspace === "course" && subject ? (
             <>
-              {/* 学科头部 */}
+              {!activeClassSession && <>{/* 学科头部 */}
               <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-2 flex-shrink-0">
                 <div className="min-w-0">
                   <EditableSubjectName
@@ -1129,19 +1243,20 @@ export default function App() {
               <TopTabs
                 activeTab={activeTopTab}
                 onChangeTab={setActiveTopTab}
-              />
+              /></>}
 
-              {activeTopTab === "notes" && (
+              {!activeClassSession && activeTopTab === "notes" && (
                 <SyllabusNotesView
                   subject={subject}
                   feedGroups={feedGroups}
                   onOpenCard={handleOpenCard}
                   onOpenEntry={handleOpenSyllabusEntry}
+                  onOpenLinkedPdf={() => setShowLinkedPdfNote(true)}
                   newCardId={newCardId}
                 />
               )}
 
-              {activeTopTab === "homework" && (
+              {!activeClassSession && activeTopTab === "homework" && (
                 <HomeworkView
                   subject={subject}
                   feedGroups={feedGroups}
@@ -1149,15 +1264,23 @@ export default function App() {
                     updateCard(activeSubject, date, cardId, updates)
                   }
                   onUploadCheck={() => setShowAddSource(true)}
+                  initialTaskQuery={todayTaskFocus}
                 />
               )}
 
-              {activeTopTab === "exam" && (
+              {!activeClassSession && activeTopTab === "exam" && (
                 <ExamPrepView
                   subject={subject}
                   feedGroups={examNoteFeedGroups}
                   onOpenNote={(card, date) => handleOpenCard(card as CardData, date)}
                   onAskLlm={(prompt) => callTextStreamed(prompt, { maxTokens: 4000 })}
+                />
+              )}
+
+              {!activeClassSession && activeTopTab === "sources" && (
+                <SourceLibraryView
+                  subjectId={activeSubject}
+                  embedded
                 />
               )}
 
@@ -1185,11 +1308,18 @@ export default function App() {
           allFeedGroups={allFeedGroups}
           subjects={subjects}
           onUpdateCard={(subjectId, date, cardId, updates) => updateCard(subjectId, date, cardId, updates)}
+          onOpenSource={(sourceId) => {
+            setShowSearch(false);
+            setSourceSearchTarget(sourceId);
+            setActiveWorkspace("sources");
+            setActiveClassSession(null);
+          }}
         />
 
         <AddSourceModal
           isOpen={showAddSource}
           subjects={sortedSubjects}
+          activeContext={activeClassSession}
           onClose={() => setShowAddSource(false)}
           onAnalyzeFile={analyzeSourceFile}
           onConfirmDraft={confirmSourceDraft}
@@ -1298,6 +1428,18 @@ export default function App() {
             });
           }}
         />
+      )}
+
+      {showWritableReview && (
+        <WritableReviewModal onClose={() => setShowWritableReview(false)} />
+      )}
+
+      {activeTodayTask && (
+        <StudyTaskModal kind={activeTodayTask} onClose={() => setActiveTodayTask(null)} />
+      )}
+
+      {showLinkedPdfNote && (
+        <LinkedPdfNoteModal onClose={() => setShowLinkedPdfNote(false)} />
       )}
 
       {showCamera && (
