@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, FileText, Link2 } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import type { CardData, FeedGroup, SubjectData } from "../../types";
 import { getSubjectSyllabus, type SyllabusNode } from "../../data/subjectSyllabi";
 import { RECENT_NOTES_ENTRY_ID } from "../../utils/cardSurfaces";
 import {
   cardsForSyllabusEntry,
   collectNoteCards,
-  countSyllabusEntriesWithCards,
   syllabusEntryHasCards,
   syllabusEntryHasUnread,
 } from "../../utils/syllabusNotes";
 import { dedupeCardsBySourceAnchor } from "../../utils/memoryRecall";
+import { isNoteCard } from "../../utils/feedFilters";
 import { MemoryCard } from "./MemoryCard";
 
 function firstTopicWithCards(
@@ -25,34 +25,40 @@ function firstTopicWithCards(
   return null;
 }
 
+function formatTimelineDate(date: string) {
+  if (!/^\d{8}$/.test(date)) return date;
+  const year = Number(date.slice(0, 4));
+  const month = Number(date.slice(4, 6));
+  const day = Number(date.slice(6, 8));
+  const weekday = new Intl.DateTimeFormat("zh-CN", { weekday: "short" }).format(new Date(year, month - 1, day));
+  return `${month}月${day}日 · ${weekday}`;
+}
+
+function dailyReviewSummary(cards: Array<{ card: CardData }>) {
+  const titles = [...new Set(cards.map(({ card }) => card.title.replace(/^(记忆|笔记)[：:]\s*/, "")).filter(Boolean))];
+  if (titles.length === 0) return "0 个知识点";
+  const preview = titles.slice(0, 3).join("、");
+  return `${titles.length} 个知识点：${preview}${titles.length > 3 ? "等" : ""}`;
+}
+
 export function SyllabusNotesView({
   subject,
   feedGroups,
   onOpenCard,
   onOpenEntry,
-  onOpenLinkedPdf,
   newCardId,
 }: {
   subject: SubjectData;
   feedGroups: FeedGroup[];
   onOpenCard: (card: CardData, date: string) => void;
   onOpenEntry?: (entryId: string) => void;
-  onOpenLinkedPdf?: () => void;
   newCardId: string | null;
 }) {
   const syllabus = getSubjectSyllabus(subject.id);
-  const topicIds = useMemo(
-    () => syllabus?.nodes.filter(n => n.kind === "topic").map(n => n.id) ?? [],
-    [syllabus],
-  );
-  const litCount = useMemo(
-    () => countSyllabusEntriesWithCards(feedGroups, topicIds),
-    [feedGroups, topicIds],
-  );
   const noteCount = useMemo(() => collectNoteCards(feedGroups).length, [feedGroups]);
-  const hasLinkedPdf = subject.id === "other";
 
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"recent" | "outline">("recent");
 
   useEffect(() => {
     if (!syllabus) {
@@ -78,13 +84,31 @@ export function SyllabusNotesView({
     const sources = new Set(selectedCards.map(({ card }) => (
       card.sourceAnchor?.fileName || card.sourceDocument?.title || card.source
     )));
-    return sources.size + (hasLinkedPdf ? 1 : 0);
-  }, [selectedCards, hasLinkedPdf]);
+    return sources.size;
+  }, [selectedCards]);
 
   const selectedTitle = useMemo(() => {
     if (!selectedEntryId || selectedEntryId === RECENT_NOTES_ENTRY_ID) return null;
     return syllabus?.nodes.find(n => n.id === selectedEntryId)?.title ?? null;
   }, [selectedEntryId, syllabus]);
+
+  const recentCards = useMemo(() => {
+    const cards = feedGroups.flatMap(group => group.cards
+      .filter(isNoteCard)
+      .map(card => ({ card, date: group.date })));
+    return dedupeCardsBySourceAnchor(cards).sort((a, b) => {
+      const dateOrder = b.date.localeCompare(a.date);
+      return dateOrder || (b.card.time ?? "").localeCompare(a.card.time ?? "");
+    });
+  }, [feedGroups]);
+
+  const dateGroups = useMemo(() => {
+    const grouped = new Map<string, typeof recentCards>();
+    recentCards.forEach(item => grouped.set(item.date, [...(grouped.get(item.date) ?? []), item]));
+    return [...grouped.entries()]
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([date, cards]) => ({ date, cards }));
+  }, [recentCards]);
 
   if (!syllabus) {
     return (
@@ -96,37 +120,29 @@ export function SyllabusNotesView({
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[#F5F6FA]">
-      <div className="flex flex-shrink-0">
-        <div
-          className="flex-shrink-0 px-6 pt-3 pb-3 border-r border-[#EAEDF2]/80"
-          style={{ width: "clamp(220px, 26%, 300px)" }}
-        >
-          <h3 className="text-[13px] text-[#020418] leading-snug" style={{ fontWeight: 700 }}>
-            {syllabus.overviewTitle}
-          </h3>
-          <p className="text-[11px] text-[#9CA3AF] leading-snug mt-1">
-            已学习 {litCount}/{topicIds.length} 个主题 · 共 {noteCount + (hasLinkedPdf ? 1 : 0)} 条笔记
-          </p>
+      <div className="flex shrink-0 items-center gap-3 px-6 py-3">
+        <div>
+          {viewMode === "recent" ? <h3 className="text-[13px] font-bold text-[#202431]">共 {recentCards.length} 条笔记</h3> : <><h3 className="text-[13px] font-bold text-[#202431]">{syllabus.overviewTitle}</h3><p className="mt-1 text-[10px] text-[#969DAA]">按课程主题整理 · 共 {noteCount} 条笔记</p></>}
         </div>
-        <div className="flex-1 min-w-0 px-6 pt-3 pb-3">
-          {selectedEntryId && selectedCards.length > 0 && selectedTitle ? (
-            <>
-              <p className="text-[13px] text-[#020418] leading-snug" style={{ fontWeight: 700 }}>
-                {selectedTitle}
-              </p>
-              <p className="text-[11px] text-[#9CA3AF] leading-snug mt-1">
-                {selectedCards.length + (hasLinkedPdf ? 1 : 0)} 条相关笔记 · {selectedSourceCount} 份来源资料
-              </p>
-            </>
-          ) : (
-            <p className="text-[11px] text-[#9CA3AF] leading-snug">
-              请从左侧大纲选择已点亮的条目
-            </p>
-          )}
+        <div className="flex rounded-full bg-[#E9EBF0]/70 p-0.5">
+          <button onClick={() => setViewMode("recent")} className={`rounded-full px-2.5 py-1 text-[8px] font-medium transition ${viewMode === "recent" ? "bg-white text-[#6671C9]" : "text-[#969DAA]"}`}>按时间</button>
+          <button onClick={() => setViewMode("outline")} className={`rounded-full px-2.5 py-1 text-[8px] font-medium transition ${viewMode === "outline" ? "bg-white text-[#6671C9]" : "text-[#969DAA]"}`}>按大纲</button>
         </div>
       </div>
 
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+      {viewMode === "recent" ? <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-10 pt-2">
+        <div className="space-y-8">
+          {dateGroups.map(group => <section key={group.date}>
+            <div className="mb-3">
+              <div className="flex items-center gap-3"><span className="h-2.5 w-2.5 rounded-full bg-[#4D5CFF]"/><h3 className="text-[14px] font-bold text-[#202431]">{formatTimelineDate(group.date)}</h3><span className="text-[10px] text-[#969DAA]">{group.cards.length} 条笔记</span></div>
+              <p className="ml-[22px] mt-1.5 text-[10px] leading-5 text-[#7F8796]">{dailyReviewSummary(group.cards)}</p>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {group.cards.map(({ card, date }) => <MemoryCard key={card.id} card={card} onOpen={c => onOpenCard(c, date)} isNew={card.id === newCardId}/>)}
+            </div>
+          </section>)}
+        </div>
+      </div> : <div className="flex flex-1 min-h-0 overflow-hidden">
         <aside
           className="flex-shrink-0 flex flex-col bg-transparent border-r border-[#EAEDF2]/80"
           style={{ width: "clamp(220px, 26%, 300px)" }}
@@ -190,16 +206,12 @@ export function SyllabusNotesView({
         </aside>
 
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          {(selectedEntryId && selectedCards.length > 0) || hasLinkedPdf ? (
+          <div className="shrink-0 px-6 pb-2 pt-3">
+            {selectedEntryId && selectedCards.length > 0 && selectedTitle ? <><p className="text-[13px] font-bold text-[#202431]">{selectedTitle}</p><p className="mt-1 text-[10px] text-[#969DAA]">{selectedCards.length} 条笔记 · {selectedSourceCount} 份来源资料</p></> : <p className="text-[10px] text-[#969DAA]">选择左侧课程主题查看笔记</p>}
+          </div>
+          {selectedEntryId && selectedCards.length > 0 ? (
             <div className="flex-1 overflow-y-auto px-6 pt-3 pb-8">
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-                {hasLinkedPdf && (
-                  <button onClick={onOpenLinkedPdf} className="rounded-2xl border border-[#C9CEFF] bg-gradient-to-br from-[#F4F5FF] to-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-                    <div className="flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#4D5CFF] text-white"><FileText size={17}/></span><div className="min-w-0"><span className="rounded-full bg-white px-2 py-1 text-[9px] font-semibold text-[#4D5CFF]">多页 PDF 笔记</span><h3 className="mt-3 text-[13px] font-bold leading-5">社会比较如何影响冲动消费</h3></div></div>
-                    <p className="mt-3 text-[10px] leading-5 text-[#626977]">参考《社会比较与青年消费研究报告》：理论类型与作用路径第 2-4 页；研究设计与变量测量第 6-7 页。</p>
-                    <div className="mt-4 flex items-center text-[10px] font-semibold text-[#4D5CFF]"><Link2 size={12} className="mr-1"/>打开原 PDF 并继续批注</div>
-                  </button>
-                )}
                 {selectedCards.map(({ card, date }) => (
                   <MemoryCard
                     key={card.id}
@@ -223,7 +235,7 @@ export function SyllabusNotesView({
             </div>
           )}
         </div>
-      </div>
+      </div>}
     </div>
   );
 }

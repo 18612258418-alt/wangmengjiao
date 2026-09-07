@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { FolderSync } from "lucide-react";
 import type { CardContentType, DetailSection, ExpandedKnowledge, KnowledgeNode, SubjectData } from "../../types";
 
 export type SourceKind = "image" | "file" | "link" | "text" | "audio";
@@ -111,6 +112,9 @@ export function AddSourceModal({
   onConfirmDraft: (draft: SourceDraft) => void;
 }) {
   const [items, setItems] = useState<SourceDraft[]>([]);
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(
+    () => localStorage.getItem("memo_auto_sync_enabled") === "true",
+  );
 
   if (!isOpen) return null;
 
@@ -172,6 +176,14 @@ export function AddSourceModal({
     updateItem(item.id, { status: "saved" });
   };
 
+  const toggleAutoSync = () => {
+    setAutoSyncEnabled(current => {
+      const next = !current;
+      localStorage.setItem("memo_auto_sync_enabled", String(next));
+      return next;
+    });
+  };
+
   const acceptTypes = [
     "image/*",
     ".pdf",
@@ -196,12 +208,35 @@ export function AddSourceModal({
         <div className="px-6 py-5 border-b border-[#EAEDF2] flex items-start justify-between">
           <div>
             <p className="text-[18px] text-[#020418]" style={{ fontWeight: 800 }}>添加资料</p>
-            <p className="text-[12px] text-[#7B8291] mt-1">原件会先保存。AI 自动整理高置信内容，只有新研究、冲突判断等重要变化需要你确认。</p>
+            <p className="text-[12px] text-[#7B8291] mt-1">原文件进入资料，整理出的理解进入笔记；不会把上传内容创建成新课程。</p>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-[#F0F2F5] hover:bg-[#E5E7EB] text-[#020418]">×</button>
         </div>
 
         <div className="px-6 pt-5 pb-4">
+          <div className="mb-3 rounded-2xl bg-[#F4F6FF] px-4 py-3">
+            <div className="flex items-center gap-3">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white text-[#4D5CFF]"><FolderSync size={16}/></span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-bold text-[#303746]">自动同步平板文件夹</p>
+                <p className="mt-1 text-[10px] leading-5 text-[#7B8291]">
+                  {autoSyncEnabled
+                    ? "新文件会进入“资料”等待整理，不会自动创建课程或笔记。"
+                    : "已关闭，只处理你在这里主动选择的文件。"}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={autoSyncEnabled}
+                aria-label="自动同步平板文件夹"
+                onClick={toggleAutoSync}
+                className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${autoSyncEnabled ? "bg-[#6673E8]" : "bg-[#CDD2DD]"}`}
+              >
+                <span className={`absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${autoSyncEnabled ? "translate-x-5" : "translate-x-0"}`}/>
+              </button>
+            </div>
+          </div>
           {activeContext && (
             <div className="mb-3 flex items-center rounded-2xl border border-[#DDE1FF] bg-[#F4F5FF] px-4 py-3">
               <div className="min-w-0 flex-1">
@@ -264,7 +299,7 @@ export function AddSourceModal({
                       style={{ fontWeight: 800 }}
                     />
                     <span className={`text-[11px] flex-shrink-0 ${item.status === "failed" ? "text-[#EF4444]" : item.status === "saved" ? "text-[#10B981]" : "text-[#7B8291]"}`}>
-                      {item.status === "analyzing" ? (item.sourceKind === "audio" ? "识别中" : "解析中") : item.status === "ready" ? "待确认" : item.status === "saved" ? "已保存" : "失败"}
+                      {item.status === "analyzing" ? (item.sourceKind === "audio" ? "识别中" : "解析中") : item.status === "ready" ? "等你确认" : item.status === "saved" ? "已保存" : "失败"}
                     </span>
                   </div>
                   <p className={`text-[12px] mt-1 line-clamp-2 ${item.status === "failed" ? "text-[#E11D48]" : "text-[#7B8291]"}`}>
@@ -275,9 +310,14 @@ export function AddSourceModal({
                   )}
                   {item.status === "ready" && (
                     <>
+                    <div className="mt-3 flex items-center gap-3 rounded-2xl bg-[#F7F8FB] px-3 py-2.5">
+                      <div className="min-w-0 flex-1"><span className="text-[9px] text-[#8A909C]">归入课程</span><select value={item.targetSubjectId} onChange={event=>updateItem(item.id,{targetSubjectId:event.target.value})} className="mt-1 block w-full bg-transparent text-[11px] font-bold text-[#303746] outline-none">{subjects.map(subject=><option key={subject.id} value={subject.id}>{subject.short}</option>)}</select></div>
+                      <div className="h-8 w-px bg-[#E0E3EA]"/>
+                      <div className="min-w-0 flex-[1.4]"><span className="text-[9px] text-[#8A909C]">保存结果</span><p className="mt-1 text-[10px] font-semibold text-[#4D5CFF]">原文件放入“资料” · 提炼内容放入“笔记”</p></div>
+                    </div>
                     <div className="mt-3 rounded-2xl border border-[#E4E7F2] bg-[#FAFBFF] p-3">
                       <div className="flex items-center">
-                        <span className="text-[10px] text-[#4D5CFF]" style={{fontWeight:800}}>AI 对这份资料的理解</span>
+                        <span className="text-[10px] text-[#4D5CFF]" style={{fontWeight:800}}>整理预览</span>
                         <span className={`ml-auto rounded-full px-2 py-1 text-[9px] ${item.processingMode === "local-demo" ? "bg-[#FFF7E8] text-[#B66A0A]" : "bg-[#EEF8F3] text-[#21845A]"}`}>
                           {item.processingMode === "local-demo" ? "本地演示解析" : "AI 真实解析"}
                         </span>
@@ -296,14 +336,14 @@ export function AddSourceModal({
                           <p className="mt-1 text-[10px] text-[#252936]">普通关系自动整理，重要变化再询问</p>
                         </div>
                       </div>
-                      {!!item.memoryCandidates?.length && <div className="mt-3"><span className="text-[9px] font-bold text-[#7B8291]">AI 提取了这些理解</span><div className="mt-1.5 space-y-1">{item.memoryCandidates.map((candidate,index)=><p key={`${candidate}-${index}`} className="rounded-lg bg-white px-2.5 py-2 text-[10px] text-[#41464F]">{index+1}. {candidate}</p>)}</div></div>}
+                      {!!item.memoryCandidates?.length && <div className="mt-3"><span className="text-[9px] font-bold text-[#7B8291]">将形成这些笔记</span><div className="mt-1.5 space-y-1">{item.memoryCandidates.map((candidate,index)=><p key={`${candidate}-${index}`} className="rounded-lg bg-white px-2.5 py-2 text-[10px] text-[#41464F]">{candidate}</p>)}</div></div>}
                       {!!item.autoRelations?.length && <div className="mt-3"><div className="flex items-center"><span className="text-[9px] font-bold text-[#7B8291]">AI 认为它与这些内容有关</span><span className="ml-auto text-[9px] text-[#21845A]">将自动整理，可随时修改</span></div><div className="mt-1.5 flex flex-wrap gap-1.5">{item.autoRelations.map(relation=><span key={relation} className="rounded-full bg-[#EEF0FF] px-2 py-1 text-[9px] text-[#4D5CFF]">{relation}<button aria-label={`移除关联 ${relation}`} className="ml-1 text-[#929AFF]" onClick={()=>updateItem(item.id,{autoRelations:item.autoRelations?.filter(x=>x!==relation)})}>×</button></span>)}</div></div>}
                       {item.processingMode === "local-demo" && <p className="mt-3 text-[9px] leading-4 text-[#B66A0A]">当前未配置模型服务，因此只演示完整处理流程，不声称已理解文件真实内容。</p>}
                     </div>
                     <div className="mt-3 flex items-center justify-between gap-3">
-                      <p className="text-[10px] leading-4 text-[#8A909C]">不会把资料塞进单一文件夹；同一份内容可以同时服务学习、研究和计划。</p>
+                      <p className="text-[10px] leading-4 text-[#8A909C]">保存后会明确显示原文件与笔记的关系。</p>
                       <button onClick={() => confirmItem(item)} className="rounded-xl bg-[#4D5CFF] px-4 py-2 text-[12px] text-white" style={{ fontWeight: 800 }}>
-                        保存这些理解
+                        保存资料与笔记
                       </button>
                     </div>
                     </>

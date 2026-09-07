@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { BookOpen, ChevronDown, FlaskConical, Library, Plus, Search, Sparkles, SunMedium } from "lucide-react";
+import { Plus, Search, Sparkles, SunMedium } from "lucide-react";
 import { imgLoadingSpinner } from "../../data/initialData";
 import type { SubjectData } from "../../types";
 
-export type WorkspaceId = "today" | "activity" | "inbox" | "knowledge" | "course" | "project" | "goals" | "history" | "sources";
+export type WorkspaceId = "today" | "activity" | "inbox" | "knowledge" | "course" | "project" | "goals" | "sources";
 
 const colors = ["#4D5CFF", "#10B981", "#F59E0B", "#EC4899", "#8B5CF6"];
 
@@ -19,7 +19,6 @@ export function Sidebar({ activeWorkspace, activeSubject, onSelectWorkspace, onS
   todayCount: number;
   onCreateSubject?: () => void;
 }) {
-  const [learningOpen, setLearningOpen] = useState(true);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileCorrected, setProfileCorrected] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
@@ -44,15 +43,9 @@ export function Sidebar({ activeWorkspace, activeSubject, onSelectWorkspace, onS
     {isLoading && <div className="mx-5 mb-2 flex items-center gap-2 text-[12px]"><img src={imgLoadingSpinner} width={16} className="animate-spin"/>Memo 正在整理...</div>}
     <nav className="flex-1 overflow-y-auto px-3 pb-5 space-y-1">
       {primary.map(x => <div key={x.id}>{navButton(x.id, x.label, x.icon, <span className="text-[11px] text-[#9CA3AF]">{x.badge}</span>)}</div>)}
-      <div className="mt-3">{navButton("course", "课程学习", BookOpen, <ChevronDown size={14} className={`transition-transform ${learningOpen ? "rotate-0" : "-rotate-90"}`}/>, () => {
-        onSelectWorkspace("course");
-        setLearningOpen(open => !open);
-      })}</div>
-      {learningOpen && <div className="ml-4 pl-3 border-l border-[#D9DDE7] space-y-0.5">
-        {subjects.slice(0, 5).map((s, i) => <button key={s.id} onClick={() => onSelectSubject(s.id)} className={`w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] ${activeWorkspace === "course" && activeSubject === s.id ? "bg-[#E3E6FF] text-[#4D5CFF] font-semibold" : "text-[#626977] hover:bg-white/70"}`}><span className="h-2 w-2 rounded-full" style={{background:colors[i]}}/><span className="truncate">{s.short}</span><span className="ml-auto text-[10px] opacity-60">{s.count}</span></button>)}
-      </div>}
-      <div className="mt-3">{navButton("project", "论文", FlaskConical)}</div>
-      <div className="mt-1">{navButton("sources", "资料库", Library)}</div>
+      <div className="mt-4 space-y-0.5">
+        {subjects.slice(0, 5).map((s, i) => <button key={s.id} onClick={() => onSelectSubject(s.id)} className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] transition ${activeWorkspace === "course" && activeSubject === s.id ? "bg-white text-[#4D5CFF] font-semibold shadow-sm" : "text-[#41464F] hover:bg-white/70"}`}><span className="h-2.5 w-2.5 rounded-full" style={{background:colors[i]}}/><span className="truncate font-semibold">{s.short}</span><span className="ml-auto text-[11px] text-[#9CA3AF]">{s.count}</span></button>)}
+      </div>
     </nav>
   </aside>{profileOpen&&<div onClick={()=>setProfileOpen(false)} className="fixed inset-0 z-[210] bg-black/20"><aside onClick={e=>e.stopPropagation()} className="ml-auto h-full w-[460px] overflow-y-auto bg-white p-6 shadow-2xl">
     <button onClick={()=>setProfileOpen(false)} className="text-[11px] text-[#4D5CFF]">← 返回</button>

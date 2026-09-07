@@ -23,8 +23,8 @@ import { TopTabs, type TopTabId } from "../features/feed/TopTabs";
 import { AnnotationMenu } from "../features/feed/AnnotationMenu";
 import { PdfReaderModal } from "../features/pdf-reader/PdfReaderModal";
 import { WritableReviewModal } from "../features/review/WritableReviewModal";
+import { ReviewPlanView } from "../features/review-plan/ReviewPlanView";
 import { StudyTaskModal, type StudyTaskKind } from "../features/today/StudyTaskModal";
-import { LinkedPdfNoteModal } from "../features/pdf-reader/LinkedPdfNoteModal";
 import { CameraModal } from "../features/camera/CameraModal";
 import { CameraAgentModal } from "../features/camera/cameraAgent/CameraAgentModal";
 import { isCameraAgentEnabled } from "../features/camera/cameraAgent/config";
@@ -56,7 +56,7 @@ import { Sidebar, type WorkspaceId } from "../features/sidebar/Sidebar";
 import { ClassSessionPanel, GoalsView, KnowledgeView, TodayView } from "../features/workspace/WorkspaceViews";
 import { ResearchHome, ResearchWorkspace } from "../features/workspace/ResearchWorkspace";
 import { AddSourceModal, type SourceDraft, isAudioFile } from "../features/source/AddSourceModal";
-import { SourceLibraryView } from "../features/source/SourceLibraryView";
+import { SourceLibraryView, type LibrarySource } from "../features/source/SourceLibraryView";
 import { FlyThumbnail } from "../shared/FlyThumbnail";
 
 /** 选出最近更新的学科：扫描 allFeedGroups 取出最大日期对应的 subjectId */
@@ -109,7 +109,6 @@ export default function App() {
   const [pdfReaderFile, setPdfReaderFile] = useState<File | null>(null);
   const [showWritableReview, setShowWritableReview] = useState(false);
   const [activeTodayTask, setActiveTodayTask] = useState<StudyTaskKind | null>(null);
-  const [showLinkedPdfNote, setShowLinkedPdfNote] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [showScreenshot, setShowScreenshot] = useState(false);
   const [screenshotMergeNotice, setScreenshotMergeNotice] = useState<{
@@ -857,7 +856,7 @@ export default function App() {
       status: "ready",
       sourceKind,
       originalName,
-      title: `记忆：${cleanName.slice(0, 18)}`,
+      title: cleanName.slice(0, 28),
       summary: excerpt ? `本地演示解析：${excerpt}${compact.length > 88 ? "…" : ""}` : "已保存原始资料，并生成可确认的记忆候选。",
       targetSubjectId,
       processingMode: "local-demo",
@@ -933,7 +932,7 @@ export default function App() {
       status: "ready",
       sourceKind,
       originalName,
-      title: data.title || "记忆：导入资料整理",
+      title: (data.title || originalName.replace(/\.[^.]+$/, "") || "导入资料整理").replace(/^记忆[:：]\s*/, ""),
       summary: data.summary || "资料已解析完成，可确认保存为记忆卡。",
       targetSubjectId: normalizeSubjectId(data.targetSubjectId),
       img: data.img || (sourceKind === "text" || sourceKind === "link" ? TYPE_BG.notes ?? imgNotesBg : undefined),
@@ -1041,10 +1040,41 @@ export default function App() {
     const preassignedId = `new_${Date.now()}`;
     const now = new Date();
     const todayKey = `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, "0")}${now.getDate().toString().padStart(2, "0")}`;
+    const cleanTitle = draft.title.replace(/^记忆[:：]\s*/, "");
+    const targetName = subjects.find(item => item.id === draft.targetSubjectId)?.short ?? "未归类课程";
+
+    const sourceType: LibrarySource["type"] = draft.sourceKind === "audio"
+      ? "音频"
+      : draft.sourceKind === "link"
+        ? "网页"
+        : draft.sourceKind === "image"
+          ? "图片"
+          : draft.originalName.toLowerCase().endsWith(".pdf") ? "PDF" : "课件";
+    const importedSource: LibrarySource = {
+      id: `imported_${Date.now()}`,
+      type: sourceType,
+      title: draft.originalName.replace(/\.[^.]+$/, "") || cleanTitle,
+      creator: "你上传的",
+      detail: `${sourceType} · 刚刚添加`,
+      progress: 0,
+      lastPosition: "尚未开始",
+      subjectIds: [draft.targetSubjectId],
+      contexts: [targetName],
+      tone: sourceType === "音频" ? "blue" : sourceType === "图片" ? "green" : "indigo",
+      notes: (draft.memoryCandidates ?? []).slice(0, 3).map(title => ({ title, anchor: "由这份资料整理" })),
+    };
+    try {
+      const stored = JSON.parse(localStorage.getItem("memo_imported_sources") || "[]") as LibrarySource[];
+      const next = [importedSource, ...stored.filter(item => item.title !== importedSource.title)].slice(0, 30);
+      localStorage.setItem("memo_imported_sources", JSON.stringify(next));
+      window.dispatchEvent(new Event("memo:sources-updated"));
+    } catch (error) {
+      console.warn("[source] 无法保存资料索引", error);
+    }
 
     applyNewCard(
       draft.targetSubjectId,
-      draft.title,
+      cleanTitle,
       draft.summary,
       "notes",
       draft.img || imgNotesBg,
@@ -1066,11 +1096,9 @@ export default function App() {
     );
     if (draft.openTab === "homework") setActiveTopTab("homework");
     else setActiveTopTab("notes");
-    const tabHint =
-      draft.openTab === "homework"
-        ? "已保存至笔记，并在作业中生成待办"
-        : "已保存至笔记";
-    showToast(`${tabHint}，AI 正在后台生成详情`);
+    const noteCount = Math.max(draft.memoryCandidates?.length ?? 0, 1);
+    const tabHint = draft.openTab === "homework" ? `，并在“作业”生成待办` : "";
+    showToast(`《${importedSource.title}》已放入${targetName}“资料”，并整理出 ${noteCount} 条笔记${tabHint}`);
 
     // 后台静默预生成详情页内容（DeepSeek），完成后回写卡片，用户下次打开即可直接查看
     const prompt = buildDetailPagePrompt({
@@ -1251,8 +1279,14 @@ export default function App() {
                   feedGroups={feedGroups}
                   onOpenCard={handleOpenCard}
                   onOpenEntry={handleOpenSyllabusEntry}
-                  onOpenLinkedPdf={() => setShowLinkedPdfNote(true)}
                   newCardId={newCardId}
+                />
+              )}
+
+              {!activeClassSession && activeTopTab === "reviewPlan" && (
+                <ReviewPlanView
+                  subject={subject}
+                  feedGroups={feedGroups}
                 />
               )}
 
@@ -1438,9 +1472,6 @@ export default function App() {
         <StudyTaskModal kind={activeTodayTask} onClose={() => setActiveTodayTask(null)} />
       )}
 
-      {showLinkedPdfNote && (
-        <LinkedPdfNoteModal onClose={() => setShowLinkedPdfNote(false)} />
-      )}
 
       {showCamera && (
         isCameraAgentEnabled ? (

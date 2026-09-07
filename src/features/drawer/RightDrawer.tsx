@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { FileText, X } from "lucide-react";
+import { ArrowLeft, FileText } from "lucide-react";
 import type { CardData, SubjectData } from "../../types";
 import { SourceIcon, sourceLabel } from "../../shared/SourceIcon";
 import { getSkillMeta } from "../../utils/cardDetailParsing";
@@ -25,14 +25,14 @@ function OriginalSourcePane({ card }: { card: CardData }) {
             <div className="grid h-full place-items-center text-center"><FileText size={30} className="mx-auto text-[#4D5CFF]"/><p className="mt-3 text-[12px]">PDF 预览不可用</p></div>
           </object>
         ) : document?.type === "web" ? (
-          <article className="h-full w-full overflow-y-auto px-[9%] py-[7%] text-[#303441]"><p className="text-[10px] font-semibold text-[#4D5CFF]">网页原文</p><h2 className="mt-3 text-[24px] font-bold leading-9">{document.title}</h2>{document.author&&<p className="mt-2 text-[10px] text-[#8A909C]">{document.author} {document.publishedAt&&`· ${document.publishedAt}`}</p>}<div className="mt-6 space-y-4 text-[12px] leading-7 text-[#555D6C]">{(document.paragraphs?.length?document.paragraphs:[document.excerpt||card.detailIntro||"当前记忆由这段网页原文形成。"]).map((paragraph,index)=><p key={index}>{paragraph}</p>)}</div></article>
+          <article className="h-full w-full overflow-y-auto px-[9%] py-[7%] text-[#303441]"><p className="text-[10px] font-semibold text-[#4D5CFF]">网页原文</p><h2 className="mt-3 text-[24px] font-bold leading-9">{document.title}</h2>{document.author&&<p className="mt-2 text-[10px] text-[#8A909C]">{document.author} {document.publishedAt&&`· ${document.publishedAt}`}</p>}<div className="mt-6 space-y-4 text-[12px] leading-7 text-[#555D6C]">{(document.paragraphs?.length?document.paragraphs:[document.excerpt||card.detailIntro||"这条笔记由当前网页原文形成。"]).map((paragraph,index)=><p key={index}>{paragraph}</p>)}</div></article>
         ) : card.img ? (
           <img src={card.img} alt={`${card.title}的原始文件`} className="h-full w-full object-contain" />
         ) : (
-          <div className="max-w-[520px] p-10 text-center"><FileText size={34} className="mx-auto text-[#4D5CFF]"/><h2 className="mt-4 text-[18px] font-bold">{sourceName}</h2><p className="mt-3 text-[11px] leading-6 text-[#7B8291]">该记忆保留了原始来源定位；当前演示使用文字记录代替文件缩略图。</p></div>
+          <div className="max-w-[520px] p-10 text-center"><FileText size={34} className="mx-auto text-[#4D5CFF]"/><h2 className="mt-4 text-[18px] font-bold">{sourceName}</h2><p className="mt-3 text-[11px] leading-6 text-[#7B8291]">这条笔记保留了原始来源定位；当前演示使用文字记录代替文件缩略图。</p></div>
         )}
       </div>
-      <p className="mt-3 text-center text-[10px] text-[#8A909C]">左侧保留来源原貌，右侧是从该来源形成的记忆理解。</p>
+      <p className="mt-3 text-center text-[10px] text-[#8A909C]">左侧是原文件，右侧是你从原文形成的笔记。</p>
     </section>
   );
 }
@@ -58,6 +58,7 @@ export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateC
   const [titleDraft, setTitleDraft] = useState("");
   const [exporting, setExporting] = useState(false);
   const skillMeta = getSkillMeta(card?.skill);
+  const displayTitle = card?.title.replace(/^记忆[:：]\s*/, "") ?? "";
   const exportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -103,8 +104,9 @@ export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateC
   const askAboutMemory = (question: string) => {
     if (!card) return "";
     if (/依据|来源|原文|哪一页/.test(question)) return `这条理解保留了左侧原始文件的位置。当前最直接的依据来自${card.sourceAnchor?.page ? `第 ${card.sourceAnchor.page} 页` : "当前原文片段"}，我会优先引用原文而不是脱离来源回答。`;
-    if (/准确|对不对|有问题|反例/.test(question)) return `“${card.title}”是当前记忆中的理解，不是不可修改的结论。可以继续检查它的适用边界、反对证据和形成时间。`;
-    return `我已同时带上左侧原始文件和“${card.title}”的当前记忆。关于“${question}”，可以从概念含义、原文依据和它与其他记忆的关系继续展开。`;
+    const noteTitle = card.title.replace(/^记忆[:：]\s*/, "");
+    if (/准确|对不对|有问题|反例/.test(question)) return `“${noteTitle}”是这条笔记中的理解，不是不可修改的结论。可以继续检查它的适用边界、反对证据和形成时间。`;
+    return `我已同时带上左侧原始文件和笔记“${noteTitle}”。关于“${question}”，可以从概念含义、原文依据和它与其他笔记的关系继续展开。`;
   };
 
   return (
@@ -129,6 +131,18 @@ export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateC
       >
         {card && (
           <>
+            <header className="flex h-[64px] shrink-0 items-center border-b border-[#E5E8EF] bg-white px-5">
+              <button
+                onClick={() => { onClose(); setConfirmDelete(false); }}
+                className="flex min-h-11 items-center gap-2 rounded-full bg-[#F1F3F8] px-4 text-[13px] font-semibold text-[#343A49] transition hover:bg-[#E7EAF1]"
+                aria-label="返回笔记列表"
+              >
+                <ArrowLeft size={18}/>
+                返回笔记
+              </button>
+              <span className="ml-4 rounded-full bg-[#EEF0FF] px-3 py-1.5 text-[10px] font-semibold text-[#4D5CFF]">笔记详情</span>
+              <p className="ml-3 min-w-0 truncate text-[12px] text-[#838A98]">{displayTitle}</p>
+            </header>
             <div className="flex min-h-0 flex-1">
               <OriginalSourcePane card={card} />
               <section className="flex min-h-0 w-[48%] flex-col bg-white">
@@ -153,7 +167,7 @@ export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateC
                     />
                   ) : (
                     <>
-                      <p className="text-[15px] text-[#020418] truncate" style={{ fontWeight: 700 }}>{card.title}</p>
+                      <p className="text-[15px] text-[#020418] truncate" style={{ fontWeight: 700 }}>{displayTitle}</p>
                       <button
                         onClick={() => {
                           setTitleDraft(card.title);
@@ -301,20 +315,13 @@ export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateC
                 <button
                   onClick={() => setConfirmDelete(true)}
                   className="w-8 h-8 flex items-center justify-center rounded-full bg-[#ECECEC] hover:bg-[#FFE4E4] transition-colors flex-shrink-0"
-                  title="删除此记忆"
+                  title="删除这条笔记"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
                   </svg>
                 </button>
               )}
-              <button
-                onClick={() => { onClose(); setConfirmDelete(false); }}
-                aria-label="关闭记忆详情"
-                className="w-8 h-8 flex items-center justify-center rounded-full bg-[#ECECEC] hover:bg-[#E0E0E0] transition-colors flex-shrink-0"
-              >
-                <X size={14} className="text-[#020418]" />
-              </button>
             </div>
 
             <CardDetailContent
@@ -325,10 +332,10 @@ export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateC
             />
             <AiConversationModule
               contextKey={card.id}
-              contextLabel={`${card.title} · ${srcLabel}${card.sourceAnchor?.page ? ` · 第 ${card.sourceAnchor.page} 页` : ""}`}
-              initialAssistant={`我已带上左侧原始文件和“${card.title}”的当前记忆。可以直接追问依据、概念或这条理解是否准确。`}
-              placeholder="结合原文件和这条记忆继续问…"
-              suggestions={["这条理解来自哪里？","解释核心概念","检查这条记忆是否准确"]}
+              contextLabel={`${displayTitle} · ${srcLabel}${card.sourceAnchor?.page ? ` · 第 ${card.sourceAnchor.page} 页` : ""}`}
+              initialAssistant={`我已带上左侧原始文件和笔记“${displayTitle}”。可以直接追问依据、概念或这条理解是否准确。`}
+              placeholder="结合原文件和这条笔记继续问…"
+              suggestions={["这条笔记来自哪里？","解释核心概念","检查这条理解是否准确"]}
               onAsk={askAboutMemory}
               className="m-4 mt-0 h-[310px] shrink-0 rounded-2xl"
               compact

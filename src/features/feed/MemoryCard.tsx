@@ -19,7 +19,10 @@ function sourceReference(card: CardData) {
 }
 
 export function MemoryCard({ card, onOpen, isNew }: { card: CardData; onOpen: (card: CardData) => void; isNew?: boolean }) {
-  const summary = card.overview || card.detailIntro || card.aiKeyPoints?.join(" · ") || "点击查看 AI 总结、知识脉络和交互演示。";
+  const summary = card.overview || card.detailIntro || card.aiKeyPoints?.join(" · ") || "打开笔记查看内容和原始依据。";
+  const provenance = card.id.startsWith("new_") ? "你添加的" : card.hasAnnotations ? "你记录的" : "示例笔记";
+  const displayTitle = card.title.replace(/^记忆[:：]\s*/, "");
+  const contentLabel = card.contentType === "homework" ? "作业" : "笔记";
   return (
     <div
       className="bg-white rounded-2xl flex flex-col overflow-hidden cursor-pointer hover:shadow-md transition-all duration-500 flex-1 min-w-0"
@@ -33,9 +36,15 @@ export function MemoryCard({ card, onOpen, isNew }: { card: CardData; onOpen: (c
       <div className="px-3.5 pt-3.5 pb-2">
         <div className="flex items-start gap-3">
           <div className="w-[54px] h-[42px] rounded-lg overflow-hidden bg-[#F0F2F5] flex-shrink-0">
-            <img src={card.img} alt={card.title} className="w-full h-full object-cover" loading="lazy" />
+            <img src={card.img} alt={displayTitle} className="w-full h-full object-cover" loading="lazy" />
           </div>
-          <p className="text-[13px] text-[#020418] leading-5 line-clamp-2 min-w-0" style={{ fontWeight: 700 }}>{card.title}</p>
+          <div className="min-w-0">
+            <div className="mb-1 flex items-center gap-1.5">
+              <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${contentLabel === "作业" ? "bg-[#FFF2E2] text-[#B66A0A]" : "bg-[#EEF0FF] text-[#4D5CFF]"}`}>{contentLabel}</span>
+              <span className="text-[9px] text-[#969CAA]">{provenance}</span>
+            </div>
+            <p className="text-[13px] text-[#020418] leading-5 line-clamp-2 min-w-0" style={{ fontWeight: 700 }}>{displayTitle}</p>
+          </div>
         </div>
       </div>
       <div className="px-3.5 pb-3 flex-1">
