@@ -3,7 +3,7 @@ import { BookOpenCheck, CalendarClock, Check, ChevronRight, FileText, NotebookTa
 import type { FeedGroup, SubjectData } from "../../types";
 import { getSubjectSyllabus } from "../../data/subjectSyllabi";
 import { collectNoteCards } from "../../utils/syllabusNotes";
-import { ReviewActionModal, type ReviewActionContent, type ReviewMistakeOrigin } from "./ReviewActionModal";
+import { ReviewActionModal, type ReviewActionContent, type ReviewMistakeOrigin, type ReviewPaperQuestion } from "./ReviewActionModal";
 import { formatNextReview, loadReviewSchedule, updateReviewSchedule } from "./reviewScheduler";
 
 type ReviewState = "优先复习" | "需要巩固" | "待验证" | "已掌握";
@@ -16,6 +16,8 @@ type ReviewItem = {
   action: ReviewAction;
   actionLabel: string;
   origin?: ReviewMistakeOrigin;
+  questions?: ReviewPaperQuestion[];
+  initialQuestionId?: string;
 };
 
 type ReviewPreset = {
@@ -33,14 +35,16 @@ type MistakeItem = {
   source: string;
   cause: string;
   origin: ReviewMistakeOrigin;
+  previousAnswer?: string;
+  correctAnswer?: string;
 };
 
 const MISTAKES: Record<string, MistakeItem[]> = {
   math: [
-    { id: "math-bounds", topic: "不定积分与换元法", title: "换元后没有同步修改上下限", content: "计算 ∫₀¹ 2x / (1 + x²) dx。请从换元开始重新作答，并明确写出 u 的新区间。", source: "第 6 次作业 · 第 3 题 · 8月30日", cause: "变量换成 u 后仍沿用了 x 的上下限", origin: "在线作答" },
-    { id: "math-note-substitution", topic: "不定积分与换元法", title: "笔记中的换元过程保留了原区间", content: "根据笔记中的原题，重新计算 ∫₀¹ 2x / (1 + x²) dx，并写清变量、微分和新区间。", source: "手写课堂笔记《换元积分法》· 第 4 页 · 8月28日", cause: "AI识别到原过程被红笔标记，换元后仍写成 0—1", origin: "笔记识别" },
-    { id: "math-area", topic: "定积分几何应用", title: "曲线交点判断错误", content: "设区域 D 由 y=x² 与 y=2x 围成，求 D 的面积。先求交点，再写出正确积分区间。", source: "定积分章节作业 · 第 5 题 · 8月27日", cause: "没有先求交点，直接把 0—1 作为积分区间", origin: "作业批改" },
-    { id: "math-chain", topic: "导数应用", title: "复合函数漏乘内层导数", content: "求 y=sin(x²+1) 的导数，并标出外层函数与内层函数。", source: "课堂小测 · 第 2 题 · 8月22日", cause: "只写了 cos(x²+1)，漏乘 2x", origin: "模拟考试" },
+    { id: "math-bounds", topic: "不定积分与换元法", title: "换元后没有同步修改上下限", content: "计算 ∫₀¹ 2x / (1 + x²) dx。请从换元开始重新作答，并明确写出 u 的新区间。", source: "第 6 次作业 · 第 3 题 · 8月30日", cause: "变量换成 u 后，积分区间仍使用原变量 x 的 0—1。", previousAnswer: "令 u=1+x²，直接写成 ∫₀¹ 1/u du。", correctAnswer: "令 u=1+x²，du=2x dx；x=0 时 u=1，x=1 时 u=2，所以 ∫₁² 1/u du=ln 2。", origin: "在线作答" },
+    { id: "math-note-substitution", topic: "不定积分与换元法", title: "笔记中的换元过程保留了原区间", content: "根据笔记中的原题，重新计算 ∫₀¹ 2x / (1 + x²) dx，并写清变量、微分和新区间。", source: "手写课堂笔记《换元积分法》· 第 4 页 · 8月28日", cause: "换元只替换了被积式，没有同步替换上下限。", previousAnswer: "u=1+x²，du=2x dx，区间仍记为 0—1。", correctAnswer: "变量、微分与上下限必须成套替换：u∈[1,2]，结果为 ln 2。", origin: "笔记识别" },
+    { id: "math-area", topic: "定积分几何应用", title: "曲线交点判断错误", content: "设区域 D 由 y=x² 与 y=2x 围成，求 D 的面积。先求交点，再写出正确积分区间。", source: "定积分章节作业 · 第 5 题 · 8月27日", cause: "没有先求交点，直接把 0—1 作为积分区间", previousAnswer: "直接取区间 [0,1] 计算。", correctAnswer: "由 x²=2x 得交点 x=0、2，面积为 ∫₀²(2x-x²)dx=4/3。", origin: "作业批改" },
+    { id: "math-chain", topic: "导数应用", title: "复合函数漏乘内层导数", content: "求 y=sin(x²+1) 的导数，并标出外层函数与内层函数。", source: "课堂小测 · 第 2 题 · 8月22日", cause: "只写了 cos(x²+1)，漏乘 2x", previousAnswer: "y′=cos(x²+1)。", correctAnswer: "外层为 sin u，内层为 u=x²+1，因此 y′=2x·cos(x²+1)。", origin: "模拟考试" },
   ],
   physics: [
     { id: "physics-unit", topic: "误差分析", title: "不确定度与测量值位数未对齐", content: "根据给出的三次测量值，写出包含不确定度的最终实验结果。", source: "第 5 次实验报告 · 教师批注", cause: "不确定度保留位数与测量结果小数位不一致", origin: "笔记识别" },
@@ -54,7 +58,7 @@ const PRESETS: Record<string, ReviewPreset> = {
     progress: 40,
     evidence: "下周二结课考试 · 最近 2 次作业都在换元上下限出错",
     items: [
-      { title: "换元法核心内容", content: "第一类换元用于凑微分；第二类换元通过代换消去根式或复杂结构。定积分换元后，积分变量和上下限必须同时改变。", source: "课堂笔记《换元积分法》· 教材第 126—129 页", action: "notes", actionLabel: "查看原笔记" },
+      { title: "换元法本次复习", content: "先识别可以整体代换的部分，再凑出对应微分。遇到定积分时，变量、微分和上下限必须一起换；你最近最需要注意的是换元后仍沿用原上下限。", source: "课堂笔记《换元积分法》· 教材第 126—129 页 · 最近 2 次作业", action: "notes", actionLabel: "开始复习" },
       { title: "边界条件快速检测", content: "2 道换元积分变式题。全部答对，并能解释为什么要换上下限后，才算完成本知识点复习。", source: "根据个人错题生成", action: "practice", actionLabel: "开始检测" },
     ],
   },
@@ -63,7 +67,7 @@ const PRESETS: Record<string, ReviewPreset> = {
     progress: 35,
     evidence: "明天有物理实验 · 最近记录中两次遗漏仪器调零步骤",
     items: [
-      { title: "实验操作关键步骤", content: "先调零，再读数；视线与刻度面垂直；多次测量后记录原始数据，不能先做平均再补记录。", source: "实验课件第 6 周 · 操作视频 03:12—06:40", action: "notes", actionLabel: "查看操作记录" },
+      { title: "实验操作本次复习", content: "按“检查仪器—调零—垂直读数—记录原始值”的顺序操作。你最近两次都漏了调零，因此开始实验前先口述一遍完整流程。", source: "实验课件第 6 周 · 操作视频 03:12—06:40 · 最近操作记录", action: "notes", actionLabel: "开始复习" },
       { title: "实验前快速检测", content: "完成 3 个读数与误差计算问题，确认可以独立写出实验结果表达式。", source: "根据明日实验内容生成", action: "practice", actionLabel: "开始检测" },
     ],
   },
@@ -72,7 +76,7 @@ const PRESETS: Record<string, ReviewPreset> = {
     progress: 55,
     evidence: "本周进入化学平衡章节 · 最近判断题正确率 60%",
     items: [
-      { title: "平衡移动判断", content: "先判断改变的是浓度、压强还是温度，再判断平衡移动方向；催化剂只改变达到平衡的速度，不改变平衡位置。", source: "课堂笔记《勒夏特列原理》· 课件第 42—47 页", action: "notes", actionLabel: "查看原笔记" },
+      { title: "平衡移动本次复习", content: "先确定外界改变的是浓度、压强还是温度，再判断体系如何削弱这种改变。特别注意：催化剂只改变达到平衡的速度，不改变平衡位置。", source: "课堂笔记《勒夏特列原理》· 课件第 42—47 页 · 最近判断题", action: "notes", actionLabel: "开始复习" },
       { title: "平衡移动快速检测", content: "完成 3 道条件变化判断题，并用一句话说明每题依据。", source: "根据章节作业生成", action: "practice", actionLabel: "开始检测" },
     ],
   },
@@ -81,7 +85,7 @@ const PRESETS: Record<string, ReviewPreset> = {
     progress: 45,
     evidence: "明天下午学术听说课 · 最近两次漏听转折后的核心观点",
     items: [
-      { title: "论证转折信号", content: "however、nevertheless 和 on the other hand 后通常出现作者真正要强调的立场，听到后优先记录观点而非例子。", source: "课程音频 08:10—12:35 · 课堂笔记", action: "notes", actionLabel: "播放并查看笔记" },
+      { title: "论证转折本次复习", content: "听到 however、nevertheless 或 on the other hand 时，先记转折后的核心观点，再补例子和限制条件。你最近漏掉的重点都出现在转折之后。", source: "课程音频 08:10—12:35 · 课堂笔记 · 最近 2 次听写", action: "notes", actionLabel: "开始复习" },
       { title: "8 分钟精听检测", content: "听两个短片段，写出转折词、核心观点和限制条件。", source: "根据个人听力记录生成", action: "practice", actionLabel: "开始检测" },
     ],
   },
@@ -90,7 +94,7 @@ const PRESETS: Record<string, ReviewPreset> = {
     progress: 60,
     evidence: "论文正在调用该理论 · 笔记中仍混淆向上比较与规范性影响",
     items: [
-      { title: "社会比较的核心概念", content: "向上比较可能带来激励，也可能放大相对剥夺感；结果取决于个体是否认为差距可缩小，以及比较对象是否与自我高度相关。", source: "《社会心理学》第 183—193 页 · 3 条挂靠笔记", action: "notes", actionLabel: "查看原笔记" },
+      { title: "社会比较本次复习", content: "向上比较不必然带来激励：当差距被认为不可缩小、比较对象又与自我高度相关时，更容易产生相对剥夺感。复习时重点区分“比较方向”和“结果条件”。", source: "《社会心理学》第 183—193 页 · 3 条挂靠笔记 · 当前论文问题", action: "notes", actionLabel: "开始复习" },
       { title: "案例迁移检测", content: "用社会比较理论解释一个短视频消费案例，并指出比较对象、心理机制和消费结果。", source: "根据论文研究问题生成", action: "practice", actionLabel: "开始作答" },
     ],
   },
@@ -112,7 +116,7 @@ function stateForTopic(subjectId: string, title: string, focus: string): ReviewS
 
 function genericItems(title: string, noteCount: number, state: ReviewState): ReviewItem[] {
   return [
-    { title: `${title}核心内容`, content: `已从课程资料中整理出“${title}”的定义、关键关系和典型使用条件。`, source: `${noteCount} 条课程笔记与对应原始资料`, action: "notes", actionLabel: "查看相关笔记" },
+    { title: `${title}本次复习`, content: `先用自己的话说明“${title}”解决什么问题，再说出关键关系、适用条件和一个容易混淆的边界。AI 已结合你的课程记录整理为本次要点。`, source: `${noteCount} 条课程笔记、对应原始资料与最近作答`, action: "notes", actionLabel: "开始复习" },
     { title: state === "已掌握" ? "间隔验证" : "掌握检测", content: state === "已掌握" ? "不看笔记，用自己的话解释核心概念，再完成 1 道迁移题。" : "完成 2 道针对性问题；正确且能解释关键步骤后，系统更新掌握状态。", source: state === "已掌握" ? "根据上次掌握结果生成" : "根据当前知识点生成", action: "practice", actionLabel: "开始检测" },
   ];
 }
@@ -159,13 +163,12 @@ export function ReviewPlanView({ subject, feedGroups }: {
     const done = index < baseCompletedItems || completedActions.has(completionKey(index));
     const current = !done && index === completedItems;
     const Icon = item.action === "notes" ? FileText : item.action === "homework" ? PenLine : Sparkles;
-    return <article key={item.title} className={`rounded-2xl p-4 ${current ? "bg-[#F2F4FF]" : "bg-[#F7F8FB]"}`}>
+    return <button type="button" key={item.title} onClick={() => setActiveAction({ item, completionId: completionKey(index) })} className={`block w-full rounded-2xl p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#AEB5FF] ${current ? "bg-[#F2F4FF]" : "bg-[#F7F8FB]"}`}>
       <div className="flex items-start gap-3">
         <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl ${done ? "bg-[#E4F4EB] text-[#2F8963]" : current ? "bg-[#4D5CFF] text-white" : "bg-white text-[#7B8392]"}`}>{done ? <Check size={15}/> : <Icon size={15}/>}</span>
-        <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h4 className="text-[12px] font-bold text-[#343946]">{item.title}</h4>{current && <span className="rounded-full bg-white px-2 py-1 text-[7px] font-semibold text-[#5967D9]">接下来</span>}</div><p className="mt-2 text-[10px] leading-5 text-[#666F80]">{item.content}</p><p className="mt-2 text-[8px] text-[#9AA1AE]">{item.source}</p></div>
-        <button onClick={() => setActiveAction({ item, completionId: completionKey(index) })} className="shrink-0 rounded-full bg-white px-3 py-2 text-[9px] font-semibold text-[#5967D9] shadow-sm transition hover:bg-[#4D5CFF] hover:text-white">{done ? "再看一次" : item.actionLabel}</button>
+        <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="rounded-full bg-[#EAEDFF] px-2 py-1 text-[7px] font-semibold text-[#5967D9]">{item.action === "notes" ? "AI整理" : "验证"}</span><h4 className="text-[12px] font-bold text-[#343946]">{item.title}</h4>{current && <span className="rounded-full bg-white px-2 py-1 text-[7px] font-semibold text-[#5967D9]">接下来</span>}</div><p className="mt-2 text-[10px] leading-5 text-[#666F80]">{item.content}</p><p className="mt-2 text-[8px] text-[#A6ACB7]">参考：{item.source}</p></div>
       </div>
-    </article>;
+    </button>;
   };
   return <><section className="flex min-h-0 flex-1 overflow-hidden bg-[#F5F6FA]">
     <aside className="w-[270px] shrink-0 overflow-y-auto border-r border-[#E4E7ED] px-5 pb-6 pt-4">
@@ -191,8 +194,12 @@ export function ReviewPlanView({ subject, feedGroups }: {
         <section className="mt-4 rounded-3xl bg-white p-6 shadow-[0_8px_30px_rgba(33,40,70,.05)]">
           <h3 className="text-[15px] font-bold text-[#202431]">复习内容</h3>
           <div className="mt-4 space-y-3">{items.map((item,index)=>({item,index})).filter(entry=>entry.item.action!=="practice").map(entry=>renderReviewItem(entry.item,entry.index))}</div>
-          {relatedMistakes.length>0&&<div className="mt-6 border-t border-[#ECEEF3] pt-5"><div className="flex items-center gap-2"><NotebookTabs size={15} className="text-[#E0923B]"/><h3 className="text-[13px] font-bold text-[#2D3340]">错题本</h3><span className="rounded-full bg-[#FFF1E2] px-2 py-1 text-[8px] font-semibold text-[#AF691B]">{relatedMistakes.filter(mistake=>!completedActions.has(`mistake:${mistake.id}`)).length} 道待订正</span></div><div className="mt-3 space-y-2">{relatedMistakes.map(mistake=>{const done=completedActions.has(`mistake:${mistake.id}`);return <article key={mistake.id} className="flex items-start gap-3 rounded-2xl bg-[#FFF9F1] p-4"><span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg ${done?"bg-[#E4F4EB] text-[#2F8963]":"bg-white text-[#C27A29]"}`}>{done?<Check size={14}/>:<PenLine size={14}/>}</span><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h4 className="text-[11px] font-bold text-[#343946]">{mistake.title}</h4><span className="rounded-full bg-white px-2 py-1 text-[7px] font-semibold text-[#8A6B48]">{mistake.origin}</span></div><p className="mt-1.5 text-[9px] leading-5 text-[#707787]">上次错误：{mistake.cause}</p><p className="mt-1 text-[8px] text-[#A2A7B0]">{mistake.source}</p></div><button onClick={()=>setActiveAction({item:{title:mistake.title,content:mistake.content,source:mistake.source,action:"homework",actionLabel:"重新作答",origin:mistake.origin},completionId:`mistake:${mistake.id}`,topic:mistake.topic})} className="shrink-0 rounded-full bg-white px-3 py-2 text-[9px] font-semibold text-[#B16B1C] shadow-sm">{done?"再做一次":"重新作答"}</button></article>})}</div></div>}
-          <div className="mt-6 space-y-3">{items.map((item,index)=>({item,index})).filter(entry=>entry.item.action==="practice").map(entry=>renderReviewItem(entry.item,entry.index))}</div>
+          {relatedMistakes.length>0&&<div className="mt-6 overflow-hidden rounded-2xl bg-[#FFF8EE]"><div className="flex items-center gap-2 px-4 py-3.5"><NotebookTabs size={15} className="text-[#D58A36]"/><h3 className="text-[13px] font-bold text-[#2D3340]">错题本</h3><span className="rounded-full bg-white/80 px-2 py-1 text-[8px] font-semibold text-[#AF691B]">{relatedMistakes.filter(mistake=>!completedActions.has(`mistake:${mistake.id}`)).length} 道待订正</span></div><div className="border-t border-[#F1DFC8]">{relatedMistakes.map((mistake,index)=>{const done=completedActions.has(`mistake:${mistake.id}`);return <button type="button" key={mistake.id} onClick={()=>setActiveAction({item:{title:`${mistake.topic}错题订正`,content:"",source:`${relatedMistakes.length} 道错题`,action:"homework",actionLabel:"打开错题卷",origin:mistake.origin,questions:relatedMistakes,initialQuestionId:mistake.id},completionId:`mistake:${mistake.id}`,topic:mistake.topic})} className={`flex w-full items-start gap-3 px-4 py-4 text-left transition hover:bg-white/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#E7BC84] ${index>0?"border-t border-[#F1DFC8]":""}`}><span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg ${done?"bg-[#E4F4EB] text-[#2F8963]":"bg-white text-[#C27A29]"}`}>{done?<Check size={14}/>:<PenLine size={14}/>}</span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h4 className="text-[11px] font-bold text-[#343946]">{mistake.title}</h4><span className="rounded-full bg-white/80 px-2 py-1 text-[7px] font-semibold text-[#8A6B48]">{mistake.origin}</span></div><p className="mt-1.5 text-[9px] leading-5 text-[#707787]">上次错误：{mistake.cause}</p><p className="mt-1 text-[8px] text-[#A2A7B0]">{mistake.source}</p></div></button>})}</div></div>}
+        </section>
+
+        <section className="mb-6 mt-4 rounded-3xl bg-white p-6 shadow-[0_8px_30px_rgba(33,40,70,.05)]">
+          <h3 className="text-[15px] font-bold text-[#202431]">拓展内容</h3>
+          <div className="mt-4 space-y-3">{items.map((item,index)=>({item,index})).filter(entry=>entry.item.action==="practice").map(entry=>renderReviewItem(entry.item,entry.index))}</div>
         </section>
       </div>
     </div>

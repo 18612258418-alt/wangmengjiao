@@ -5,7 +5,6 @@ import { SourceIcon, sourceLabel } from "../../shared/SourceIcon";
 import { getSkillMeta } from "../../utils/cardDetailParsing";
 import { exportCardImage, exportCardMarkdown } from "../../utils/exportCard";
 import { CardDetailContent } from "./CardDetailContent";
-import { AiConversationModule } from "../ai-conversation/AiConversationModule";
 
 function OriginalSourcePane({ card }: { card: CardData }) {
   const document = card.sourceDocument;
@@ -14,11 +13,6 @@ function OriginalSourcePane({ card }: { card: CardData }) {
 
   return (
     <section className="flex min-h-0 w-[52%] flex-col border-r border-[#E1E4EB] bg-[#ECEEF4] p-5">
-      <div className="mb-3 flex items-center">
-        <span className="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold text-[#4D5CFF]">原始文件</span>
-        <b className="ml-3 min-w-0 flex-1 truncate text-[12px] text-[#303441]">{sourceName}</b>
-        {page && <span className="ml-3 text-[10px] text-[#7B8291]">第 {page} 页</span>}
-      </div>
       <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-[0_5px_24px_rgba(27,31,48,.10)]">
         {document?.type === "pdf" && document.url ? (
           <object data={`${document.url}#page=${page || 1}&toolbar=0&navpanes=0&view=FitH`} type="application/pdf" className="h-full w-full">
@@ -32,7 +26,6 @@ function OriginalSourcePane({ card }: { card: CardData }) {
           <div className="max-w-[520px] p-10 text-center"><FileText size={34} className="mx-auto text-[#4D5CFF]"/><h2 className="mt-4 text-[18px] font-bold">{sourceName}</h2><p className="mt-3 text-[11px] leading-6 text-[#7B8291]">这条笔记保留了原始来源定位；当前演示使用文字记录代替文件缩略图。</p></div>
         )}
       </div>
-      <p className="mt-3 text-center text-[10px] text-[#8A909C]">左侧是原文件，右侧是你从原文形成的笔记。</p>
     </section>
   );
 }
@@ -101,14 +94,6 @@ export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateC
     }
   };
 
-  const askAboutMemory = (question: string) => {
-    if (!card) return "";
-    if (/依据|来源|原文|哪一页/.test(question)) return `这条理解保留了左侧原始文件的位置。当前最直接的依据来自${card.sourceAnchor?.page ? `第 ${card.sourceAnchor.page} 页` : "当前原文片段"}，我会优先引用原文而不是脱离来源回答。`;
-    const noteTitle = card.title.replace(/^记忆[:：]\s*/, "");
-    if (/准确|对不对|有问题|反例/.test(question)) return `“${noteTitle}”是这条笔记中的理解，不是不可修改的结论。可以继续检查它的适用边界、反对证据和形成时间。`;
-    return `我已同时带上左侧原始文件和笔记“${noteTitle}”。关于“${question}”，可以从概念含义、原文依据和它与其他笔记的关系继续展开。`;
-  };
-
   return (
     <>
       <div
@@ -134,14 +119,12 @@ export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateC
             <header className="flex h-[64px] shrink-0 items-center border-b border-[#E5E8EF] bg-white px-5">
               <button
                 onClick={() => { onClose(); setConfirmDelete(false); }}
-                className="flex min-h-11 items-center gap-2 rounded-full bg-[#F1F3F8] px-4 text-[13px] font-semibold text-[#343A49] transition hover:bg-[#E7EAF1]"
+                className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-[#343A49] transition hover:bg-[#F1F3F8]"
                 aria-label="返回笔记列表"
+                title="返回笔记"
               >
                 <ArrowLeft size={18}/>
-                返回笔记
               </button>
-              <span className="ml-4 rounded-full bg-[#EEF0FF] px-3 py-1.5 text-[10px] font-semibold text-[#4D5CFF]">笔记详情</span>
-              <p className="ml-3 min-w-0 truncate text-[12px] text-[#838A98]">{displayTitle}</p>
             </header>
             <div className="flex min-h-0 flex-1">
               <OriginalSourcePane card={card} />
@@ -329,16 +312,6 @@ export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateC
               unifiedContent={unifiedContent}
               onUpdateCard={onUpdateCard}
               exportRef={exportRef}
-            />
-            <AiConversationModule
-              contextKey={card.id}
-              contextLabel={`${displayTitle} · ${srcLabel}${card.sourceAnchor?.page ? ` · 第 ${card.sourceAnchor.page} 页` : ""}`}
-              initialAssistant={`我已带上左侧原始文件和笔记“${displayTitle}”。可以直接追问依据、概念或这条理解是否准确。`}
-              placeholder="结合原文件和这条笔记继续问…"
-              suggestions={["这条笔记来自哪里？","解释核心概念","检查这条理解是否准确"]}
-              onAsk={askAboutMemory}
-              className="m-4 mt-0 h-[310px] shrink-0 rounded-2xl"
-              compact
             />
               </section>
             </div>
