@@ -58,6 +58,7 @@ import { ResearchHome, ResearchWorkspace } from "../features/workspace/ResearchW
 import { AddSourceModal, type SourceDraft, isAudioFile } from "../features/source/AddSourceModal";
 import { SourceLibraryView, type LibrarySource } from "../features/source/SourceLibraryView";
 import { FlyThumbnail } from "../shared/FlyThumbnail";
+import { getScenario } from "../scenarios/scenario-adapter";
 
 /** 选出最近更新的学科：扫描 allFeedGroups 取出最大日期对应的 subjectId */
 function pickMostRecentSubject(allFeedGroups: Record<string, FeedGroupType[]>): string | null {
@@ -74,6 +75,7 @@ function pickMostRecentSubject(allFeedGroups: Record<string, FeedGroupType[]>): 
 }
 
 export default function App() {
+  const scenario = useMemo(() => getScenario(), []);
   const {
     allFeedGroups, subjects, isLoading: dbLoading,
     toast, addCard, removeCard, removeCardSilent, restoreMergedCards,
@@ -117,9 +119,7 @@ export default function App() {
   } | null>(null);
   const [showVoice, setShowVoice] = useState(false);
   const [showFormFill, setShowFormFill] = useState(false);
-  const [onboardingMode, setOnboardingMode] = useState<"first" | "demo" | null>(
-    () => localStorage.getItem("imemo_onboarded") ? null : "first",
-  );
+  const [onboardingMode, setOnboardingMode] = useState<"first" | "demo" | null>(null);
   const [flyPhase, setFlyPhase] = useState<"idle" | "center" | "corner" | "fading">("idle");
   const [flyImg, setFlyImg] = useState<string>("");
   const [sidebarLoading, setSidebarLoading] = useState(false);
@@ -145,24 +145,26 @@ export default function App() {
     screenshotSaveCountRef.current = demoHit ? 1 : 0;
   }, [dbLoading, allFeedGroups]);
 
+  const scenarioSubjects = scenario.workspaces ?? subjects;
+  const scenarioFeedGroups = scenario.memories ?? allFeedGroups;
   const sortedSubjects = useMemo(() => {
-    return [...subjects].sort((a, b) => {
+    return [...scenarioSubjects].sort((a, b) => {
       const latestDate = (id: string) =>
-        Math.max(...(allFeedGroups[id] ?? []).map(g => parseInt(g.date) || 0), 0);
+        Math.max(...(scenarioFeedGroups[id] ?? []).map(g => parseInt(g.date) || 0), 0);
       return latestDate(b.id) - latestDate(a.id);
     });
-  }, [subjects, allFeedGroups]);
+  }, [scenarioSubjects, scenarioFeedGroups]);
 
   // 首次有数据时锚定默认学科为「最近有更新的学科」
   useEffect(() => {
     if (didInitSubjectRef.current) return;
     if (dbLoading) return;
-    const totalGroups = Object.values(allFeedGroups).reduce((s, g) => s + (g?.length ?? 0), 0);
+    const totalGroups = Object.values(scenarioFeedGroups).reduce((s, g) => s + (g?.length ?? 0), 0);
     if (totalGroups === 0) return;
-    const recent = pickMostRecentSubject(allFeedGroups);
-    setActiveSubject(recent ?? subjects[0]?.id ?? "all");
+    const recent = pickMostRecentSubject(scenarioFeedGroups);
+    setActiveSubject(recent ?? scenarioSubjects[0]?.id ?? "all");
     didInitSubjectRef.current = true;
-  }, [dbLoading, allFeedGroups, subjects]);
+  }, [dbLoading, scenarioFeedGroups, scenarioSubjects]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -178,8 +180,8 @@ export default function App() {
     }
   }, [subjects]);
 
-  const subject = subjects.find(s => s.id === activeSubject) ?? subjects[0];
-  const feedGroups = allFeedGroups[activeSubject] ?? [];
+  const subject = scenarioSubjects.find(s => s.id === activeSubject) ?? scenarioSubjects[0];
+  const feedGroups = scenarioFeedGroups[activeSubject] ?? [];
 
   const examNoteFeedGroups = useMemo(
     () => filterNoteFeedGroups(feedGroups),
@@ -1192,6 +1194,7 @@ export default function App() {
           }}
           isLoading={sidebarLoading}
           subjects={sortedSubjects}
+          scenario={scenario}
           onOpenSearch={() => setShowSearch(true)}
           onUploadFile={() => setShowAddSource(true)}
           todayCount={memorySuggestedTask ? 3 : 2}
@@ -1200,6 +1203,13 @@ export default function App() {
         <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#F5F6FA]">
           {activeWorkspace === "today" && (
             <TodayView
+              scenarioId={scenario.id}
+              onOpenWorkspace={(subjectId) => {
+                didInitSubjectRef.current = true;
+                setActiveSubject(subjectId);
+                setActiveWorkspace("course");
+                setActiveTopTab("homework");
+              }}
               onTask={setActiveTodayTask}
               onClassSession={(subjectId,title) => {
                 didInitSubjectRef.current = true;
@@ -1271,10 +1281,13 @@ export default function App() {
               <TopTabs
                 activeTab={activeTopTab}
                 onChangeTab={setActiveTopTab}
+                labels={scenario.tabs}
+                hiddenTabs={scenario.hiddenTabs}
               /></>}
 
               {!activeClassSession && activeTopTab === "notes" && (
                 <SyllabusNotesView
+                  scenarioId={scenario.id}
                   subject={subject}
                   feedGroups={feedGroups}
                   onOpenCard={handleOpenCard}
@@ -1292,6 +1305,7 @@ export default function App() {
 
               {!activeClassSession && activeTopTab === "homework" && (
                 <HomeworkView
+                  scenarioId={scenario.id}
                   subject={subject}
                   feedGroups={feedGroups}
                   onUpdateCard={(cardId, date, updates) =>
@@ -1323,6 +1337,7 @@ export default function App() {
         </main>
 
         <RightDrawer
+          scenarioId={scenario.id}
           card={drawerCard}
           onClose={() => setDrawerCard(null)}
           onDelete={handleDeleteCard}
@@ -1339,8 +1354,8 @@ export default function App() {
         <SearchOverlay
           isOpen={showSearch}
           onClose={() => setShowSearch(false)}
-          allFeedGroups={allFeedGroups}
-          subjects={subjects}
+          allFeedGroups={scenarioFeedGroups}
+          subjects={scenarioSubjects}
           onUpdateCard={(subjectId, date, cardId, updates) => updateCard(subjectId, date, cardId, updates)}
           onOpenSource={(sourceId) => {
             setShowSearch(false);

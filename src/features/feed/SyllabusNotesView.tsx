@@ -47,12 +47,14 @@ export function SyllabusNotesView({
   onOpenCard,
   onOpenEntry,
   newCardId,
+  scenarioId = "student",
 }: {
   subject: SubjectData;
   feedGroups: FeedGroup[];
   onOpenCard: (card: CardData, date: string) => void;
   onOpenEntry?: (entryId: string) => void;
   newCardId: string | null;
+  scenarioId?: "student" | "common";
 }) {
   const syllabus = getSubjectSyllabus(subject.id);
   const noteCount = useMemo(() => collectNoteCards(feedGroups).length, [feedGroups]);
@@ -124,10 +126,10 @@ export function SyllabusNotesView({
         <div>
           {viewMode === "recent" ? <h3 className="text-[13px] font-bold text-[#202431]">共 {recentCards.length} 条笔记</h3> : <><h3 className="text-[13px] font-bold text-[#202431]">{syllabus.overviewTitle}</h3><p className="mt-1 text-[10px] text-[#969DAA]">按课程主题整理 · 共 {noteCount} 条笔记</p></>}
         </div>
-        <div className="flex rounded-full bg-[#E9EBF0]/70 p-0.5">
+        {scenarioId==="student"&&<div className="flex rounded-full bg-[#E9EBF0]/70 p-0.5">
           <button onClick={() => setViewMode("recent")} className={`rounded-full px-2.5 py-1 text-[8px] font-medium transition ${viewMode === "recent" ? "bg-white text-[#6671C9]" : "text-[#969DAA]"}`}>按时间</button>
           <button onClick={() => setViewMode("outline")} className={`rounded-full px-2.5 py-1 text-[8px] font-medium transition ${viewMode === "outline" ? "bg-white text-[#6671C9]" : "text-[#969DAA]"}`}>按大纲</button>
-        </div>
+        </div>}
       </div>
 
       {viewMode === "recent" ? <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-10 pt-2">
@@ -135,7 +137,7 @@ export function SyllabusNotesView({
           {dateGroups.map(group => <section key={group.date}>
             <div className="mb-3">
               <div className="flex items-center gap-3"><span className="h-2.5 w-2.5 rounded-full bg-[#4D5CFF]"/><h3 className="text-[14px] font-bold text-[#202431]">{formatTimelineDate(group.date)}</h3><span className="text-[10px] text-[#969DAA]">{group.cards.length} 条笔记</span></div>
-              <p className="ml-[22px] mt-1.5 text-[10px] leading-5 text-[#7F8796]">{dailyReviewSummary(group.cards)}</p>
+              {scenarioId==="student"&&<p className="ml-[22px] mt-1.5 text-[10px] leading-5 text-[#7F8796]">{dailyReviewSummary(group.cards)}</p>}
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {group.cards.map(({ card, date }) => <MemoryCard key={card.id} card={card} onOpen={c => onOpenCard(c, date)} isNew={card.id === newCardId}/>)}

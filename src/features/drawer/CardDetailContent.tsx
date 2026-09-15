@@ -20,12 +20,13 @@ import { OriginalSourceOverlay, ViewOriginalSourceButton } from "../../shared/Or
 type InteractivePhase = "idle" | "planning" | "coding" | "ready" | "skipped" | "failed";
 
 export function CardDetailContent({
-  card, unifiedContent, onUpdateCard, exportRef,
+  card, unifiedContent, onUpdateCard, exportRef, scenarioId="student",
 }: {
   card: CardData;
   unifiedContent?: string;
   onUpdateCard?: (cardId: string, updates: Partial<CardData>) => void;
   exportRef?: React.RefObject<HTMLDivElement | null>;
+  scenarioId?: "student" | "common";
 }) {
   const skillMeta = getSkillMeta(card.skill);
   const [activeTab, setActiveTab] = useState<"analysis" | "mindmap" | "interactive">("analysis");
@@ -112,7 +113,13 @@ export function CardDetailContent({
     setShowOriginalSource(false);
     setGeneratingUnified(false);
     setQuizRaw("");
-    setQuizLoading(true);
+    setQuizLoading(scenarioId === "student");
+
+    if (scenarioId === "common") {
+      setInteractiveError("");
+      setInteractivePhase("idle");
+      return;
+    }
 
     const quizPrompt = buildCardQuizPrompt(card.title, card.detailIntro || card.overview || "");
     streamText(quizPrompt,
@@ -127,11 +134,20 @@ export function CardDetailContent({
     setInteractiveError("");
     // 交互演示改为「点击 tab 时」按需生成：避免与智能总结抢占 DeepSeek 接口、也省 token
     setInteractivePhase(card.interactiveSpec?.appCode ? "ready" : "idle");
-  }, [card.id]);
+  }, [card.id, scenarioId]);
 
   const effectiveUnifiedContent = localUnifiedContent || unifiedContent || "";
   const effectiveInteractiveSpec = localInteractiveSpec || card.interactiveSpec;
   const interactiveBusy = interactivePhase === "planning" || interactivePhase === "coding";
+
+  if (scenarioId === "common") {
+    const sections = card.detailSections ?? [];
+    return <div ref={exportRef} className="min-h-0 flex-1 overflow-y-auto bg-[#F7F8FB] p-6">
+      <section className="rounded-2xl bg-white p-5 shadow-[0_3px_14px_rgba(35,42,70,.04)]"><p className="text-[10px] font-semibold text-[#7B8291]">这条笔记说了什么</p><p className="mt-3 text-[13px] leading-7 text-[#3E4553]">{card.detailIntro ?? card.overview ?? "Memo 已保留这条笔记的原始内容。"}</p></section>
+      {sections.map((section,index)=><section key={`${section.title}-${index}`} className="mt-4 rounded-2xl bg-white p-5 shadow-[0_3px_14px_rgba(35,42,70,.04)]"><h3 className="text-[12px] font-bold text-[#303746]">{section.title}</h3><div className="mt-3 space-y-2">{section.items.map(item=><div key={item} className="flex items-start gap-2.5 rounded-xl bg-[#F7F8FB] px-3.5 py-3"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#4D5CFF]"/><p className="text-[11px] leading-6 text-[#535A67]">{item}</p></div>)}</div></section>)}
+      {card.nextAction&&<section className="mt-4 rounded-2xl border border-[#DDE2FF] bg-[#F3F5FF] p-5"><p className="text-[10px] font-semibold text-[#6973C9]">接下来</p><p className="mt-2 text-[12px] leading-6 text-[#41495A]">{card.nextAction}</p></section>}
+    </div>;
+  }
 
   return (
     <div style={{ position: "relative", flex: "1 1 auto", minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>

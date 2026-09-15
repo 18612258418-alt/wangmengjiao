@@ -6,7 +6,7 @@ const Card = ({children,className=""}:{children:React.ReactNode;className?:strin
 const Header = ({icon,title,action,onAction}:{icon:React.ReactNode;title:string;action?:string;onAction?:()=>void}) => <div className="flex items-center gap-2 text-[#4D5CFF]">{icon}<h2 className="text-[14px] font-bold text-[#252936]">{title}</h2>{action&&<button onClick={onAction} className="ml-auto text-[11px] font-semibold text-[#4D5CFF]">{action}</button>}</div>;
 const Page = ({eyebrow,title,subtitle,action,children}:{eyebrow:string;title:string;subtitle:string;action?:React.ReactNode;children:React.ReactNode}) => <div className="h-full overflow-y-auto px-8 py-7"><p className="text-[11px] font-bold tracking-[.12em] text-[#8C93A3]">{eyebrow}</p><div className={`mt-2 flex items-center ${action?"max-w-[900px]":""}`}><h1 className="text-[28px] font-bold text-[#171A24]">{title}</h1>{action&&<div className="ml-auto">{action}</div>}</div>{subtitle&&<p className="mb-7 mt-1 text-[13px] text-[#7B8291]">{subtitle}</p>}{!subtitle&&<div className="mb-7"/>}{children}</div>;
 
-export function TodayView({onTask,onClassSession,onPractice,onProject,onGoals,memorySuggestion}:{onTask:(task:"physics-lab"|"english-review"|"physics-preview"|"math-homework")=>void;onClassSession:(subjectId:string,title:string)=>void;onPractice:()=>void;onProject:()=>void;onGoals:()=>void;memorySuggestion?:string|null}) {
+export function TodayView({onTask,onClassSession,onPractice,onProject,onGoals,onOpenWorkspace,memorySuggestion,scenarioId="student"}:{onTask:(task:"physics-lab"|"english-review"|"physics-preview"|"math-homework")=>void;onClassSession:(subjectId:string,title:string)=>void;onPractice:()=>void;onProject:()=>void;onGoals:()=>void;onOpenWorkspace?:(subjectId:string)=>void;memorySuggestion?:string|null;scenarioId?:"student"|"common"}) {
   const [feedbackTask,setFeedbackTask]=useState<string|null>(null);
   const [completedIds,setCompletedIds]=useState<Set<string>>(()=>new Set());
   const [showCompleted,setShowCompleted]=useState(false);
@@ -14,7 +14,7 @@ export function TodayView({onTask,onClassSession,onPractice,onProject,onGoals,me
   const [week,setWeek]=useState(6);
   const todayLabel=new Intl.DateTimeFormat("zh-CN",{year:"numeric",month:"long",day:"numeric",weekday:"long"}).format(new Date());
   const currentHour=new Date().getHours();
-  const timeline = [
+  const studentTimeline = [
     {
       id:"math-exam",subjectId:"math",sort:"13:00",time:"今天下午",end:"建议安排 · 35分钟",title:"开始准备下周的高数结课考试",type:"复习",timing:"recommended",dueHour:17,
       action:"先做6道诊断题，再根据结果生成7天复习安排。",
@@ -43,7 +43,14 @@ export function TodayView({onTask,onClassSession,onPractice,onProject,onGoals,me
       id:"personal",subjectId:"personal",sort:"23:59",time:"今天内",end:"你安排的事",title:memorySuggestion,type:"个人",timing:"personal",dueHour:24,
       action:"继续上次的内容，不需要重新寻找入口。",reason:"这是你主动加入今天的安排。",open:memorySuggestion.includes("理论")?onProject:onGoals,
     }]:[]),
-  ].sort((a,b)=>a.sort.localeCompare(b.sort));
+  ];
+  const commonTimeline = [
+    {id:"view-home",subjectId:"physics",sort:"10:30",time:"周六 10:30 前",end:"明确时间 · 5分钟",title:"向中介确认押金和宠物政策",type:"搬家",timing:"deadline",dueHour:24,action:"把押金金额、退租条款和能否养宠物一次问清。",reason:"周六已经约了看房；这三个问题仍未在房源截图和聊天中找到答案。",open:()=>onOpenWorkspace?.("physics")},
+    {id:"leave",subjectId:"math",sort:"12:00",time:"今天中午前",end:"明确时间 · 3分钟",title:"确认同行人的请假日期",type:"旅行",timing:"deadline",dueHour:12,action:"确认可出发日期后，再锁定机票和不可退酒店。",reason:"当前五日路线已经形成，但两个人的请假时间仍是订票前置条件。",open:()=>onOpenWorkspace?.("math")},
+    {id:"product-plan",subjectId:"chemistry",sort:"15:00",time:"今天下午",end:"建议安排 · 25分钟",title:"把统一场景数据包补进产品方案",type:"工作",timing:"recommended",dueHour:18,action:"整理 workspaces、tabs、memories、actions 与 AI 建议的统一字段。",reason:"产品周会和用户访谈都支持保留同一交互骨架，只替换场景数据。",open:()=>onOpenWorkspace?.("chemistry")},
+    {id:"family",subjectId:"english",sort:"20:00",time:"晚饭后",end:"建议安排 · 8分钟",title:"补全番茄牛腩菜谱的用量",type:"家庭",timing:"recommended",dueHour:22,action:"询问牛腩、番茄和炖煮时间，并关联回原照片和语音。",reason:"现有记录保存了步骤，但缺少关键用量，之后很难直接照着做。",open:()=>onOpenWorkspace?.("english")},
+  ];
+  const timeline = (scenarioId==="common"?commonTimeline:studentTimeline).sort((a,b)=>a.sort.localeCompare(b.sort));
   const finish=(id:string,title:string)=>{setCompletedIds(prev=>new Set(prev).add(id));setFeedbackTask(title);};
   const activeItems=timeline.filter(x=>!completedIds.has(x.id));
   const timedItems=activeItems.filter(x=>x.timing==="deadline"||x.timing==="before").sort((a,b)=>a.timing==="deadline"?-1:b.timing==="deadline"?1:a.sort.localeCompare(b.sort));
@@ -72,14 +79,14 @@ export function TodayView({onTask,onClassSession,onPractice,onProject,onGoals,me
       </div>
     </div>;
   };
-  return <Page eyebrow={todayLabel} title={`晓雨，今天有 ${activeItems.length} 件事`} subtitle="" action={<button onClick={()=>setShowSemester(true)} className="rounded-full bg-[#EEF2FF] px-4 py-2 text-[11px] font-semibold text-[#4D5CFF] hover:bg-[#E4E9FF]">查看学期课表</button>}><div className="max-w-[900px]">
+  return <Page eyebrow={todayLabel} title={`${scenarioId==="common"?"今天":"晓雨，今天"}有 ${activeItems.length} 件事`} subtitle="" action={scenarioId==="student"?<button onClick={()=>setShowSemester(true)} className="rounded-full bg-[#EEF2FF] px-4 py-2 text-[11px] font-semibold text-[#4D5CFF] hover:bg-[#E4E9FF]">查看学期课表</button>:undefined}><div className="max-w-[900px]">
     <Card className="p-5">
       <section><div className="mb-3 flex items-end"><div><h3 className="text-[13px] font-bold text-[#252936]">有明确时间 · {timedItems.length}</h3><p className="mt-1 text-[9px] text-[#969CA8]">先做有时间要求的事</p></div></div><div className="space-y-3">{timedItems.map(x=>renderTask(x))}</div></section>
       <section className="mt-7"><div className="mb-3 flex items-end"><div><h3 className="text-[13px] font-bold text-[#252936]">建议今天推进 · {suggestedItems.length}</h3><p className="mt-1 text-[9px] text-[#969CA8]">今天有空时可以做</p></div></div><div className="space-y-3">{suggestedItems.map(x=>renderTask(x))}</div></section>
       {completedItems.length>0&&<section className="mt-6 border-t border-[#EEF0F4] pt-4"><button onClick={()=>setShowCompleted(!showCompleted)} className="flex w-full items-center text-left text-[11px] font-semibold text-[#7B8291]"><CheckCircle2 size={14} className="mr-2 text-[#22A06B]"/>今天已完成 · {completedItems.length}<ChevronRight size={14} className={`ml-auto transition ${showCompleted?"rotate-90":""}`}/></button>{showCompleted&&<div className="mt-3 space-y-2">{completedItems.map(x=>renderTask(x,true))}</div>}</section>}
     </Card>
     {feedbackTask&&<div className="fixed inset-0 z-[190] grid place-items-center bg-black/20" onClick={()=>setFeedbackTask(null)}><Card className="w-[420px] p-6" ><h2 className="text-[18px] font-bold">完成得怎么样？</h2><p className="mt-2 text-[12px] text-[#7B8291]">{feedbackTask}</p><div className="mt-5 grid grid-cols-2 gap-2">{["顺利完成","有点困难","没有帮助","计划变了"].map(x=><button key={x} onClick={()=>setFeedbackTask(null)} className="rounded-xl bg-[#F5F6FA] px-3 py-3 text-[11px] hover:bg-[#EEF0FF]">{x}</button>)}</div></Card></div>}
-    {showSemester&&<SemesterSchedule week={week} onWeek={setWeek} onClose={()=>setShowSemester(false)} onOpen={(id,title)=>{setShowSemester(false);onClassSession(id,title)}}/>}
+    {scenarioId==="student"&&showSemester&&<SemesterSchedule week={week} onWeek={setWeek} onClose={()=>setShowSemester(false)} onOpen={(id,title)=>{setShowSemester(false);onClassSession(id,title)}}/>}
   </div></Page>;
 }
 

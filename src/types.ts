@@ -76,6 +76,9 @@ export interface CardData {
   sourceAnchor?: SourceAnchor;
   /** PDF 或网页来源信息，用于从笔记详情返回查看原文 */
   sourceDocument?: SourceDocument;
+  /** 加号上传的原始内容；笔记与行动是基于它并列分发的结果 */
+  originTitle?: string;
+  originDescription?: string;
 }
 
 export interface FeedGroup {

@@ -12,14 +12,18 @@ export function TopTabs({
   activeTab,
   onChangeTab,
   showPaperTab = false,
+  labels,
+  hiddenTabs = [],
 }: {
   activeTab: TopTabId;
   onChangeTab: (id: TopTabId) => void;
   showPaperTab?: boolean;
+  labels?: Partial<Record<TopTabId, string>>;
+  hiddenTabs?: TopTabId[];
 }) {
-  const tabs = showPaperTab
+  const tabs = (showPaperTab
     ? [...BASE_TABS, { id: "paper" as const, label: "论文" }]
-    : BASE_TABS;
+    : BASE_TABS).filter(tab => !hiddenTabs.includes(tab.id)).map(tab => ({...tab,label:labels?.[tab.id]??tab.label}));
 
   return (
     <div className="flex items-center px-6 pt-3 pb-3 flex-shrink-0">

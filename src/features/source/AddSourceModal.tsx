@@ -136,7 +136,7 @@ export function AddSourceModal({
       originalName,
       title: originalName,
       summary,
-      targetSubjectId: subjects[0]?.id ?? "other",
+      targetSubjectId: "other",
     };
     setItems(prev => [item, ...prev]);
     return item.id;
@@ -207,8 +207,8 @@ export function AddSourceModal({
       <div className="w-[720px] max-h-[86vh] rounded-3xl bg-white shadow-2xl overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-5 border-b border-[#EAEDF2] flex items-start justify-between">
           <div>
-            <p className="text-[18px] text-[#020418]" style={{ fontWeight: 800 }}>添加资料</p>
-            <p className="text-[12px] text-[#7B8291] mt-1">原文件进入资料，整理出的理解进入笔记；不会把上传内容创建成新课程。</p>
+            <p className="text-[18px] text-[#020418]" style={{ fontWeight: 800 }}>记下来</p>
+            <p className="text-[12px] text-[#7B8291] mt-1">选择文件后直接保存。Memo 会理解内容并关联到可能需要它的场景。</p>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-[#F0F2F5] hover:bg-[#E5E7EB] text-[#020418]">×</button>
         </div>
@@ -311,9 +311,7 @@ export function AddSourceModal({
                   {item.status === "ready" && (
                     <>
                     <div className="mt-3 flex items-center gap-3 rounded-2xl bg-[#F7F8FB] px-3 py-2.5">
-                      <div className="min-w-0 flex-1"><span className="text-[9px] text-[#8A909C]">归入课程</span><select value={item.targetSubjectId} onChange={event=>updateItem(item.id,{targetSubjectId:event.target.value})} className="mt-1 block w-full bg-transparent text-[11px] font-bold text-[#303746] outline-none">{subjects.map(subject=><option key={subject.id} value={subject.id}>{subject.short}</option>)}</select></div>
-                      <div className="h-8 w-px bg-[#E0E3EA]"/>
-                      <div className="min-w-0 flex-[1.4]"><span className="text-[9px] text-[#8A909C]">保存结果</span><p className="mt-1 text-[10px] font-semibold text-[#4D5CFF]">原文件放入“资料” · 提炼内容放入“笔记”</p></div>
+                      <div className="min-w-0 flex-1"><span className="text-[9px] text-[#8A909C]">Memo 会这样整理</span><p className="mt-1 text-[10px] font-semibold text-[#4D5CFF]">原文件保留一次 · 按内容关联到记事、学习、工作或生活</p></div>
                     </div>
                     <div className="mt-3 rounded-2xl border border-[#E4E7F2] bg-[#FAFBFF] p-3">
                       <div className="flex items-center">
@@ -341,9 +339,9 @@ export function AddSourceModal({
                       {item.processingMode === "local-demo" && <p className="mt-3 text-[9px] leading-4 text-[#B66A0A]">当前未配置模型服务，因此只演示完整处理流程，不声称已理解文件真实内容。</p>}
                     </div>
                     <div className="mt-3 flex items-center justify-between gap-3">
-                      <p className="text-[10px] leading-4 text-[#8A909C]">保存后会明确显示原文件与笔记的关系。</p>
+                      <p className="text-[10px] leading-4 text-[#8A909C]">不用选择放在哪里，之后仍可修改关联。</p>
                       <button onClick={() => confirmItem(item)} className="rounded-xl bg-[#4D5CFF] px-4 py-2 text-[12px] text-white" style={{ fontWeight: 800 }}>
-                        保存资料与笔记
+                        保存
                       </button>
                     </div>
                     </>
