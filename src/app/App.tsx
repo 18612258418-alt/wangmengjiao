@@ -1194,6 +1194,7 @@ export default function App() {
           subjects={sortedSubjects}
           onOpenSearch={() => setShowSearch(true)}
           onUploadFile={() => setShowAddSource(true)}
+          onCreateSubject={() => setShowCreateSubject(true)}
           todayCount={memorySuggestedTask ? 3 : 2}
         />
 
@@ -1362,13 +1363,13 @@ export default function App() {
         {showCreateSubject && (
           <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/35" onClick={() => setShowCreateSubject(false)}>
             <div className="w-[360px] rounded-3xl bg-white p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
-              <p className="text-[16px] text-[#020418]" style={{ fontWeight: 700 }}>新建学科</p>
-              <p className="text-[12px] text-[#7B8291] mt-1">用于整理 AI 识别不准或你自定义的学习分类。</p>
+              <p className="text-[16px] text-[#020418]" style={{ fontWeight: 700 }}>新建文件夹</p>
+              <p className="text-[12px] text-[#7B8291] mt-1">创建一个新的学科或学习分类。</p>
               <input
                 value={newSubjectName}
                 onChange={e => setNewSubjectName(e.target.value)}
                 autoFocus
-                placeholder="例如：电路、考研政治、数据结构"
+                placeholder="例如：数据结构、考研政治"
                 className="mt-4 w-full rounded-2xl border border-[#EAEDF2] px-4 py-3 text-[14px] outline-none focus:border-[#4D5CFF]"
                 onKeyDown={e => { if (e.key === "Enter") handleCreateSubject(); }}
               />
@@ -1384,7 +1385,7 @@ export default function App() {
                   className="rounded-xl bg-[#4D5CFF] px-4 py-2 text-[13px] text-white"
                   style={{ fontWeight: 700 }}
                 >
-                  创建
+                  新建
                 </button>
               </div>
             </div>

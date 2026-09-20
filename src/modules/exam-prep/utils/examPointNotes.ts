@@ -165,19 +165,20 @@ export function getRelatedNotesForExamPoint(
   const byId = new Map(allNotes.map(n => [n.card.id, n]));
 
   const idSet = new Set<string>();
+  const keywordMatches = new Set(matchByKeywords(point, feedGroups));
 
   // 1. 大模型上传时写入的显式挂靠（优先级最高）
   for (const { card } of allNotes) {
     if (card.linkedExamPointIds?.includes(point.id)) idSet.add(card.id);
   }
 
-  // 2. 知识树路径匹配（数学）/ 关键词回退
+  // 2. 知识树只提供候选范围，还必须命中当前考点关键词，避免整章笔记全部挂靠。
   for (const id of resolveCardIdsFromCatalog(subjectId, point.id, feedGroups, subjectShort)) {
-    idSet.add(id);
+    if (keywordMatches.has(id)) idSet.add(id);
   }
 
   if (idSet.size === 0) {
-    for (const id of matchByKeywords(point, feedGroups)) idSet.add(id);
+    for (const id of keywordMatches) idSet.add(id);
   }
 
   const result: ExamRelatedNote[] = [];
@@ -190,5 +191,5 @@ export function getRelatedNotesForExamPoint(
     const ta = a.card.time;
     const tb = b.card.time;
     return tb.localeCompare(ta);
-  });
+  }).slice(0, 3);
 }

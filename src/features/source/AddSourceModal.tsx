@@ -208,7 +208,7 @@ export function AddSourceModal({
         <div className="px-6 py-5 border-b border-[#EAEDF2] flex items-start justify-between">
           <div>
             <p className="text-[18px] text-[#020418]" style={{ fontWeight: 800 }}>添加资料</p>
-            <p className="text-[12px] text-[#7B8291] mt-1">原文件进入资料，整理出的理解进入笔记；不会把上传内容创建成新课程。</p>
+            <p className="text-[12px] text-[#7B8291] mt-1">原文件统一保存；学习记录整理为笔记，明确要求整理为作业，长内容可在资料中阅读。</p>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-[#F0F2F5] hover:bg-[#E5E7EB] text-[#020418]">×</button>
         </div>

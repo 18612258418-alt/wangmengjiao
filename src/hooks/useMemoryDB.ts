@@ -144,6 +144,15 @@ export function useMemoryDB(): MemoryDBHook {
           storedSubjects = await getAllSubjects();
         }
 
+        // 始终提供“其他”作为未归类内容的固定承接文件夹；兼容已有本地数据库。
+        if (!storedSubjects.some(subject => subject.id === "misc")) {
+          const miscSubject = INITIAL_SUBJECTS.find(subject => subject.id === "misc");
+          if (miscSubject) {
+            await putSubject(miscSubject);
+            storedSubjects = [...storedSubjects, miscSubject];
+          }
+        }
+
         if (!localStorage.getItem(SYLLABUS_ENTRY_PATCH_KEY)) {
           const cards = await getAllCards();
           await Promise.all(

@@ -3,8 +3,16 @@ import type { CardData } from "../types";
 /** 从卡片生成作业模块展示用的文字 task 列表 */
 export function getHomeworkTasks(card: CardData): string[] {
   if (Array.isArray(card.homeworkTasks) && card.homeworkTasks.length > 0) {
-    return card.homeworkTasks.map(t => t.trim()).filter(Boolean);
+    const stored = card.homeworkTasks.map(t => t.trim()).filter(Boolean);
+    if (card.contentType === "homework") return stored;
+    // 清理旧版本给普通笔记写入的假任务，保留真正从笔记原文抽取出的明确任务。
+    return stored.filter(task =>
+      !task.startsWith("整理并完成：") && task !== "查看详情并落实学习安排"
+    );
   }
+  // 普通笔记没有明确抽取出的 homeworkTasks 时，不得兜底生成作业。
+  if (card.contentType !== "homework") return [];
+
   const tasks: string[] = [];
   if (card.nextAction?.trim()) {
     tasks.push(card.nextAction.trim());
@@ -18,12 +26,9 @@ export function getHomeworkTasks(card: CardData): string[] {
       }
     }
   }
-  if (tasks.length === 0 && card.summary?.trim()) {
-    tasks.push(card.summary.trim());
-  }
   if (tasks.length === 0) {
     const title = card.title.replace(/^记忆[:：]\s*/, "").trim();
-    tasks.push(title ? `整理并完成：${title}` : "查看详情并落实学习安排");
+    if (title) tasks.push(title);
   }
   return tasks.slice(0, 8);
 }

@@ -73,6 +73,7 @@ export const BUILTIN_SUBJECT_LABELS: Record<string, Pick<SubjectData, "name" | "
   chemistry: { name: "大学化学", short: "大学化学" },
   english: { name: "大学英语", short: "大学英语" },
   other: { name: "社会科学", short: "社会科学" },
+  misc: { name: "其他", short: "其他" },
 };
 
 export const INITIAL_SUBJECTS: SubjectData[] = [
@@ -100,6 +101,11 @@ export const INITIAL_SUBJECTS: SubjectData[] = [
     id: "other", ...BUILTIN_SUBJECT_LABELS.other, count: 4, unit: "条记忆",
     entries: ["5月22日 星期五  批注新增2个记忆", "4月22日 星期二  批注新增2个记忆"],
     extra: "刚刚 · 4个知识点"
+  },
+  {
+    id: "misc", ...BUILTIN_SUBJECT_LABELS.misc, count: 0, unit: "条记忆",
+    entries: [],
+    extra: "暂未归类"
   },
 ];
 

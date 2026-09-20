@@ -38,8 +38,11 @@ interface RawResult {
   tasks?: RawTask[];
 }
 
-const HOMEWORK_KEYWORDS =
-  /截止|deadline|交|提交|上交|完成|作业|练习|习题|要求|待办|任务|背诵|默写|预习|复习|做题|实验报告|周测|小测|限时|前完成|课前|课后|本周|下周|明天|周[一二三四五六日天]/;
+const HOMEWORK_STRONG_SIGNALS =
+  /截止|deadline|提交|上交|作业|待办|任务|实验报告|周测|小测|限时|前完成|课前|课后|本周|下周|明天|周[一二三四五六日天]/;
+
+const HOMEWORK_ACTION_WITH_SCOPE =
+  /(?:请|需要|须|要求|务必|记得|完成|提交|上交|背诵|默写|预习|复习|做题|练习).{0,28}(?:题|页|章|节|遍|次|份|报告|清单|材料|内容)/;
 
 /** 拼接笔记可读文本，用于关键词粗筛与喂给模型 */
 function collectNoteText(input: HomeworkExtractInput): string {
@@ -56,7 +59,8 @@ function collectNoteText(input: HomeworkExtractInput): string {
 
 /** 廉价路由：笔记里没有任何作业意图关键词时，直接跳过模型调用 */
 export function looksLikeHomework(input: HomeworkExtractInput): boolean {
-  return HOMEWORK_KEYWORDS.test(collectNoteText(input));
+  const text = collectNoteText(input);
+  return HOMEWORK_STRONG_SIGNALS.test(text) || HOMEWORK_ACTION_WITH_SCOPE.test(text);
 }
 
 function normalizeDueDate(raw: unknown): string | undefined {
