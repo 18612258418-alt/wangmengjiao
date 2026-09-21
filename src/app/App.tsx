@@ -104,12 +104,14 @@ export default function App() {
   const [drawerCardDate, setDrawerCardDate] = useState<string>("");
   const [drawerCardSubject, setDrawerCardSubject] = useState<string>("");
   const [showSearch, setShowSearch] = useState(false);
+  const [searchStartsWithVoice, setSearchStartsWithVoice] = useState(false);
   const [sourceSearchTarget, setSourceSearchTarget] = useState<string | null>(null);
   const [showAddSource, setShowAddSource] = useState(false);
   const [pdfReaderFile, setPdfReaderFile] = useState<File | null>(null);
   const [showWritableReview, setShowWritableReview] = useState(false);
   const [activeTodayTask, setActiveTodayTask] = useState<StudyTaskKind | null>(null);
   const [showCamera, setShowCamera] = useState(false);
+  const [showCameraPicker, setShowCameraPicker] = useState(false);
   const [showScreenshot, setShowScreenshot] = useState(false);
   const [screenshotMergeNotice, setScreenshotMergeNotice] = useState<{
     message: string;
@@ -1192,7 +1194,14 @@ export default function App() {
           }}
           isLoading={sidebarLoading}
           subjects={sortedSubjects}
-          onOpenSearch={() => setShowSearch(true)}
+          onOpenSearch={() => {
+            setSearchStartsWithVoice(false);
+            setShowSearch(true);
+          }}
+          onOpenVoiceSearch={() => {
+            setSearchStartsWithVoice(true);
+            setShowSearch(true);
+          }}
           onUploadFile={() => setShowAddSource(true)}
           onCreateSubject={() => setShowCreateSubject(true)}
           todayCount={memorySuggestedTask ? 3 : 2}
@@ -1339,10 +1348,16 @@ export default function App() {
 
         <SearchOverlay
           isOpen={showSearch}
-          onClose={() => setShowSearch(false)}
+          startWithVoice={searchStartsWithVoice}
+          onClose={() => {
+            setShowSearch(false);
+            setSearchStartsWithVoice(false);
+          }}
           allFeedGroups={allFeedGroups}
           subjects={subjects}
           onUpdateCard={(subjectId, date, cardId, updates) => updateCard(subjectId, date, cardId, updates)}
+          onAddSource={() => setShowAddSource(true)}
+          onOpenCamera={() => setShowCameraPicker(true)}
           onOpenSource={(sourceId) => {
             setShowSearch(false);
             setSourceSearchTarget(sourceId);
@@ -1501,6 +1516,15 @@ export default function App() {
             }}
           />
         )
+      )}
+
+      {showCameraPicker && (
+        <CameraModal
+          onClose={() => setShowCameraPicker(false)}
+          onSave={(imageDataUrl) => {
+            processImage(imageDataUrl, false, "notes");
+          }}
+        />
       )}
 
       {showScreenshot && (

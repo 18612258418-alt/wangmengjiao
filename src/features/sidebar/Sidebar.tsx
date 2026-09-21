@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { FolderPlus, Plus, Search, Sparkles, SunMedium } from "lucide-react";
+import { useEffect, useState } from "react";
+import { FolderPlus, Mic, Plus, Sparkles, SunMedium } from "lucide-react";
 import { imgLoadingSpinner } from "../../data/initialData";
 import type { SubjectData } from "../../types";
 
@@ -7,7 +7,14 @@ export type WorkspaceId = "today" | "activity" | "inbox" | "knowledge" | "course
 
 const colors = ["#4D5CFF", "#10B981", "#F59E0B", "#EC4899", "#8B5CF6"];
 
-export function Sidebar({ activeWorkspace, activeSubject, onSelectWorkspace, onSelectSubject, isLoading, subjects, onOpenSearch, onUploadFile, todayCount, onCreateSubject }: {
+const memoPrompts = [
+  "找我做错过的积分题",
+  "明天需要预习什么？",
+  "整理最近的课程笔记",
+  "我最近总在哪里出错？",
+];
+
+export function Sidebar({ activeWorkspace, activeSubject, onSelectWorkspace, onSelectSubject, isLoading, subjects, onOpenSearch, onOpenVoiceSearch, onUploadFile, todayCount, onCreateSubject }: {
   activeWorkspace: WorkspaceId;
   activeSubject: string;
   onSelectWorkspace: (id: WorkspaceId) => void;
@@ -15,6 +22,7 @@ export function Sidebar({ activeWorkspace, activeSubject, onSelectWorkspace, onS
   isLoading: boolean;
   subjects: SubjectData[];
   onOpenSearch: () => void;
+  onOpenVoiceSearch: () => void;
   onUploadFile: () => void;
   todayCount: number;
   onCreateSubject?: () => void;
@@ -22,29 +30,51 @@ export function Sidebar({ activeWorkspace, activeSubject, onSelectWorkspace, onS
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileCorrected, setProfileCorrected] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [promptIndex, setPromptIndex] = useState(0);
+  const [promptVisible, setPromptVisible] = useState(true);
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setPromptVisible(false);
+      window.setTimeout(() => {
+        setPromptIndex(index => (index + 1) % memoPrompts.length);
+        setPromptVisible(true);
+      }, 260);
+    }, 3000);
+    return () => window.clearInterval(interval);
+  }, []);
   const primary = [
     { id: "today" as const, label: "今日待办", icon: SunMedium, badge: String(todayCount) },
   ];
   const navButton = (id: WorkspaceId, label: string, Icon: typeof SunMedium, trailing?: React.ReactNode, action?: () => void) => {
     const active = activeWorkspace === id;
-    return <button onClick={action ?? (() => onSelectWorkspace(id))} className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] transition ${active ? "bg-white text-[#4D5CFF] shadow-sm" : "text-[#41464F] hover:bg-white/70"}`}>
+    return <button onClick={action ?? (() => onSelectWorkspace(id))} className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] transition ${active ? "bg-[#E2E5EB] text-[#363C48]" : "text-[#41464F] hover:bg-white/60"}`}>
       <Icon size={18} strokeWidth={active ? 2.4 : 2} />
       <span className="font-semibold flex-1 text-left">{label}</span>{trailing}
     </button>;
   };
   return <><aside className="w-[264px] flex-shrink-0 bg-[#EEF0F5] h-full flex flex-col border-r border-[#E3E6ED]">
-    <div className="px-5 pt-5 pb-3 flex items-center justify-between">
-      <button onClick={() => setProfileOpen(true)} className="flex items-center gap-2 text-left" aria-label="查看 Memo 对我的理解">
+    <div className="px-3 pt-5 pb-3">
+      <button onClick={() => setProfileOpen(true)} className="mx-2 flex items-center gap-2 text-left" aria-label="查看 Memo 对我的理解">
         <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-[#EC6392] via-[#CB6CDA] to-[#618AFF] text-white"><Sparkles size={17}/></span>
         <span className="block text-[16px] font-bold text-[#020418]">Memo</span>
       </button>
-      <div className="flex"><button aria-label="搜索记忆和资料" onClick={onOpenSearch} className="p-2 text-[#6B7280] hover:text-[#4D5CFF]"><Search size={18}/></button><button aria-label="添加资料" onClick={onUploadFile} className="p-2 text-[#6B7280] hover:text-[#4D5CFF]"><Plus size={19}/></button></div>
+      <div className="mt-4 flex h-11 items-center rounded-2xl bg-white px-1.5 shadow-sm ring-1 ring-[#E5E8EF] transition focus-within:ring-[#BBC3FF] hover:shadow-md">
+        <button onClick={onUploadFile} className="grid h-8 w-8 shrink-0 place-items-center rounded-xl text-[#555C69] transition hover:bg-[#F0F2F6] hover:text-[#20242C]" aria-label="添加资料">
+          <Plus size={20}/>
+        </button>
+        <button onClick={onOpenSearch} className="flex h-full min-w-0 flex-1 items-center px-2 text-left" aria-label="问 Memo">
+          <span className={`block truncate text-[12px] font-medium text-[#9AA0AA] transition-all duration-300 ${promptVisible ? "translate-y-0 opacity-100" : "-translate-y-1 opacity-0"}`}>{memoPrompts[promptIndex]}</span>
+        </button>
+        <button onClick={onOpenVoiceSearch} className="grid h-8 w-8 shrink-0 place-items-center rounded-xl text-[#747B89] transition hover:bg-[#EEF0FF] hover:text-[#4D5CFF]" aria-label="语音问 Memo">
+          <Mic size={17}/>
+        </button>
+      </div>
     </div>
     {isLoading && <div className="mx-5 mb-2 flex items-center gap-2 text-[12px]"><img src={imgLoadingSpinner} width={16} className="animate-spin"/>Memo 正在整理...</div>}
     <nav className="flex-1 overflow-y-auto px-3 pb-5 space-y-1">
       {primary.map(x => <div key={x.id}>{navButton(x.id, x.label, x.icon, <span className="text-[11px] text-[#9CA3AF]">{x.badge}</span>)}</div>)}
       <div className="mt-4 space-y-0.5">
-        {subjects.map((s, i) => <button key={s.id} onClick={() => onSelectSubject(s.id)} className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] transition ${activeWorkspace === "course" && activeSubject === s.id ? "bg-white text-[#4D5CFF] font-semibold shadow-sm" : "text-[#41464F] hover:bg-white/70"}`}><span className="h-2.5 w-2.5 rounded-full" style={{background:colors[i % colors.length]}}/><span className="truncate font-semibold">{s.short}</span><span className="ml-auto text-[11px] text-[#9CA3AF]">{s.count}</span></button>)}
+        {subjects.map((s, i) => <button key={s.id} onClick={() => onSelectSubject(s.id)} className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] transition ${activeWorkspace === "course" && activeSubject === s.id ? "bg-white text-[#4D5CFF] font-semibold shadow-sm" : "text-[#41464F] hover:bg-white/70"}`}><span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center"><span className="h-2.5 w-2.5 rounded-full" style={{background:colors[i % colors.length]}}/></span><span className="truncate font-semibold">{s.short}</span><span className="ml-auto text-[11px] text-[#9CA3AF]">{s.count}</span></button>)}
         {onCreateSubject && <button
           onClick={onCreateSubject}
           className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-semibold text-[#7B8291] transition hover:bg-white/70 hover:text-[#4D5CFF]"

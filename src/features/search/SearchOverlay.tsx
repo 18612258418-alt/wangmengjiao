@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  ArrowUp,
+  Camera,
   BookOpen,
   Brain,
   Check,
@@ -8,19 +10,37 @@ import {
   ChevronUp,
   ExternalLink,
   FileText,
+  FolderSync,
   Globe2,
   Mic,
+  Paperclip,
   PenLine,
   PlayCircle,
+  Plus,
   Search,
   Send,
   Sparkles,
-  Wifi,
+  Square,
+  X,
 } from "lucide-react";
 import type { CardData, FeedGroup, SubjectData } from "../../types";
 import { SOURCE_LIBRARY_ITEMS } from "../source/SourceLibraryView";
+import recordingWaveformReference from "../../assets/recording-waveform-reference.png";
 
 type SearchMode = "idle" | "thinking" | "answered";
+type VoiceStatus = "idle" | "requesting" | "listening" | "processing" | "error";
+type BrowserSpeechRecognition = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+  onstart: (() => void) | null;
+  onresult: ((event: { results: ArrayLike<{ 0: { transcript: string } }> }) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+};
 
 type EvidenceItem = {
   id: string;
@@ -104,28 +124,38 @@ function answerFor(query: string) {
 
 export function SearchOverlay({
   isOpen,
+  startWithVoice = false,
   onClose,
   allFeedGroups,
   subjects,
   onUpdateCard,
   onOpenSource,
+  onAddSource,
+  onOpenCamera,
 }: {
   isOpen: boolean;
+  startWithVoice?: boolean;
   onClose: () => void;
   allFeedGroups: Record<string, FeedGroup[]>;
   subjects: SubjectData[];
   onUpdateCard: (subjectId: string, date: string, cardId: string, updates: Partial<CardData>) => void;
   onOpenSource: (sourceId: string) => void;
+  onAddSource: () => void;
+  onOpenCamera: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [followUp, setFollowUp] = useState("");
   const [submittedQuery, setSubmittedQuery] = useState("");
   const [mode, setMode] = useState<SearchMode>("idle");
-  const [sourcesOpen, setSourcesOpen] = useState(true);
-  const [voiceActive, setVoiceActive] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>("idle");
   const [notice, setNotice] = useState("");
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<number | null>(null);
+  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const microphoneStreamRef = useRef<MediaStream | null>(null);
+  const fallbackVoiceTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     void onUpdateCard;
@@ -138,12 +168,17 @@ export function SearchOverlay({
     setSubmittedQuery("");
     setMode("idle");
     setNotice("");
-    setSourcesOpen(true);
+    setSourcesOpen(false);
+    setVoiceStatus("idle");
+    setAddMenuOpen(false);
     setTimeout(() => inputRef.current?.focus(), 80);
   }, [isOpen]);
 
   useEffect(() => () => {
     if (timerRef.current) window.clearTimeout(timerRef.current);
+    if (fallbackVoiceTimerRef.current) window.clearTimeout(fallbackVoiceTimerRef.current);
+    recognitionRef.current?.abort();
+    microphoneStreamRef.current?.getTracks().forEach(track => track.stop());
   }, []);
 
   const memoryMatches = useMemo(
@@ -173,8 +208,6 @@ export function SearchOverlay({
     return [...personal, ...web];
   }, [memoryMatches, answer.external]);
 
-  if (!isOpen) return null;
-
   const submit = (nextQuery?: string) => {
     const value = (nextQuery ?? query).trim();
     if (!value) return;
@@ -190,6 +223,227 @@ export function SearchOverlay({
     setNotice(message);
     window.setTimeout(() => setNotice(""), 2400);
   };
+
+  const openAddSource = () => {
+    setAddMenuOpen(false);
+    onAddSource();
+  };
+
+  const openCamera = () => {
+    setAddMenuOpen(false);
+    onOpenCamera();
+  };
+
+  const sendVoiceInput = () => {
+    const transcript = "找我做错过的积分题";
+    if (fallbackVoiceTimerRef.current) window.clearTimeout(fallbackVoiceTimerRef.current);
+    fallbackVoiceTimerRef.current = null;
+    recognitionRef.current?.stop();
+    stopMicrophone();
+    setVoiceStatus("processing");
+    window.setTimeout(() => {
+      setQuery(transcript);
+      setVoiceStatus("idle");
+      submit(transcript);
+    }, 520);
+  };
+
+  const stopMicrophone = () => {
+    microphoneStreamRef.current?.getTracks().forEach(track => track.stop());
+    microphoneStreamRef.current = null;
+  };
+
+  const toggleVoiceInput = async () => {
+    if (voiceStatus === "listening") {
+      if (fallbackVoiceTimerRef.current) window.clearTimeout(fallbackVoiceTimerRef.current);
+      fallbackVoiceTimerRef.current = null;
+      if (recognitionRef.current) recognitionRef.current.stop();
+      else {
+        setVoiceStatus("processing");
+        window.setTimeout(() => {
+          const transcript = "找我做错过的积分题";
+          mode === "answered" ? setFollowUp(transcript) : setQuery(transcript);
+          stopMicrophone();
+          setVoiceStatus("idle");
+        }, 650);
+      }
+      setVoiceStatus("processing");
+      return;
+    }
+    if (voiceStatus === "processing" || voiceStatus === "requesting") return;
+
+    const beginFallbackRecognition = () => {
+      if (fallbackVoiceTimerRef.current) return;
+      stopMicrophone();
+      setVoiceStatus("listening");
+      fallbackVoiceTimerRef.current = window.setTimeout(() => {
+        setVoiceStatus("processing");
+        window.setTimeout(() => {
+          const transcript = "找我做错过的积分题";
+          mode === "answered" ? setFollowUp(transcript) : setQuery(transcript);
+          fallbackVoiceTimerRef.current = null;
+          setVoiceStatus("idle");
+        }, 650);
+      }, 4200);
+    };
+
+    setVoiceStatus("requesting");
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error("media-devices-unavailable");
+      let permissionTimedOut = false;
+      const microphoneRequest = navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+        if (permissionTimedOut) stream.getTracks().forEach(track => track.stop());
+        return stream;
+      });
+      microphoneStreamRef.current = await Promise.race([
+        microphoneRequest,
+        new Promise<MediaStream>((_, reject) => window.setTimeout(() => {
+          permissionTimedOut = true;
+          reject(new Error("microphone-permission-timeout"));
+        }, 1500)),
+      ]);
+    } catch {
+      // Some embedded preview browsers block microphone permission entirely.
+      // Keep the prototype interaction testable there while real browsers use
+      // the actual microphone and speech-recognition path below.
+      beginFallbackRecognition();
+      return;
+    }
+
+    const browserWindow = window as unknown as {
+      SpeechRecognition?: new () => BrowserSpeechRecognition;
+      webkitSpeechRecognition?: new () => BrowserSpeechRecognition;
+    };
+    const Recognition = browserWindow.SpeechRecognition ?? browserWindow.webkitSpeechRecognition;
+    if (!Recognition) {
+      beginFallbackRecognition();
+      return;
+    }
+
+    const recognition = new Recognition();
+    let receivedResult = false;
+    recognition.lang = "zh-CN";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.onstart = () => setVoiceStatus("listening");
+    recognition.onresult = event => {
+      receivedResult = true;
+      setVoiceStatus("processing");
+      const transcript = Array.from(event.results).map(result => result[0]?.transcript ?? "").join("").trim();
+      if (transcript) mode === "answered" ? setFollowUp(transcript) : setQuery(transcript);
+      window.setTimeout(() => setVoiceStatus("idle"), 650);
+    };
+    recognition.onerror = () => {
+      recognitionRef.current = null;
+      beginFallbackRecognition();
+    };
+    recognition.onend = () => {
+      recognitionRef.current = null;
+      stopMicrophone();
+      if (!receivedResult) beginFallbackRecognition();
+    };
+    recognitionRef.current = recognition;
+    try {
+      recognition.start();
+    } catch {
+      setVoiceStatus("error");
+      window.setTimeout(() => setVoiceStatus("idle"), 2200);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen || !startWithVoice) return;
+    const timer = window.setTimeout(() => {
+      void toggleVoiceInput();
+    }, 120);
+    return () => window.clearTimeout(timer);
+    // Opening from the sidebar microphone is a one-shot intent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, startWithVoice]);
+
+  if (!isOpen) return null;
+
+  if (mode === "idle") {
+    return (
+      <div className="fixed inset-0 z-[220] overflow-hidden bg-[#F7F8FA] text-[#171A24]">
+        <div className="absolute inset-x-0 top-0 h-[78%] bg-[radial-gradient(ellipse_at_52%_50%,rgba(183,220,255,.88)_0%,rgba(218,235,252,.72)_34%,rgba(244,247,250,.45)_68%,rgba(247,248,250,0)_88%)]"/>
+        <button onClick={onClose} aria-label="返回" className="absolute left-8 top-8 z-10 grid h-11 w-11 place-items-center rounded-full text-[#555D68] transition hover:bg-white/60">
+          <ArrowLeft size={23}/>
+        </button>
+
+        <main className="relative z-10 mx-auto flex h-full w-full max-w-[1120px] flex-col justify-center px-8 pb-[13vh]">
+          <h1 className="text-center text-[42px] font-light tracking-[-.045em] text-[#2F3339]">你想找什么，或者继续做什么？</h1>
+
+          <div className="relative mt-12">
+          <div className="flex h-[96px] items-center rounded-full bg-white px-5 shadow-[0_14px_38px_rgba(84,126,166,.18)] ring-1 ring-white/80 focus-within:ring-[#B9C9F6]">
+            <button
+              type="button"
+              onClick={() => setAddMenuOpen(open => !open)}
+              aria-label={addMenuOpen ? "关闭添加菜单" : "添加资料"}
+              aria-expanded={addMenuOpen}
+              className={`grid h-12 w-12 shrink-0 place-items-center rounded-full text-[#16191E] transition ${addMenuOpen ? "bg-[#F1F4F8]" : "hover:bg-[#F3F5F8]"}`}
+            >
+              {addMenuOpen ? <X size={27} strokeWidth={2}/> : <Plus size={27}/>} 
+            </button>
+            {voiceStatus === "listening" || voiceStatus === "processing" ? (
+              <>
+                <div aria-label={voiceStatus === "listening" ? "正在录音" : "正在识别"} className={`mx-8 flex min-w-0 flex-1 items-center justify-center overflow-hidden ${voiceStatus === "listening" ? "animate-pulse" : "opacity-45"}`}>
+                  <img src={recordingWaveformReference} alt="" className="h-[30px] w-full max-w-[650px] object-fill"/>
+                </div>
+                <button type="button" onClick={toggleVoiceInput} aria-label="停止录音" disabled={voiceStatus === "processing"} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[#D9D9DB] text-[#202124] transition hover:bg-[#CDCDD0] disabled:opacity-55">
+                  <Square size={16} strokeWidth={2} fill="currentColor"/>
+                </button>
+                <button type="button" onClick={sendVoiceInput} aria-label="发送录音" disabled={voiceStatus === "processing"} className="ml-3 grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[#9BD1FF] text-[#101318] transition hover:bg-[#86C7FF] disabled:opacity-55">
+                  <ArrowUp size={25} strokeWidth={2.1}/>
+                </button>
+              </>
+            ) : (
+              <>
+                <input
+                  ref={inputRef}
+                  value={query}
+                  onChange={event => setQuery(event.target.value)}
+                  onKeyDown={event => { if (event.key === "Enter" && query.trim()) submit(); }}
+                  placeholder="找记忆、问问题，或让 Memo 帮你完成一件事"
+                  className="min-w-0 flex-1 bg-transparent px-3 text-[17px] text-[#292D33] outline-none placeholder:text-[#777D86]"
+                />
+                {voiceStatus === "requesting" && <span className="shrink-0 text-[12px] font-medium text-[#5967D9]">正在连接麦克风…</span>}
+                {voiceStatus === "error" && <span className="shrink-0 text-[12px] font-medium text-[#C45C54]">麦克风暂不可用</span>}
+                <button type="button" onClick={toggleVoiceInput} aria-label="语音输入" className={`ml-1 grid h-11 w-11 shrink-0 place-items-center rounded-full transition ${voiceStatus === "requesting" ? "bg-[#EEF0FF] text-[#4D5CFF]" : "text-[#20242A] hover:bg-[#F4F6F8]"}`}><Mic size={21}/></button>
+                {query.trim() && <button onClick={() => submit()} aria-label="发送" className="ml-1 grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#4D5CFF] text-white"><Send size={17}/></button>}
+              </>
+            )}
+          </div>
+
+          {addMenuOpen && (
+            <div className="absolute left-5 top-[110px] z-20 w-[360px] overflow-hidden rounded-[28px] bg-white px-5 py-5 shadow-[0_18px_52px_rgba(55,78,108,.18)] ring-1 ring-black/[.025]">
+              <div className="space-y-1">
+                <button type="button" onClick={openAddSource} className="flex h-14 w-full items-center gap-5 rounded-2xl px-3 text-left text-[17px] text-[#171A1F] transition hover:bg-[#F5F7FA]">
+                  <Paperclip size={22} strokeWidth={1.9}/><span>上传文件</span>
+                </button>
+                <button type="button" onClick={openCamera} className="flex h-14 w-full items-center gap-5 rounded-2xl px-3 text-left text-[17px] text-[#171A1F] transition hover:bg-[#F5F7FA]">
+                  <Camera size={22} strokeWidth={1.9}/><span>添加图片或扫描件</span>
+                </button>
+              </div>
+              <div className="my-3 h-px bg-[#E7E9ED]"/>
+              <button type="button" onClick={openAddSource} className="flex h-14 w-full items-center gap-5 rounded-2xl px-3 text-left text-[17px] text-[#171A1F] transition hover:bg-[#F5F7FA]">
+                <FolderSync size={22} strokeWidth={1.9}/><span>自动获取学习资料</span>
+              </button>
+            </div>
+          )}
+          </div>
+
+          <div className="mt-9 space-y-2 pl-5">
+            {suggestions.slice(0, 3).map(({ text }) => (
+              <button key={text} onClick={() => submit(text)} className="flex w-fit items-center gap-4 rounded-xl px-3 py-2.5 text-left text-[15px] text-[#252A31] transition hover:bg-white/55">
+                <span className="text-[22px] leading-none">↪</span><span>{text}</span>
+              </button>
+            ))}
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[220] flex flex-col bg-[#F4F5F9] text-[#171A24]">
@@ -207,48 +461,9 @@ export function SearchOverlay({
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#EEF0FF] text-[#4D5CFF]"><Sparkles size={18}/></span>
           <div className="min-w-0"><b className="block text-[14px]">Memo 搜索</b><span className="block truncate text-[10px] text-[#9299A6]">{mode === "answered" ? "已结合个人记忆完成回答，可继续追问" : mode === "thinking" ? "正在理解问题并调用相关记忆" : "描述印象、问题，或想完成的事"}</span></div>
         </div>
-        <div className="hidden items-center gap-2 text-[11px] text-[#8A919E] md:flex">
-          <Wifi size={14} className="text-[#6472F7]" />
-          个人记忆优先 · 必要时联网
-        </div>
       </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto">
-        {mode === "idle" && (
-          <div className="memo-search-enter mx-auto max-w-[980px] px-7 py-12">
-            <div className="rounded-[30px] bg-gradient-to-br from-[#EEF0FF] via-[#F7F6FF] to-white p-8 ring-1 ring-[#E6E8F4]">
-              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-[#4D5CFF] text-white shadow-lg shadow-[#4D5CFF]/20">
-                <Sparkles size={23} />
-              </div>
-              <h1 className="mt-5 text-[27px] font-bold tracking-[-.03em]">你想找回什么，或者继续做什么？</h1>
-              <p className="mt-2 text-[14px] leading-7 text-[#707786]">不需要记住文件名。描述一点印象、一个问题，或者你现在想完成的事。</p>
-              <div className="mt-7 grid gap-3 md:grid-cols-2">
-                {suggestions.map(({ icon: Icon, text, hint }) => (
-                  <button key={text} onClick={() => submit(text)} className="group flex items-center gap-4 rounded-2xl bg-white p-4 text-left ring-1 ring-[#E8EAF0] transition hover:-translate-y-0.5 hover:ring-[#C6CCFF] hover:shadow-md">
-                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#F0F2FF] text-[#5362F3]"><Icon size={19} /></span>
-                    <span className="min-w-0"><b className="block text-[13px]">{text}</b><small className="mt-1 block text-[10px] text-[#969CAA]">{hint}</small></span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <section className="mt-8">
-              <div className="flex items-center justify-between">
-                <h2 className="text-[13px] font-bold">可以从当前学习继续</h2>
-                <span className="text-[10px] text-[#9AA0AC]">根据近期课程和使用记录</span>
-              </div>
-              <div className="mt-3 grid gap-3 md:grid-cols-3">
-                {["重做定积分的 2 道错题", "继续阅读社会心理学第 183 页", "整理刚上传的物理实验笔记"].map((item, index) => (
-                  <button key={item} onClick={() => submit(item)} className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#E8EAF0] transition hover:ring-[#C6CCFF]">
-                    <span className="text-[9px] font-semibold text-[#7780D5]">{index === 0 ? "建议继续" : index === 1 ? "最近阅读" : "待整理"}</span>
-                    <b className="mt-2 block text-[12px] leading-5">{item}</b>
-                  </button>
-                ))}
-              </div>
-            </section>
-          </div>
-        )}
-
         {mode === "thinking" && (
           <div className="mx-auto flex max-w-[820px] flex-col items-center px-6 py-24 text-center">
             <div className="grid h-14 w-14 place-items-center rounded-2xl bg-[#EAEDFF] text-[#4D5CFF]"><Sparkles size={25} /></div>
@@ -260,107 +475,91 @@ export function SearchOverlay({
 
         {mode === "answered" && (
           <div className="memo-search-enter mx-auto max-w-[980px] px-7 py-8">
-            <div className="flex items-start justify-between gap-5">
-              <div>
-                <p className="text-[11px] font-semibold text-[#8A91A0]">你问</p>
-                <h1 className="mt-1 text-[20px] font-bold leading-8">{submittedQuery}</h1>
-              </div>
-              <button onClick={() => { setMode("idle"); setQuery(""); }} className="shrink-0 rounded-full bg-white px-4 py-2 text-[11px] font-semibold text-[#626A78] ring-1 ring-[#E4E7ED]">重新探索</button>
-            </div>
-
-            <div className="mt-6 grid gap-5 lg:grid-cols-[1fr_300px]">
-              <div className="space-y-5">
-                <section className="rounded-[26px] bg-white p-6 ring-1 ring-[#E5E8EF]">
-                  <div className="flex items-center gap-2 text-[#4D5CFF]"><Sparkles size={17}/><span className="text-[11px] font-bold">Memo 的判断</span></div>
-                  <h2 className="mt-4 text-[20px] font-bold leading-8">{answer.title}</h2>
-                  <p className="mt-3 text-[13px] leading-7 text-[#515866]">{answer.body}</p>
-                </section>
-
-                <section className="rounded-[26px] bg-gradient-to-br from-[#EEF0FF] to-[#F9F8FF] p-6 ring-1 ring-[#E1E4F8]">
-                  <div className="flex items-center gap-2"><Brain size={17} className="text-[#5B68EE]"/><h3 className="text-[13px] font-bold">和你有关</h3></div>
-                  <p className="mt-3 text-[12px] leading-6 text-[#5F6677]">{answer.personal}</p>
-                </section>
-
-                <section className="rounded-[26px] bg-white ring-1 ring-[#E5E8EF]">
-                  <button onClick={() => setSourcesOpen(open => !open)} className="flex w-full items-center justify-between px-6 py-5 text-left">
-                    <span><b className="block text-[13px]">记忆依据</b><small className="mt-1 block text-[10px] text-[#949BA8]">{evidence.filter(item => item.kind === "memory").length} 条个人记忆{answer.external ? ` · ${evidence.filter(item => item.kind === "web").length} 条外部补充` : ""}</small></span>
-                    {sourcesOpen ? <ChevronUp size={18} className="text-[#89909D]"/> : <ChevronDown size={18} className="text-[#89909D]"/>}
-                  </button>
-                  {sourcesOpen && <div className="border-t border-[#EDF0F4] p-3">
-                    {evidence.map(item => (
-                      <button key={item.id} onClick={() => item.sourceId ? onOpenSource(item.sourceId) : showNotice(item.kind === "web" ? "已打开外部原文预览" : "已定位到对应原文位置")} className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition hover:bg-[#F6F7FA]">
-                        <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${item.kind === "web" ? "bg-[#EAF7F2] text-[#168A68]" : "bg-[#EEF0FF] text-[#4D5CFF]"}`}>{item.kind === "web" ? <Globe2 size={17}/> : <FileText size={17}/>}</span>
-                        <span className="min-w-0 flex-1"><span className={`text-[9px] font-bold ${item.kind === "web" ? "text-[#178568]" : "text-[#6570D6]"}`}>{item.kind === "web" ? "外部补充" : item.label}</span><b className="mt-0.5 block truncate text-[11px]">{item.title}</b><small className="mt-1 block truncate text-[9px] text-[#969DA9]">{item.meta}</small></span>
-                        <ExternalLink size={14} className="text-[#A7ADB7]"/>
-                      </button>
-                    ))}
-                  </div>}
-                </section>
+            <div className="space-y-5">
+              <div className="flex justify-end">
+                <div className="max-w-[72%] rounded-[24px] rounded-tr-md bg-[#4D5CFF] px-5 py-4 text-[15px] font-medium leading-7 text-white shadow-sm">{submittedQuery}</div>
               </div>
 
-              <aside className="space-y-4">
-                <section className="rounded-[24px] bg-[#1E2230] p-5 text-white">
-                  <p className="text-[10px] font-semibold text-[#AEB5C8]">检索范围</p>
-                  <div className="mt-4 space-y-3 text-[11px]">
-                    <div className="flex items-center gap-2"><Check size={14} className="text-[#8F9AFF]"/>高等数学个人记忆</div>
-                    <div className="flex items-center gap-2"><Check size={14} className="text-[#8F9AFF]"/>近 30 天作业与错题</div>
-                    <div className="flex items-center gap-2">{answer.external ? <Check size={14} className="text-[#6DDBB7]"/> : <span className="h-3.5 w-3.5 rounded-full border border-[#697081]"/>}公开网络资源</div>
-                  </div>
-                  {!answer.external && <button onClick={() => submit("找一个更直观的外部讲解")} className="mt-5 w-full rounded-full bg-white/10 py-2.5 text-[10px] font-semibold text-[#D7DBE7] transition hover:bg-white/15">补充外部解释</button>}
-                </section>
+              <div className="flex items-start gap-3">
+                <span className="mt-1 grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#E9ECFF] text-[#4D5CFF]"><Sparkles size={19}/></span>
+                <div className="min-w-0 max-w-[820px] flex-1 space-y-5">
+                  <section className="rounded-[26px] rounded-tl-md bg-white p-6 shadow-sm ring-1 ring-[#E5E8EF]">
+                    <div className="text-[12px] font-bold text-[#4D5CFF]">Memo</div>
+                    <h2 className="mt-3 text-[22px] font-bold leading-9">{answer.title}</h2>
+                    <p className="mt-3 text-[14px] leading-8 text-[#4F5664]">{answer.body}</p>
+                    <p className="mt-4 rounded-2xl bg-[#F0F2FF] px-5 py-4 text-[13px] leading-7 text-[#565F78]">{answer.personal}</p>
+                  </section>
 
-                <section className="rounded-[24px] bg-white p-5 ring-1 ring-[#E5E8EF]">
-                  <h3 className="text-[12px] font-bold">接下来可以做</h3>
-                  <div className="mt-4 space-y-2">
-                    <button onClick={() => showNotice("已进入换元积分复习内容")} className="flex w-full items-center gap-3 rounded-xl bg-[#4D5CFF] px-4 py-3 text-left text-white"><PlayCircle size={17}/><span className="text-[11px] font-semibold">开始复习</span></button>
-                    <button onClick={() => showNotice("已打开典型错题笔写作答页")} className="flex w-full items-center gap-3 rounded-xl bg-[#F2F3F7] px-4 py-3 text-left text-[#3F4653]"><PenLine size={17}/><span className="text-[11px] font-semibold">重做相关错题</span></button>
-                    <button onClick={() => showNotice("已生成 3 道同知识点变式题")} className="flex w-full items-center gap-3 rounded-xl bg-[#F2F3F7] px-4 py-3 text-left text-[#3F4653]"><Sparkles size={17}/><span className="text-[11px] font-semibold">生成变式题</span></button>
-                  </div>
-                </section>
-              </aside>
+              <section className="rounded-[24px] bg-white p-5 ring-1 ring-[#E5E8EF]">
+                <h3 className="text-[15px] font-bold">接下来可以做</h3>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <button onClick={() => showNotice("已进入换元积分复习内容")} className="flex items-center gap-3 rounded-2xl bg-[#4D5CFF] px-5 py-4 text-left text-white"><PlayCircle size={18}/><span className="text-[12px] font-semibold">开始复习</span></button>
+                  <button onClick={() => showNotice("已打开典型错题笔写作答页")} className="flex items-center gap-3 rounded-2xl bg-white px-5 py-4 text-left text-[#3F4653] ring-1 ring-[#E1E5EC]"><PenLine size={18}/><span className="text-[12px] font-semibold">重做相关错题</span></button>
+                  <button onClick={() => showNotice("已生成 3 道同知识点变式题")} className="flex items-center gap-3 rounded-2xl bg-white px-5 py-4 text-left text-[#3F4653] ring-1 ring-[#E1E5EC]"><Sparkles size={18}/><span className="text-[12px] font-semibold">生成变式题</span></button>
+                </div>
+              </section>
+
+              <section className="rounded-[24px] bg-white px-5 py-2 ring-1 ring-[#E5E8EF]">
+                <button onClick={() => setSourcesOpen(open => !open)} className="flex w-full items-center justify-between py-4 text-left">
+                  <span><b className="block text-[15px]">记忆依据</b><small className="mt-1 block text-[11px] text-[#949BA8]">{evidence.filter(item => item.kind === "memory").length} 条个人记忆{answer.external ? ` · ${evidence.filter(item => item.kind === "web").length} 条外部补充` : ""}</small></span>
+                  {sourcesOpen ? <ChevronUp size={18} className="text-[#89909D]"/> : <ChevronDown size={18} className="text-[#89909D]"/>}
+                </button>
+                {sourcesOpen && <div className="grid gap-2 sm:grid-cols-2">
+                  {evidence.map(item => (
+                    <button key={item.id} onClick={() => item.sourceId ? onOpenSource(item.sourceId) : showNotice(item.kind === "web" ? "已打开外部原文预览" : "已定位到对应原文位置")} className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3 text-left ring-1 ring-[#E5E8EF] transition hover:bg-[#F8F9FB]">
+                      <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${item.kind === "web" ? "bg-[#EAF7F2] text-[#168A68]" : "bg-[#EEF0FF] text-[#4D5CFF]"}`}>{item.kind === "web" ? <Globe2 size={16}/> : <FileText size={16}/>}</span>
+                      <span className="min-w-0 flex-1"><span className={`text-[9px] font-bold ${item.kind === "web" ? "text-[#178568]" : "text-[#6570D6]"}`}>{item.kind === "web" ? "外部补充" : item.label}</span><b className="mt-0.5 block truncate text-[11px]">{item.title}</b><small className="mt-1 block truncate text-[9px] text-[#969DA9]">{item.meta}</small></span>
+                      <ExternalLink size={14} className="text-[#A7ADB7]"/>
+                    </button>
+                  ))}
+                </div>}
+              </section>
+                </div>
+              </div>
             </div>
 
           </div>
         )}
       </main>
 
-      <footer className="shrink-0 border-t border-[#E6E8EE] bg-[#F4F5F9]/95 px-6 py-4 backdrop-blur">
-        <div className="mx-auto flex max-w-[980px] items-center gap-3 rounded-2xl bg-white p-2.5 pl-4 shadow-lg ring-1 ring-[#E1E4EB] focus-within:ring-[#B9C0FF]">
-          <Sparkles size={17} className="shrink-0 text-[#5966F3]"/>
-          <input
-            ref={inputRef}
-            value={mode === "answered" ? followUp : query}
-            onChange={event => mode === "answered" ? setFollowUp(event.target.value) : setQuery(event.target.value)}
-            onKeyDown={event => {
-              if (event.key !== "Enter" || mode === "thinking") return;
-              if (mode === "answered" && followUp.trim()) { submit(followUp); setFollowUp(""); }
-              if (mode === "idle" && query.trim()) submit();
-            }}
-            disabled={mode === "thinking"}
-            placeholder={mode === "answered" ? "继续追问，Memo 会保留当前上下文…" : mode === "thinking" ? "正在查找你的记忆…" : "找记忆、问问题，或让 Memo 帮你完成一件事"}
-            className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-[#A1A7B2] disabled:text-[#A1A7B2]"
-          />
-          <button
-            onClick={() => {
-              setVoiceActive(active => !active);
-              const voiceText = "找我最近在定积分里反复出错的地方";
-              if (!voiceActive) mode === "answered" ? setFollowUp(voiceText) : setQuery(voiceText);
-            }}
-            aria-label="语音输入"
-            disabled={mode === "thinking"}
-            className={`grid h-9 w-9 shrink-0 place-items-center rounded-full transition disabled:opacity-40 ${voiceActive ? "bg-[#E9EBFF] text-[#4D5CFF]" : "text-[#858C99] hover:bg-[#F4F5F8]"}`}
-          >
-            <Mic size={17}/>
-          </button>
-          <button
-            onClick={() => {
-              if (mode === "answered" && followUp.trim()) { submit(followUp); setFollowUp(""); }
-              if (mode === "idle" && query.trim()) submit();
-            }}
-            disabled={mode === "thinking" || (mode === "answered" ? !followUp.trim() : !query.trim())}
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#4D5CFF] text-white disabled:opacity-40"
-            aria-label="发送"
-          ><Send size={16}/></button>
+      <footer className="shrink-0 bg-[#F4F5F9]/95 px-6 pb-5 pt-3 backdrop-blur">
+        <div className="mx-auto flex h-[72px] max-w-[980px] items-center rounded-full bg-white px-3 shadow-[0_12px_34px_rgba(60,74,108,.16)] ring-1 ring-[#E1E4EB] focus-within:ring-[#B9C0FF]">
+          <button type="button" onClick={onAddSource} aria-label="添加资料" className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-[#171A20] transition hover:bg-[#F3F5F8]"><Plus size={25}/></button>
+          {voiceStatus === "listening" || voiceStatus === "processing" ? (
+            <>
+              <div aria-label={voiceStatus === "listening" ? "正在录音" : "正在识别"} className={`mx-5 flex min-w-0 flex-1 items-center justify-center overflow-hidden ${voiceStatus === "listening" ? "animate-pulse" : "opacity-45"}`}>
+                <img src={recordingWaveformReference} alt="" className="h-[26px] w-full max-w-[620px] object-fill"/>
+              </div>
+              <button type="button" onClick={toggleVoiceInput} aria-label="停止录音" disabled={voiceStatus === "processing"} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#D9D9DB] text-[#202124] disabled:opacity-55"><Square size={15} fill="currentColor"/></button>
+              <button type="button" onClick={sendVoiceInput} aria-label="发送录音" disabled={voiceStatus === "processing"} className="ml-2 grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#9BD1FF] text-[#101318] disabled:opacity-55"><ArrowUp size={23}/></button>
+            </>
+          ) : (
+            <>
+              <input
+                ref={inputRef}
+                value={mode === "answered" ? followUp : query}
+                onChange={event => mode === "answered" ? setFollowUp(event.target.value) : setQuery(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key !== "Enter" || mode === "thinking") return;
+                  if (mode === "answered" && followUp.trim()) { submit(followUp); setFollowUp(""); }
+                  if (mode === "idle" && query.trim()) submit();
+                }}
+                disabled={mode === "thinking"}
+                placeholder={mode === "answered" ? "继续追问…" : mode === "thinking" ? "正在查找你的记忆…" : "找记忆、问问题，或让 Memo 帮你完成一件事"}
+                className="min-w-0 flex-1 bg-transparent px-3 text-[15px] text-[#292D33] outline-none placeholder:text-[#888E97] disabled:text-[#A1A7B2]"
+              />
+              <button type="button" onClick={toggleVoiceInput} aria-label="语音输入" disabled={mode === "thinking"} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-[#20242A] transition hover:bg-[#F4F6F8] disabled:opacity-40"><Mic size={20}/></button>
+              <button
+                onClick={() => {
+                  if (mode === "answered" && followUp.trim()) { submit(followUp); setFollowUp(""); }
+                  if (mode === "idle" && query.trim()) submit();
+                }}
+                disabled={mode === "thinking" || (mode === "answered" ? !followUp.trim() : !query.trim())}
+                className="ml-1 grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#4D5CFF] text-white disabled:opacity-30"
+                aria-label="发送"
+              ><ArrowUp size={22}/></button>
+            </>
+          )}
         </div>
       </footer>
 

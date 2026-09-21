@@ -113,8 +113,18 @@ export function AddSourceModal({
 }) {
   const [items, setItems] = useState<SourceDraft[]>([]);
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(
-    () => localStorage.getItem("memo_auto_sync_enabled") === "true",
+    () => localStorage.getItem("memo_auto_sync_enabled") === "true"
+      && localStorage.getItem("memo_auto_sync_consent_v2") === "granted",
   );
+  const [showSyncAuthorization, setShowSyncAuthorization] = useState(false);
+  const [syncActions, setSyncActions] = useState<string[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("memo_auto_sync_actions") ?? "[]");
+      return Array.isArray(saved) ? saved : [];
+    } catch {
+      return [];
+    }
+  });
 
   if (!isOpen) return null;
 
@@ -177,9 +187,28 @@ export function AddSourceModal({
   };
 
   const toggleAutoSync = () => {
-    setAutoSyncEnabled(current => {
-      const next = !current;
-      localStorage.setItem("memo_auto_sync_enabled", String(next));
+    if (autoSyncEnabled) {
+      setAutoSyncEnabled(false);
+      setShowSyncAuthorization(false);
+      localStorage.setItem("memo_auto_sync_enabled", "false");
+      return;
+    }
+    const initialActions = syncActions.length > 0 ? syncActions : ["本地文件", "下载", "收藏", "截图", "圈画"];
+    setSyncActions(initialActions);
+    setAutoSyncEnabled(true);
+    setShowSyncAuthorization(true);
+    localStorage.setItem("memo_auto_sync_enabled", "true");
+    localStorage.setItem("memo_auto_sync_consent_v2", "granted");
+    localStorage.setItem("memo_auto_sync_scope", "all");
+    localStorage.setItem("memo_auto_sync_actions", JSON.stringify(initialActions));
+  };
+
+  const toggleSyncAction = (action: string) => {
+    setSyncActions(current => {
+      const next = current.includes(action)
+        ? current.filter(item => item !== action)
+        : [...current, action];
+      localStorage.setItem("memo_auto_sync_actions", JSON.stringify(next));
       return next;
     });
   };
@@ -204,7 +233,7 @@ export function AddSourceModal({
 
   return (
     <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/35" onClick={onClose}>
-      <div className="w-[720px] max-h-[86vh] rounded-3xl bg-white shadow-2xl overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="h-[72vh] w-[60vw] min-w-[720px] max-w-[1120px] rounded-[30px] bg-white shadow-2xl overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-5 border-b border-[#EAEDF2] flex items-start justify-between">
           <div>
             <p className="text-[18px] text-[#020418]" style={{ fontWeight: 800 }}>添加资料</p>
@@ -218,24 +247,31 @@ export function AddSourceModal({
             <div className="flex items-center gap-3">
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white text-[#4D5CFF]"><FolderSync size={16}/></span>
               <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-bold text-[#303746]">自动同步平板文件夹</p>
+                <p className="text-[11px] font-bold text-[#303746]">自动获取学习资料</p>
                 <p className="mt-1 text-[10px] leading-5 text-[#7B8291]">
                   {autoSyncEnabled
-                    ? "新文件会进入“资料”等待整理，不会自动创建课程或笔记。"
-                    : "已关闭，只处理你在这里主动选择的文件。"}
+                    ? `已授权：${syncActions.join("、")}`
+                    : "默认关闭。开启后也只保存识别为知识相关的内容。"}
                 </p>
               </div>
               <button
                 type="button"
                 role="switch"
                 aria-checked={autoSyncEnabled}
-                aria-label="自动同步平板文件夹"
+                aria-label="自动获取学习资料"
                 onClick={toggleAutoSync}
                 className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${autoSyncEnabled ? "bg-[#6673E8]" : "bg-[#CDD2DD]"}`}
               >
                 <span className={`absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${autoSyncEnabled ? "translate-x-5" : "translate-x-0"}`}/>
               </button>
             </div>
+            {(showSyncAuthorization || autoSyncEnabled) && <div className="mt-4 border-t border-[#E2E6F5] pt-4">
+              <div className="flex items-center gap-3">
+                <p className="w-16 shrink-0 text-[10px] font-bold text-[#303746]">同步范围</p>
+                <div className="flex flex-wrap gap-2">{["本地文件","下载","收藏","截图","圈画"].map(action=><button key={action} type="button" onClick={()=>toggleSyncAction(action)} className={`rounded-full px-3 py-1.5 text-[9px] font-semibold ${syncActions.includes(action)?"bg-[#6673E8] text-white":"bg-white text-[#747C8C]"}`}>{syncActions.includes(action)?"✓ ":""}{action}</button>)}</div>
+              </div>
+              <p className="mt-4 border-t border-[#E2E6F5] pt-3 text-[9px] text-[#858C9A]">只保存知识相关内容，普通照片、隐私聊天和无关文件不会进入 Memo。</p>
+            </div>}
           </div>
           {activeContext && (
             <div className="mb-3 flex items-center rounded-2xl border border-[#DDE1FF] bg-[#F4F5FF] px-4 py-3">

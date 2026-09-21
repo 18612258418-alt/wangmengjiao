@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { X, Camera, SwitchCamera, Loader2 } from "lucide-react";
+import { X, Camera, SwitchCamera, Loader2, Image, ScanLine } from "lucide-react";
 import { correctPerspectiveDataUrl } from "./perspectiveCorrect";
 
 interface Props {
@@ -70,6 +70,7 @@ function InputCaptureFallback({
 
 export function CameraModal({ onClose, onSave }: Props) {
   const [phase, setPhase] = useState<Phase>("preview");
+  const [captureMode, setCaptureMode] = useState<"board" | "scan">("board");
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [camError, setCamError] = useState(false);
   const [cameraCount, setCameraCount] = useState(1);
@@ -77,6 +78,7 @@ export function CameraModal({ onClose, onSave }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const albumInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     navigator.mediaDevices?.enumerateDevices().then(devices => {
@@ -134,8 +136,8 @@ export function CameraModal({ onClose, onSave }: Props) {
     streamRef.current = null;
     setPhase("saving");
 
-    const corrected = await correctPerspectiveDataUrl(raw);
-    onSave(corrected);   // → App.tsx processImage → FlyThumbnail
+    const result = captureMode === "scan" ? await correctPerspectiveDataUrl(raw) : raw;
+    onSave(result);   // → App.tsx processImage → FlyThumbnail
     onClose();
   };
 
@@ -147,17 +149,27 @@ export function CameraModal({ onClose, onSave }: Props) {
     onClose();
   };
 
+  const handleChosenImage = async (file: File | undefined, applyCorrection: boolean) => {
+    if (!file) return;
+    setPhase("saving");
+    const raw = await fileToDataUrl(file);
+    const result = applyCorrection ? await correctPerspectiveDataUrl(raw) : raw;
+    onSave(result);
+    onClose();
+  };
+
   if ((!isMediaSupported() || camError) && phase === "preview") {
     return <InputCaptureFallback onCapture={handleInputCapture} onClose={onClose} />;
   }
 
   return (
     <div className="fixed inset-0 z-[600] bg-black flex flex-col">
+      <input ref={albumInputRef} type="file" accept="image/*" className="hidden" onChange={event => { void handleChosenImage(event.target.files?.[0], false); event.currentTarget.value = ""; }}/>
       <div className="flex items-center justify-between px-4 py-3 flex-shrink-0">
         <button onClick={onClose} className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 text-white">
           <X size={18} />
         </button>
-        <p className="text-white text-[15px]" style={{ fontWeight: 600 }}>拍照</p>
+        <p className="text-white text-[15px]" style={{ fontWeight: 600 }}>{captureMode === "scan" ? "扫描文档" : "拍板书"}</p>
         {cameraCount >= 2 ? (
           <button
             onClick={() => setFacingMode(m => (m === "environment" ? "user" : "environment"))}
@@ -178,6 +190,18 @@ export function CameraModal({ onClose, onSave }: Props) {
           muted
           style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", background: "#000" }}
         />
+        {captureMode === "scan" && phase === "preview" && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20 px-[8vw] py-[7vh]">
+            <div className="relative aspect-[1/1.35] h-full max-h-[72vh] max-w-[76vw] rounded-[18px] border border-white/35 bg-white/[.03] shadow-[0_0_0_999px_rgba(0,0,0,.18)]">
+              <span className="absolute -left-0.5 -top-0.5 h-12 w-12 rounded-tl-[18px] border-l-[3px] border-t-[3px] border-white"/>
+              <span className="absolute -right-0.5 -top-0.5 h-12 w-12 rounded-tr-[18px] border-r-[3px] border-t-[3px] border-white"/>
+              <span className="absolute -bottom-0.5 -left-0.5 h-12 w-12 rounded-bl-[18px] border-b-[3px] border-l-[3px] border-white"/>
+              <span className="absolute -bottom-0.5 -right-0.5 h-12 w-12 rounded-br-[18px] border-b-[3px] border-r-[3px] border-white"/>
+              <div className="absolute inset-x-8 top-1/2 h-px animate-pulse bg-[#79C8FF] shadow-[0_0_10px_#79C8FF]"/>
+              <p className="absolute inset-x-0 -bottom-11 text-center text-[13px] font-medium text-white/85">将文档完整放入扫描框内</p>
+            </div>
+          </div>
+        )}
         {phase === "saving" && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50">
             <div className="flex flex-col items-center gap-2">
@@ -188,7 +212,18 @@ export function CameraModal({ onClose, onSave }: Props) {
         )}
       </div>
 
-      <div className="flex items-center justify-center px-8 py-8 flex-shrink-0">
+      <div className="flex flex-col items-center justify-center gap-5 px-8 py-6 flex-shrink-0">
+        <div className="flex items-center rounded-full bg-white/10 p-1.5 text-white backdrop-blur-sm">
+          <button type="button" onClick={() => setCaptureMode("board")} className={`flex h-10 items-center gap-2 rounded-full px-4 text-[13px] font-semibold transition ${captureMode === "board" ? "bg-white text-black" : "text-white hover:bg-white/10"}`}>
+            <Camera size={16}/><span>拍板书</span>
+          </button>
+          <button type="button" onClick={() => albumInputRef.current?.click()} className="flex h-10 items-center gap-2 rounded-full px-4 text-[13px] font-semibold text-white transition hover:bg-white/10">
+            <Image size={16}/><span>相册</span>
+          </button>
+          <button type="button" onClick={() => setCaptureMode("scan")} className={`flex h-10 items-center gap-2 rounded-full px-4 text-[13px] font-semibold transition ${captureMode === "scan" ? "bg-white text-black" : "text-white hover:bg-white/10"}`}>
+            <ScanLine size={16}/><span>扫文档</span>
+          </button>
+        </div>
         <button
           onClick={handleShutter}
           disabled={phase === "saving"}
