@@ -11,6 +11,7 @@ import { ExamGraphCanvas } from "./ExamGraphCanvas";
 import { ExamPointDetailPanel } from "./ExamPointDetailPanel";
 import { SprintMockExamModal } from "./SprintMockExamModal";
 import { EXAM_PANEL_FILL, EXAM_PANEL_SHELL } from "./examPanelStyles";
+import { SubjectEmptyState } from "../../../features/feed/SubjectEmptyState";
 
 export interface ExamPrepViewProps {
   subject: SubjectData;
@@ -66,6 +67,12 @@ export function ExamPrepView({
   const showGenerateBar = onOpenGenerate && subjectExerciseSets.length === 0;
 
   if (!graph) {
+    if (subject.id === "misc") {
+      return <SubjectEmptyState
+        title="还没有备考内容"
+        description="添加考试范围或复习资料后，Memo 会在这里整理考点和练习。"
+      />;
+    }
     return (
       <div className="flex flex-1 min-h-0 items-center justify-center px-8 text-center bg-[#F5F6FA]">
         <p className="text-[14px] text-[#7B8291]">{emptyGraphMessage}</p>

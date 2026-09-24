@@ -20,9 +20,7 @@ function sourceReference(card: CardData) {
 
 export function MemoryCard({ card, onOpen, isNew }: { card: CardData; onOpen: (card: CardData) => void; isNew?: boolean }) {
   const summary = card.overview || card.detailIntro || card.aiKeyPoints?.join(" · ") || "打开笔记查看内容和原始依据。";
-  const provenance = card.id.startsWith("new_") ? "你添加的" : card.hasAnnotations ? "你记录的" : "示例笔记";
   const displayTitle = card.title.replace(/^记忆[:：]\s*/, "");
-  const contentLabel = card.contentType === "homework" ? "作业" : "笔记";
   return (
     <div
       className="bg-white rounded-2xl flex flex-col overflow-hidden cursor-pointer hover:shadow-md transition-all duration-500 flex-1 min-w-0"
@@ -39,11 +37,10 @@ export function MemoryCard({ card, onOpen, isNew }: { card: CardData; onOpen: (c
             <img src={card.img} alt={displayTitle} className="w-full h-full object-cover" loading="lazy" />
           </div>
           <div className="min-w-0">
-            <div className="mb-1 flex items-center gap-1.5">
-              <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${contentLabel === "作业" ? "bg-[#FFF2E2] text-[#B66A0A]" : "bg-[#EEF0FF] text-[#4D5CFF]"}`}>{contentLabel}</span>
-              <span className="text-[9px] text-[#969CAA]">{provenance}</span>
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="min-w-0 flex-1 text-[13px] font-bold leading-5 text-[#020418] line-clamp-2">{displayTitle}</p>
+              {card.unread && <span className="rounded-full bg-[#22A06B] px-1.5 py-0.5 text-[8px] font-bold tracking-[.06em] text-white">NEW</span>}
             </div>
-            <p className="text-[13px] text-[#020418] leading-5 line-clamp-2 min-w-0" style={{ fontWeight: 700 }}>{displayTitle}</p>
           </div>
         </div>
       </div>
@@ -53,7 +50,7 @@ export function MemoryCard({ card, onOpen, isNew }: { card: CardData; onOpen: (c
       <div className="mx-3.5 mb-2 flex items-center gap-2 rounded-xl bg-[#F6F7FA] px-2.5 py-2 text-[10px] text-[#626977]">
         <FileText size={12} className="flex-shrink-0 text-[#4D5CFF]" />
         <span className="min-w-0 flex-1 truncate">来源：{sourceReference(card)}</span>
-        <span className="flex-shrink-0 font-semibold text-[#4D5CFF]">查看原文</span>
+        <span className="flex-shrink-0 font-semibold text-[#4D5CFF]">{card.sourceDocument?.type === "voice" ? "查看原录音" : "查看原文"}</span>
       </div>
       <div className="px-3.5 pb-3 flex items-center justify-between">
         <div className="flex items-center gap-1.5">

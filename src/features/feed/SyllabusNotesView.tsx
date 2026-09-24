@@ -12,6 +12,7 @@ import {
 import { dedupeCardsBySourceAnchor } from "../../utils/memoryRecall";
 import { isNoteCard } from "../../utils/feedFilters";
 import { MemoryCard } from "./MemoryCard";
+import { SubjectEmptyState } from "./SubjectEmptyState";
 
 function firstTopicWithCards(
   nodes: SyllabusNode[],
@@ -112,21 +113,37 @@ export function SyllabusNotesView({
 
   if (!syllabus) {
     return (
-      <div className="flex-1 flex items-center justify-center px-6">
-        <p className="text-[14px] text-[#B0B5C0]">{subject.short}暂无教学大纲配置</p>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#F5F6FA]">
+        <div className="shrink-0 px-6 py-3">
+          <h3 className="text-[13px] font-bold text-[#202431]">共 {recentCards.length} 条笔记</h3>
+        </div>
+        {dateGroups.length > 0 ? <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-10 pt-2">
+          <div className="space-y-8">
+            {dateGroups.map(group => <section key={group.date}>
+              <div className="mb-3">
+                <div className="flex items-center gap-3"><span className="h-2.5 w-2.5 rounded-full bg-[#4D5CFF]"/><h3 className="text-[14px] font-bold text-[#202431]">{formatTimelineDate(group.date)}</h3><span className="text-[10px] text-[#969DAA]">{group.cards.length} 条笔记</span></div>
+                <p className="ml-[22px] mt-1.5 text-[10px] leading-5 text-[#7F8796]">{dailyReviewSummary(group.cards)}</p>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {group.cards.map(({ card, date }) => <MemoryCard key={card.id} card={card} onOpen={c => onOpenCard(c, date)} isNew={card.id === newCardId}/>) }
+              </div>
+            </section>)}
+          </div>
+        </div> : <SubjectEmptyState
+          title={subject.id === "misc" ? "暂时没有待归类的内容" : `${subject.short}还没有笔记`}
+          description={subject.id === "misc"
+            ? "无法确认所属学科的笔记会先放在这里；识别清楚后会自动归入对应学科，你也可以手动移动。"
+            : "添加笔记或资料后，Memo 会按记录时间整理在这里。"}
+        />}
       </div>
     );
   }
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[#F5F6FA]">
-      <div className="flex shrink-0 items-center gap-3 px-6 py-3">
+      <div className="flex shrink-0 items-center px-6 py-3">
         <div>
           {viewMode === "recent" ? <h3 className="text-[13px] font-bold text-[#202431]">共 {recentCards.length} 条笔记</h3> : <><h3 className="text-[13px] font-bold text-[#202431]">{syllabus.overviewTitle}</h3><p className="mt-1 text-[10px] text-[#969DAA]">按课程主题整理 · 共 {noteCount} 条笔记</p></>}
-        </div>
-        <div className="flex rounded-full bg-[#E9EBF0]/70 p-0.5">
-          <button onClick={() => setViewMode("recent")} className={`rounded-full px-2.5 py-1 text-[8px] font-medium transition ${viewMode === "recent" ? "bg-white text-[#6671C9]" : "text-[#969DAA]"}`}>按时间</button>
-          <button onClick={() => setViewMode("outline")} className={`rounded-full px-2.5 py-1 text-[8px] font-medium transition ${viewMode === "outline" ? "bg-white text-[#6671C9]" : "text-[#969DAA]"}`}>按大纲</button>
         </div>
       </div>
 

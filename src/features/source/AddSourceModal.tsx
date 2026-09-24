@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FolderSync } from "lucide-react";
-import type { CardContentType, DetailSection, ExpandedKnowledge, KnowledgeNode, SubjectData } from "../../types";
+import type { CardContentType, DetailSection, ExpandedKnowledge, KnowledgeNode, SourceAnchor, SourceDocument, SubjectData } from "../../types";
 
 export type SourceKind = "image" | "file" | "link" | "text" | "audio";
 export type SourceStatus = "analyzing" | "ready" | "failed" | "saved";
@@ -27,6 +27,8 @@ export interface SourceDraft {
   contentType?: CardContentType;
   homeworkTasks?: string[];
   taskDueDate?: string;
+  sourceAnchor?: SourceAnchor;
+  sourceDocument?: SourceDocument;
   /** 保存后建议打开的 Tab */
   openTab?: "homework" | null;
   /** 当前解析由真实 AI 服务还是无 Key 的本地演示完成 */

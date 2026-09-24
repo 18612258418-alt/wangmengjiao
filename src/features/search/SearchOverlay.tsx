@@ -70,7 +70,10 @@ function collectMatches(query: string, allFeedGroups: Record<string, FeedGroup[]
           card.title,
           card.overview ?? "",
           card.detailIntro ?? "",
-          ...(card.detailSections?.flatMap(section => [section.title, ...section.items]) ?? []),
+          ...(card.detailSections?.flatMap(section => {
+            const legacyContent = (section as typeof section & { content?: string }).content;
+            return [section.title, ...(section.items ?? (legacyContent ? [legacyContent] : []))];
+          }) ?? []),
           card.unifiedDetail ?? "",
         ].join(" ").toLowerCase();
         if (tokens.some(token => blob.includes(token))) {
@@ -132,6 +135,7 @@ export function SearchOverlay({
   onOpenSource,
   onAddSource,
   onOpenCamera,
+  onOpenVoice,
 }: {
   isOpen: boolean;
   startWithVoice?: boolean;
@@ -142,6 +146,7 @@ export function SearchOverlay({
   onOpenSource: (sourceId: string) => void;
   onAddSource: () => void;
   onOpenCamera: () => void;
+  onOpenVoice: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [followUp, setFollowUp] = useState("");
@@ -232,6 +237,11 @@ export function SearchOverlay({
   const openCamera = () => {
     setAddMenuOpen(false);
     onOpenCamera();
+  };
+
+  const openVoiceRecorder = () => {
+    setAddMenuOpen(false);
+    onOpenVoice();
   };
 
   const sendVoiceInput = () => {
@@ -423,6 +433,9 @@ export function SearchOverlay({
                 </button>
                 <button type="button" onClick={openCamera} className="flex h-14 w-full items-center gap-5 rounded-2xl px-3 text-left text-[17px] text-[#171A1F] transition hover:bg-[#F5F7FA]">
                   <Camera size={22} strokeWidth={1.9}/><span>添加图片或扫描件</span>
+                </button>
+                <button type="button" onClick={openVoiceRecorder} className="flex h-14 w-full items-center gap-5 rounded-2xl px-3 text-left text-[17px] text-[#171A1F] transition hover:bg-[#F5F7FA]">
+                  <Mic size={22} strokeWidth={1.9}/><span>录音</span>
                 </button>
               </div>
               <div className="my-3 h-px bg-[#E7E9ED]"/>

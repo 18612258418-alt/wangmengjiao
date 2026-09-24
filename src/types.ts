@@ -15,7 +15,7 @@ export type SkillType =
 export type CardContentType = "note" | "homework";
 
 /** 卡片来源锚点 —— 用于「识别后自动调取记忆」 */
-export type SourceKind = "pdf" | "camera" | "upload" | "annotation" | "screenshot";
+export type SourceKind = "pdf" | "camera" | "upload" | "annotation" | "screenshot" | "voice";
 
 export interface SourceAnchor {
   kind: SourceKind;
@@ -26,7 +26,7 @@ export interface SourceAnchor {
 }
 
 export interface SourceDocument {
-  type: "pdf" | "web";
+  type: "pdf" | "web" | "voice";
   title: string;
   url?: string;
   page?: number;
@@ -34,6 +34,7 @@ export interface SourceDocument {
   publishedAt?: string;
   excerpt?: string;
   paragraphs?: string[];
+  durationSeconds?: number;
 }
 
 export interface CardData {

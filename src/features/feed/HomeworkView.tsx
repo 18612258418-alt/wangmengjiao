@@ -10,6 +10,7 @@ import {
 } from "../../utils/cardTasks";
 import { buildHomeworkTaskBreakdown } from "../../utils/generateHomeworkBreakdown";
 import { HomeworkTaskPanel } from "../homework/HomeworkTaskPanel";
+import { SubjectEmptyState } from "./SubjectEmptyState";
 
 type TaskItem = {
   card: CardData;
@@ -126,6 +127,12 @@ export function HomeworkView({
   };
 
   if (days.length === 0) {
+    if (subject.id === "misc") {
+      return <SubjectEmptyState
+        title="还没有作业"
+        description="识别到题目、作业要求或截止时间后，相关作业会显示在这里。"
+      />;
+    }
     return (
       <div className="flex-1 overflow-y-auto px-6 pb-8">
         <div className="flex flex-col items-center justify-center h-72 gap-3">

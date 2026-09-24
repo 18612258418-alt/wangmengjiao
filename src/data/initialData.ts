@@ -366,11 +366,11 @@ export const INITIAL_ALL_FEEDS: Record<string, FeedGroup[]> = {
 // ─── Type / source / fallback maps ───────────────────────────────────────────
 
 export const TYPE_SOURCE: Record<string, string> = {
-  notes: "evernote", courseware: "zhihu", exercises: "youdao", webpage: "browser",
+  notes: "evernote", courseware: "zhihu", exercises: "youdao", webpage: "browser", voice: "voice",
 };
 
 export const TYPE_BG: Record<string, string> = {
-  notes: imgNotesBg, courseware: imgCoursewareBg, exercises: imgWebcourseBg, webpage: imgWebBg,
+  notes: imgNotesBg, courseware: imgCoursewareBg, exercises: imgWebcourseBg, webpage: imgWebBg, voice: imgNotesBg,
 };
 
 export const FALLBACK_CLASSIFY: Record<string, string> = {

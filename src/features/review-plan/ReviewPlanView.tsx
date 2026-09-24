@@ -5,6 +5,7 @@ import { getSubjectSyllabus } from "../../data/subjectSyllabi";
 import { collectNoteCards } from "../../utils/syllabusNotes";
 import { ReviewActionModal, type ReviewActionContent, type ReviewMistakeOrigin, type ReviewPaperQuestion } from "./ReviewActionModal";
 import { formatNextReview, loadReviewSchedule, updateReviewSchedule } from "./reviewScheduler";
+import { SubjectEmptyState } from "../feed/SubjectEmptyState";
 
 type ReviewState = "优先复习" | "需要巩固" | "待验证" | "已掌握";
 type ReviewAction = "notes" | "homework" | "practice";
@@ -170,6 +171,14 @@ export function ReviewPlanView({ subject, feedGroups }: {
       </div>
     </button>;
   };
+  const hasReviewInput = feedGroups.some(group => group.cards.length > 0);
+  if (!hasReviewInput) {
+    return <SubjectEmptyState
+      title="还没有可复习的内容"
+      description="有了笔记、作业或错题后，Memo 才会按知识点生成复习内容。"
+    />;
+  }
+
   return <><section className="flex min-h-0 flex-1 overflow-hidden bg-[#F5F6FA]">
     <aside className="w-[270px] shrink-0 overflow-y-auto border-r border-[#E4E7ED] px-5 pb-6 pt-4">
       <div className="flex items-center"><BookOpenCheck size={17} className="text-[#4D5CFF]"/><h2 className="ml-2 text-[14px] font-bold">知识点大纲</h2></div>

@@ -193,7 +193,7 @@ export function CardDetailContent({
             })}
           </div>
           {card.sourceDocument ? (
-            <ViewOriginalSourceButton onClick={() => setShowOriginalSource(true)} />
+            <ViewOriginalSourceButton onClick={() => setShowOriginalSource(true)} sourceType={card.sourceDocument.type} />
           ) : card.img && (
             <ViewOriginalImageButton onClick={() => setShowOriginalImage(true)} />
           )}
@@ -253,7 +253,7 @@ export function CardDetailContent({
                             <div key={si}>
                               <p style={{ fontWeight: 700, fontSize: 13, color: "#BE123C", marginBottom: 8 }}>{si + 1}. {section.title}</p>
                               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                                {section.items.map((item, ii) => (
+                                {(section.items ?? ((section as typeof section & { content?: string }).content ? [(section as typeof section & { content?: string }).content!] : [])).map((item, ii) => (
                                   <div key={ii} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
                                     <span style={{ color: "#FB7185", fontSize: 12, marginTop: 2, flexShrink: 0 }}>▸</span>
                                     <DynamicRenderer text={item} onLinkClick={pushConcept} />
@@ -329,7 +329,7 @@ export function CardDetailContent({
                         <div key={si}>
                           <p style={{ fontWeight: 700, fontSize: 13, color: "#BE123C", marginBottom: 8 }}>{si + 1}. {section.title}</p>
                           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                            {section.items.map((item, ii) => (
+                            {(section.items ?? ((section as typeof section & { content?: string }).content ? [(section as typeof section & { content?: string }).content!] : [])).map((item, ii) => (
                               <div key={ii} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
                                 <span style={{ color: "#FB7185", fontSize: 12, marginTop: 2, flexShrink: 0 }}>▸</span>
                                 <DynamicRenderer text={item} onLinkClick={pushConcept} />

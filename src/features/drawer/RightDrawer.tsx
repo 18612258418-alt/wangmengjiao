@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { ArrowLeft, FileText } from "lucide-react";
+import { ArrowLeft, AudioLines, FileText } from "lucide-react";
 import type { CardData, SubjectData } from "../../types";
 import { SourceIcon, sourceLabel } from "../../shared/SourceIcon";
 import { getSkillMeta } from "../../utils/cardDetailParsing";
@@ -10,11 +10,21 @@ function OriginalSourcePane({ card }: { card: CardData }) {
   const document = card.sourceDocument;
   const sourceName = card.sourceAnchor?.fileName || document?.title || sourceLabel(card.source ?? "") || "原始记录";
   const page = card.sourceAnchor?.page || document?.page;
+  const duration = document?.durationSeconds == null ? "" : `${String(Math.floor(document.durationSeconds / 60)).padStart(2, "0")}:${String(document.durationSeconds % 60).padStart(2, "0")}`;
 
   return (
     <section className="flex min-h-0 w-[52%] flex-col border-r border-[#E1E4EB] bg-[#ECEEF4] p-5">
       <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-[0_5px_24px_rgba(27,31,48,.10)]">
-        {document?.type === "pdf" && document.url ? (
+        {document?.type === "voice" ? (
+          <article className="h-full w-full overflow-y-auto px-[8%] py-[7%] text-[#303441]">
+            <div className="flex items-center gap-3">
+              <span className="grid h-11 w-11 place-items-center rounded-full bg-[#EEF0FF] text-[#5364FF]"><AudioLines size={20}/></span>
+              <div><p className="text-[10px] font-semibold text-[#5364FF]">原始录音</p><h2 className="mt-1 text-[20px] font-bold leading-8">{document.title}</h2><p className="mt-1 text-[10px] text-[#8A909C]">{duration || "时长未记录"}</p></div>
+            </div>
+            {document.url ? <audio controls src={document.url} className="mt-7 w-full" aria-label={`${document.title}原始音频`}/> : <div className="mt-7 rounded-xl bg-[#F5F6FA] px-4 py-3 text-[11px] leading-6 text-[#7B8291]">当前演示录音保留完整转写；正式录制时可在这里回听原始音色。</div>}
+            <div className="mt-7 border-t border-[#EEF0F4] pt-5"><p className="text-[12px] font-bold text-[#202431]">完整转写</p><div className="mt-4 space-y-4 text-[12px] leading-7 text-[#555D6C]">{(document.paragraphs ?? []).map((paragraph,index)=><p key={index} className="whitespace-pre-wrap">{paragraph}</p>)}</div></div>
+          </article>
+        ) : document?.type === "pdf" && document.url ? (
           <object data={`${document.url}#page=${page || 1}&toolbar=0&navpanes=0&view=FitH`} type="application/pdf" className="h-full w-full">
             <div className="grid h-full place-items-center text-center"><FileText size={30} className="mx-auto text-[#4D5CFF]"/><p className="mt-3 text-[12px]">PDF 预览不可用</p></div>
           </object>

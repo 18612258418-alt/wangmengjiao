@@ -26,6 +26,7 @@ export function sourceLabel(source: string) {
     zhihu: "知乎",
     evernote: "印象笔记",
     youdao: "网易有道",
+    voice: "课堂录音",
   };
   return map[source] ?? source;
 }

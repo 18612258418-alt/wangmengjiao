@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FolderPlus, Mic, Plus, Sparkles, SunMedium } from "lucide-react";
+import { CircleHelp, FolderPlus, Plus, Search, Sparkles, SunMedium } from "lucide-react";
 import { imgLoadingSpinner } from "../../data/initialData";
 import type { SubjectData } from "../../types";
 
@@ -14,18 +14,20 @@ const memoPrompts = [
   "我最近总在哪里出错？",
 ];
 
-export function Sidebar({ activeWorkspace, activeSubject, onSelectWorkspace, onSelectSubject, isLoading, subjects, onOpenSearch, onOpenVoiceSearch, onUploadFile, todayCount, onCreateSubject }: {
+export function Sidebar({ activeWorkspace, activeSubject, onSelectWorkspace, onSelectSubject, isLoading, subjects, unreadSubjectIds, onOpenSearch, onOpenRecorder, onUploadFile, todayCount, onCreateSubject, onOpenGuide }: {
   activeWorkspace: WorkspaceId;
   activeSubject: string;
   onSelectWorkspace: (id: WorkspaceId) => void;
   onSelectSubject: (id: string) => void;
   isLoading: boolean;
   subjects: SubjectData[];
+  unreadSubjectIds?: ReadonlySet<string>;
   onOpenSearch: () => void;
-  onOpenVoiceSearch: () => void;
+  onOpenRecorder: () => void;
   onUploadFile: () => void;
   todayCount: number;
   onCreateSubject?: () => void;
+  onOpenGuide?: () => void;
 }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileCorrected, setProfileCorrected] = useState(false);
@@ -52,21 +54,24 @@ export function Sidebar({ activeWorkspace, activeSubject, onSelectWorkspace, onS
       <span className="font-semibold flex-1 text-left">{label}</span>{trailing}
     </button>;
   };
-  return <><aside className="w-[264px] flex-shrink-0 bg-[#EEF0F5] h-full flex flex-col border-r border-[#E3E6ED]">
-    <div className="px-3 pt-5 pb-3">
-      <button onClick={() => setProfileOpen(true)} className="mx-2 flex items-center gap-2 text-left" aria-label="查看 Memo 对我的理解">
-        <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-[#EC6392] via-[#CB6CDA] to-[#618AFF] text-white"><Sparkles size={17}/></span>
-        <span className="block text-[16px] font-bold text-[#020418]">Memo</span>
+  return <><aside className="w-[336px] flex-shrink-0 bg-[#EEF0F5] h-full flex flex-col border-r border-[#E3E6ED]">
+    <div className="px-6 pt-6 pb-3">
+      <button onClick={() => setProfileOpen(true)} className="flex h-10 items-center gap-2.5 text-left" aria-label="查看 Memo 对我的理解">
+        <span className="grid h-10 w-10 place-items-center rounded-[14px] bg-gradient-to-br from-[#EC6392] via-[#CB6CDA] to-[#618AFF] text-white"><Sparkles size={19}/></span>
+        <span className="block text-[22px] font-bold leading-none text-[#020418]">Memo</span>
       </button>
-      <div className="mt-4 flex h-11 items-center rounded-2xl bg-white px-1.5 shadow-sm ring-1 ring-[#E5E8EF] transition focus-within:ring-[#BBC3FF] hover:shadow-md">
-        <button onClick={onUploadFile} className="grid h-8 w-8 shrink-0 place-items-center rounded-xl text-[#555C69] transition hover:bg-[#F0F2F6] hover:text-[#20242C]" aria-label="添加资料">
-          <Plus size={20}/>
-        </button>
-        <button onClick={onOpenSearch} className="flex h-full min-w-0 flex-1 items-center px-2 text-left" aria-label="问 Memo">
+      <div className="mt-3 flex h-11 items-center gap-2">
+        <button onClick={onOpenSearch} className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-2xl bg-white px-3 text-left shadow-sm ring-1 ring-[#E5E8EF] transition hover:shadow-md focus:ring-[#BBC3FF]" aria-label="问 Memo">
+          <Search size={17} className="shrink-0 text-[#7C8492]"/>
           <span className={`block truncate text-[12px] font-medium text-[#9AA0AA] transition-all duration-300 ${promptVisible ? "translate-y-0 opacity-100" : "-translate-y-1 opacity-0"}`}>{memoPrompts[promptIndex]}</span>
         </button>
-        <button onClick={onOpenVoiceSearch} className="grid h-8 w-8 shrink-0 place-items-center rounded-xl text-[#747B89] transition hover:bg-[#EEF0FF] hover:text-[#4D5CFF]" aria-label="语音问 Memo">
-          <Mic size={17}/>
+        <button onClick={onUploadFile} className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-white text-[#555C69] shadow-sm ring-1 ring-[#E5E8EF] transition hover:bg-[#F8F9FB] hover:text-[#20242C] hover:shadow-md" aria-label="添加资料">
+          <Plus size={20}/>
+        </button>
+        <button onClick={onOpenRecorder} className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-white text-[#747B89] shadow-sm ring-1 ring-[#E5E8EF] transition hover:bg-[#F8F9FB] hover:text-[#4D5CFF] hover:shadow-md" aria-label="打开录音">
+          <span className="grid h-[19px] w-[19px] place-items-center rounded-full border-[1.8px] border-current" aria-hidden="true">
+            <span className="h-[7px] w-[7px] rounded-full bg-current"/>
+          </span>
         </button>
       </div>
     </div>
@@ -74,7 +79,7 @@ export function Sidebar({ activeWorkspace, activeSubject, onSelectWorkspace, onS
     <nav className="flex-1 overflow-y-auto px-3 pb-5 space-y-1">
       {primary.map(x => <div key={x.id}>{navButton(x.id, x.label, x.icon, <span className="text-[11px] text-[#9CA3AF]">{x.badge}</span>)}</div>)}
       <div className="mt-4 space-y-0.5">
-        {subjects.map((s, i) => <button key={s.id} onClick={() => onSelectSubject(s.id)} className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] transition ${activeWorkspace === "course" && activeSubject === s.id ? "bg-white text-[#4D5CFF] font-semibold shadow-sm" : "text-[#41464F] hover:bg-white/70"}`}><span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center"><span className="h-2.5 w-2.5 rounded-full" style={{background:colors[i % colors.length]}}/></span><span className="truncate font-semibold">{s.short}</span><span className="ml-auto text-[11px] text-[#9CA3AF]">{s.count}</span></button>)}
+        {subjects.map((s, i) => <button key={s.id} onClick={() => onSelectSubject(s.id)} className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] transition ${activeWorkspace === "course" && activeSubject === s.id ? "bg-white text-[#4D5CFF] font-semibold shadow-sm" : "text-[#41464F] hover:bg-white/70"}`}><span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center"><span className="h-2.5 w-2.5 rounded-full" style={{background:colors[i % colors.length]}}/></span><span className="min-w-0 truncate font-semibold">{s.short}</span>{unreadSubjectIds?.has(s.id) && <span className="shrink-0 rounded-full bg-[#22A06B] px-1.5 py-0.5 text-[8px] font-bold tracking-[.05em] text-white">NEW</span>}<span className="ml-auto text-[11px] text-[#9CA3AF]">{s.count}</span></button>)}
         {onCreateSubject && <button
           onClick={onCreateSubject}
           className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-semibold text-[#7B8291] transition hover:bg-white/70 hover:text-[#4D5CFF]"
@@ -84,6 +89,12 @@ export function Sidebar({ activeWorkspace, activeSubject, onSelectWorkspace, onS
         </button>}
       </div>
     </nav>
+    {onOpenGuide && <div className="shrink-0 border-t border-[#DFE3EA] px-3 py-3">
+      <button onClick={onOpenGuide} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-semibold text-[#676E7C] transition hover:bg-white/70 hover:text-[#4D5CFF]">
+        <CircleHelp size={18}/>
+        <span>使用说明</span>
+      </button>
+    </div>}
   </aside>{profileOpen&&<div onClick={()=>setProfileOpen(false)} className="fixed inset-0 z-[210] bg-black/20"><aside onClick={e=>e.stopPropagation()} className="ml-auto h-full w-[460px] overflow-y-auto bg-white p-6 shadow-2xl">
     <button onClick={()=>setProfileOpen(false)} className="text-[11px] text-[#4D5CFF]">← 返回</button>
     <p className="mt-6 text-[10px] font-bold tracking-[.12em] text-[#8C93A3]">MEMO 对我的理解</p>

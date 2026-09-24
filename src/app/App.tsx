@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 
-import type { CardContentType, DetailSection, ExpandedKnowledge, KnowledgeNode, CardData, FeedGroup as FeedGroupType } from "../types";
+import type { CardContentType, DetailSection, ExpandedKnowledge, KnowledgeNode, CardData, FeedGroup as FeedGroupType, SourceDocument } from "../types";
 import {
   INITIAL_SUBJECTS,
   TYPE_SOURCE, TYPE_BG,
@@ -120,7 +120,9 @@ export default function App() {
   const [showVoice, setShowVoice] = useState(false);
   const [showFormFill, setShowFormFill] = useState(false);
   const [onboardingMode, setOnboardingMode] = useState<"first" | "demo" | null>(
-    () => localStorage.getItem("imemo_onboarded") ? null : "first",
+    () => new URLSearchParams(window.location.search).get("oobe") === "1"
+      ? "first"
+      : localStorage.getItem("imemo_onboarded") ? null : "first",
   );
   const [flyPhase, setFlyPhase] = useState<"idle" | "center" | "corner" | "fading">("idle");
   const [flyImg, setFlyImg] = useState<string>("");
@@ -154,6 +156,12 @@ export default function App() {
       return latestDate(b.id) - latestDate(a.id);
     });
   }, [subjects, allFeedGroups]);
+
+  const unreadSubjectIds = useMemo(() => new Set(
+    Object.entries(allFeedGroups)
+      .filter(([, groups]) => groups.some(group => group.cards.some(card => card.unread)))
+      .map(([subjectId]) => subjectId),
+  ), [allFeedGroups]);
 
   // 首次有数据时锚定默认学科为「最近有更新的学科」
   useEffect(() => {
@@ -192,9 +200,11 @@ export default function App() {
   const handleCloseAnnotation = () => setAnnotationType(null);
 
   const handleOpenCard = (card: CardData, date: string, subjectId?: string) => {
-    setDrawerCard(card);
+    const resolvedSubjectId = subjectId ?? activeSubject;
+    if (card.unread) updateCard(resolvedSubjectId, date, card.id, { unread: false });
+    setDrawerCard(card.unread ? { ...card, unread: false } : card);
     setDrawerCardDate(date);
-    setDrawerCardSubject(subjectId ?? activeSubject);
+    setDrawerCardSubject(resolvedSubjectId);
   };
 
   const handleOpenRecalledCard = (item: RecalledMemory) => {
@@ -276,6 +286,7 @@ export default function App() {
     homeworkTasks?: string[],
     taskDueDate?: string,
     sourceAnchor?: SourceAnchor,
+    sourceDocument?: SourceDocument,
   ): "created" | "updated" => {
     const now = new Date();
     const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
@@ -301,6 +312,7 @@ export default function App() {
       ...(unifiedDetail ? { unifiedDetail } : {}),
       hasAnnotations,
       ...(sourceAnchor ? { sourceAnchor } : {}),
+      ...(sourceDocument ? { sourceDocument } : {}),
       time: timeStr,
       unread: true as const,
     };
@@ -437,6 +449,7 @@ export default function App() {
       time: timeStr,
       skill: upsertCardFields.skill,
       contentType: surfaces.contentType,
+      unread: true,
       ...(surfaces.homeworkTasks?.length ? { homeworkTasks: surfaces.homeworkTasks } : {}),
       ...(surfaces.taskDueDate ? { taskDueDate: surfaces.taskDueDate } : {}),
       overview, detailIntro, detailSections, aiKeyPoints, expandedKnowledge, knowledgeTree, nextAction,
@@ -444,6 +457,7 @@ export default function App() {
       ...(skillRawSections ? { skillRawSections } as Partial<CardData> : {}),
       ...(unifiedDetail ? { unifiedDetail } : {}),
       ...(sourceAnchor ? { sourceAnchor } : {}),
+      ...(sourceDocument ? { sourceDocument } : {}),
     };
 
     setNewCardId(newId);
@@ -1095,6 +1109,8 @@ export default function App() {
       draft.contentType,
       draft.homeworkTasks,
       draft.taskDueDate,
+      draft.sourceAnchor,
+      draft.sourceDocument,
     );
     if (draft.openTab === "homework") setActiveTopTab("homework");
     else setActiveTopTab("notes");
@@ -1194,16 +1210,15 @@ export default function App() {
           }}
           isLoading={sidebarLoading}
           subjects={sortedSubjects}
+          unreadSubjectIds={unreadSubjectIds}
           onOpenSearch={() => {
             setSearchStartsWithVoice(false);
             setShowSearch(true);
           }}
-          onOpenVoiceSearch={() => {
-            setSearchStartsWithVoice(true);
-            setShowSearch(true);
-          }}
+          onOpenRecorder={() => setShowVoice(true)}
           onUploadFile={() => setShowAddSource(true)}
           onCreateSubject={() => setShowCreateSubject(true)}
+          onOpenGuide={() => setOnboardingMode("demo")}
           todayCount={memorySuggestedTask ? 3 : 2}
         />
 
@@ -1358,6 +1373,7 @@ export default function App() {
           onUpdateCard={(subjectId, date, cardId, updates) => updateCard(subjectId, date, cardId, updates)}
           onAddSource={() => setShowAddSource(true)}
           onOpenCamera={() => setShowCameraPicker(true)}
+          onOpenVoice={() => setShowVoice(true)}
           onOpenSource={(sourceId) => {
             setShowSearch(false);
             setSourceSearchTarget(sourceId);
@@ -1548,10 +1564,30 @@ export default function App() {
       {showVoice && (
         <VoiceModal
           onClose={() => setShowVoice(false)}
-          onSave={(transcript) => {
+          saveLocation={`${INITIAL_SUBJECTS.find(s => s.id === (activeSubject !== "all" && activeSubject !== "__pending__" ? activeSubject : "physics"))?.short ?? "大学物理"} / 笔记`}
+          onSave={(transcript, recording) => {
             const now = new Date();
             const dateStr = `${now.getFullYear()}/${(now.getMonth()+1).toString().padStart(2,"0")}/${now.getDate().toString().padStart(2,"0")}`;
             const subjectId = activeSubject !== "all" && activeSubject !== "__pending__" ? activeSubject : "physics";
+            const recordingId = `voice_${Date.now()}`;
+            const sourceAnchor: SourceAnchor = {
+              kind: "voice",
+              fileId: recordingId,
+              fileName: recording.title,
+            };
+            const sourceDocument: SourceDocument = {
+              type: "voice",
+              title: recording.title,
+              url: recording.audioUrl,
+              durationSeconds: recording.durationSeconds,
+              excerpt: "课堂录音的原始音频与完整实时转写",
+              paragraphs: [transcript],
+            };
+
+            // 保存完成后把用户带回实际入库位置，NEW 标识在目标学科的笔记列表中立即可见。
+            setActiveWorkspace("course");
+            setActiveSubject(subjectId);
+            setActiveTopTab("notes");
 
             // 演示文稿：跳过 import API，直接落卡，避免二次长时间 loading
             if (isDemoTranscript(transcript)) {
@@ -1559,34 +1595,49 @@ export default function App() {
                 subjectId,
                 "记忆：机械振动课堂录音",
                 "简谐振动、旋转矢量法与同频振动叠加。",
-                "notes", imgNotesBg,
+                "voice", imgNotesBg,
                 "课堂录音已转为文字，涵盖简谐振动方程、旋转矢量法与多振动叠加公式。",
                 `来源：实时录音 ${dateStr}`,
                 [
-                  { title: "简谐振动方程", content: "位移满足 x(t) = A·cos(ωt + φ₀)，振幅 A、角频率 ω、初相 φ₀ 决定运动形态。" },
-                  { title: "旋转矢量法", content: "用匀速旋转矢量在 x 轴上的投影描述简谐振动，矢量长度等于振幅。" },
-                  { title: "同频振动叠加", content: "N 个等幅同频振动叠加时，合振幅 R = A·sin(Nδ/2) / sin(δ/2)，δ 为相邻相位差。" },
+                  { title: "简谐振动方程", items: ["位移满足 x(t) = A·cos(ωt + φ₀)，振幅 A、角频率 ω、初相 φ₀ 决定运动形态。"] },
+                  { title: "旋转矢量法", items: ["用匀速旋转矢量在 x 轴上的投影描述简谐振动，矢量长度等于振幅。"] },
+                  { title: "同频振动叠加", items: ["N 个等幅同频振动叠加时，合振幅 R = A·sin(Nδ/2) / sin(δ/2)，δ 为相邻相位差。"] },
                 ],
                 ["旋转矢量法把圆周运动投影到直线", "同频叠加可用相位差求合振幅", "课后题：π/3 相位差的两列振动求合成"],
                 [], [],
                 "可继续圈注课件或生成练习题巩固叠加公式。",
-                "theory_concept", undefined, false, undefined, transcript,
+                "theory_concept", undefined, false, undefined,
+                `【内容摘要】\n本次课堂录音围绕简谐振动、旋转矢量法和同频振动叠加展开，已同步保留完整转写，便于回听与复习。\n\n【核心知识点】\n1. 简谐振动可写为 x(t) = A·cos(ωt + φ₀)，振幅、角频率和初相共同决定运动。\n2. 旋转矢量法用圆周运动在坐标轴上的投影解释简谐振动。\n3. 同频振动叠加的合振幅由各振动的振幅与相位差共同决定。\n\n【知识框架】\n简谐振动方程 → 旋转矢量表示 → 相位差分析 → 同频振动叠加 → 合振幅计算。\n\n【接下来可以做】\n回听关键片段，完成相位差为 π/3 的合成振动练习，并生成一道变式题检验掌握情况。`,
+                "note", undefined, undefined,
+                sourceAnchor, sourceDocument,
               );
               showToast("演示录音已保存至笔记");
               return;
             }
 
             analyzeTextSource("text", `[来源：实时录音 ${dateStr}]\n\n${transcript}`)
-              .then(draft => confirmSourceDraft(draft))
+              .then(draft => {
+                const enrichedDraft = {
+                  ...draft,
+                  targetSubjectId: subjectId,
+                  originalName: recording.title,
+                  sourceAnchor,
+                  sourceDocument,
+                };
+                confirmSourceDraft(enrichedDraft);
+              })
               .catch(err => {
                 console.warn("[voice] import failed, saving as plain note", err);
                 applyNewCard(
                   subjectId,
                   "语音记录：" + transcript.slice(0, 20) + "…",
                   transcript.slice(0, 80),
-                  "notes", imgNotesBg,
+                  "voice", imgNotesBg,
                   transcript, undefined, [], [], [], [], undefined,
-                  "theory_concept", undefined, false, undefined, transcript,
+                  "theory_concept", undefined, false, undefined,
+                  `【内容摘要】\n${transcript.slice(0, 220)}\n\n【完整内容】\n录音原文与音频已保留，可随时返回查看。\n\n【接下来可以做】\n补充重点、生成复习题，或继续录制新的课堂内容。`,
+                  "note", undefined, undefined,
+                  sourceAnchor, sourceDocument,
                 );
                 showToast("已保存语音文字，AI 分析暂不可用");
               });

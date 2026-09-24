@@ -29,7 +29,10 @@ function cardSearchBlob(card: CardData): string {
     card.detailIntro,
     card.unifiedDetail?.slice(0, 400),
     ...(card.aiKeyPoints ?? []),
-    ...(card.detailSections ?? []).flatMap(s => [s.title, ...s.items]),
+    ...(card.detailSections ?? []).flatMap(s => {
+      const legacyContent = (s as typeof s & { content?: string }).content;
+      return [s.title, ...(s.items ?? (legacyContent ? [legacyContent] : []))];
+    }),
   ];
   return parts.filter(Boolean).join(" ").toLowerCase();
 }
