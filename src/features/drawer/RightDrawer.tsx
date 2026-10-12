@@ -108,14 +108,14 @@ export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateC
     <>
       <div
         className="fixed inset-0 bg-black/40 z-40 transition-opacity duration-300"
-        style={{ opacity: isOpen ? 1 : 0, pointerEvents: isOpen ? "auto" : "none" }}
+        style={{ opacity: isOpen ? 0.2 : 0, pointerEvents: isOpen ? "auto" : "none" }}
         onClick={onClose}
       />
 
       <div
-        className="fixed inset-0 bg-white z-50 shadow-[-8px_0_32px_rgba(0,0,0,0.12)] transition-transform duration-300"
+        className="fixed right-0 top-0 z-50 rounded-l-[24px] bg-white shadow-[-8px_0_32px_rgba(0,0,0,0.12)] transition-transform duration-300"
         style={{
-          width: "100%",
+          width: "min(100vw, max(640px, 56vw))",
           height: "100dvh",
           maxHeight: "100dvh",
           transform: isOpen ? "translateX(0)" : "translateX(100%)",
@@ -137,8 +137,7 @@ export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateC
               </button>
             </header>
             <div className="flex min-h-0 flex-1">
-              <OriginalSourcePane card={card} />
-              <section className="flex min-h-0 w-[48%] flex-col bg-white">
+              <section className="flex min-h-0 w-full flex-col bg-white">
             <div className="flex items-center gap-3 px-5 pt-5 pb-3" style={{ flexShrink: 0 }}>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 min-w-0">

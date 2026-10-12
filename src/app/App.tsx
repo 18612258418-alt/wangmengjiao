@@ -49,6 +49,7 @@ import { HomeworkView } from "../features/feed/HomeworkView";
 import { ExamPrepView } from "../modules/exam-prep";
 import { PaperView } from "../features/feed/PaperView";
 import { filterNoteFeedGroups } from "../utils/feedFilters";
+import { recordingPlaceholderFor } from "../data/recordingSeedCards";
 import { EditableSubjectName } from "../features/feed/EditableSubjectName";
 import { RightDrawer } from "../features/drawer/RightDrawer";
 import { SearchOverlay } from "../features/search/SearchOverlay";
@@ -119,11 +120,7 @@ export default function App() {
   } | null>(null);
   const [showVoice, setShowVoice] = useState(false);
   const [showFormFill, setShowFormFill] = useState(false);
-  const [onboardingMode, setOnboardingMode] = useState<"first" | "demo" | null>(
-    () => new URLSearchParams(window.location.search).get("oobe") === "1"
-      ? "first"
-      : localStorage.getItem("imemo_onboarded") ? null : "first",
-  );
+  const [onboardingMode, setOnboardingMode] = useState<"first" | "demo" | null>(null);
   const [flyPhase, setFlyPhase] = useState<"idle" | "center" | "corner" | "fading">("idle");
   const [flyImg, setFlyImg] = useState<string>("");
   const [sidebarLoading, setSidebarLoading] = useState(false);
@@ -1595,8 +1592,8 @@ export default function App() {
                 subjectId,
                 "记忆：机械振动课堂录音",
                 "简谐振动、旋转矢量法与同频振动叠加。",
-                "voice", imgNotesBg,
-                "课堂录音已转为文字，涵盖简谐振动方程、旋转矢量法与多振动叠加公式。",
+                "voice", recordingPlaceholderFor(subjectId, "机械振动"),
+                "本节围绕简谐振动方程、旋转矢量法与多振动叠加展开，重点讲解相位关系和合振幅公式。",
                 `来源：实时录音 ${dateStr}`,
                 [
                   { title: "简谐振动方程", items: ["位移满足 x(t) = A·cos(ωt + φ₀)，振幅 A、角频率 ω、初相 φ₀ 决定运动形态。"] },
@@ -1607,7 +1604,7 @@ export default function App() {
                 [], [],
                 "可继续圈注课件或生成练习题巩固叠加公式。",
                 "theory_concept", undefined, false, undefined,
-                `【内容摘要】\n本次课堂录音围绕简谐振动、旋转矢量法和同频振动叠加展开，已同步保留完整转写，便于回听与复习。\n\n【核心知识点】\n1. 简谐振动可写为 x(t) = A·cos(ωt + φ₀)，振幅、角频率和初相共同决定运动。\n2. 旋转矢量法用圆周运动在坐标轴上的投影解释简谐振动。\n3. 同频振动叠加的合振幅由各振动的振幅与相位差共同决定。\n\n【知识框架】\n简谐振动方程 → 旋转矢量表示 → 相位差分析 → 同频振动叠加 → 合振幅计算。\n\n【接下来可以做】\n回听关键片段，完成相位差为 π/3 的合成振动练习，并生成一道变式题检验掌握情况。`,
+                `【内容摘要】\n本节围绕简谐振动、旋转矢量法和同频振动叠加展开，重点讲解相位关系与合振幅计算。\n\n【核心知识点】\n1. 简谐振动可写为 x(t) = A·cos(ωt + φ₀)，振幅、角频率和初相共同决定运动。\n2. 旋转矢量法用圆周运动在坐标轴上的投影解释简谐振动。\n3. 同频振动叠加的合振幅由各振动的振幅与相位差共同决定。\n\n【知识框架】\n简谐振动方程 → 旋转矢量表示 → 相位差分析 → 同频振动叠加 → 合振幅计算。\n\n【接下来可以做】\n回听关键片段，完成相位差为 π/3 的合成振动练习，并生成一道变式题检验掌握情况。`,
                 "note", undefined, undefined,
                 sourceAnchor, sourceDocument,
               );
@@ -1632,7 +1629,7 @@ export default function App() {
                   subjectId,
                   "语音记录：" + transcript.slice(0, 20) + "…",
                   transcript.slice(0, 80),
-                  "voice", imgNotesBg,
+                  "voice", recordingPlaceholderFor(subjectId, transcript),
                   transcript, undefined, [], [], [], [], undefined,
                   "theory_concept", undefined, false, undefined,
                   `【内容摘要】\n${transcript.slice(0, 220)}\n\n【完整内容】\n录音原文与音频已保留，可随时返回查看。\n\n【接下来可以做】\n补充重点、生成复习题，或继续录制新的课堂内容。`,

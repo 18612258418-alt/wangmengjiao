@@ -45,6 +45,7 @@ import { mergeHomeworkSeedIntoFeeds } from "./homeworkSeedCards";
 import { BUILTIN_UNIFIED_DETAILS } from "./builtinUnifiedDetails";
 import { BUILTIN_CARD_META } from "./builtinCardMeta";
 import { BUILTIN_SYLLABUS_BY_CARD } from "./subjectSyllabi";
+import { RECORDING_SEED_PATCH } from "./recordingSeedCards";
 
 function injectBuiltinMeta(feeds: FeedGroup[]): FeedGroup[] {
   return feeds.map(group => ({
@@ -353,13 +354,13 @@ const OTHER_FEEDS: FeedGroup[] = [
 ];
 
 export const INITIAL_ALL_FEEDS: Record<string, FeedGroup[]> = {
-  physics: mergeHomeworkSeedIntoFeeds(injectBuiltinMeta(PHYSICS_FEEDS), "physics"),
+  physics: [...RECORDING_SEED_PATCH.physics, ...mergeHomeworkSeedIntoFeeds(injectBuiltinMeta(PHYSICS_FEEDS), "physics")],
   math: mergeHomeworkSeedIntoFeeds(
-    [...DEMO_SEED_PATCH.math, ...injectBuiltinMeta(MATH_FEEDS)],
+    [...RECORDING_SEED_PATCH.math, ...DEMO_SEED_PATCH.math, ...injectBuiltinMeta(MATH_FEEDS)],
     "math",
   ),
-  chemistry: mergeHomeworkSeedIntoFeeds(injectBuiltinMeta(CHEMISTRY_FEEDS), "chemistry"),
-  english: mergeHomeworkSeedIntoFeeds(injectBuiltinMeta(ENGLISH_FEEDS), "english"),
+  chemistry: [...RECORDING_SEED_PATCH.chemistry, ...mergeHomeworkSeedIntoFeeds(injectBuiltinMeta(CHEMISTRY_FEEDS), "chemistry")],
+  english: [...RECORDING_SEED_PATCH.english, ...mergeHomeworkSeedIntoFeeds(injectBuiltinMeta(ENGLISH_FEEDS), "english")],
   other: [...DEMO_SEED_PATCH.other, ...injectBuiltinMeta(OTHER_FEEDS)],
 };
 

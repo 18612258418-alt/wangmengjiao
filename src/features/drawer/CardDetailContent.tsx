@@ -16,10 +16,11 @@ import {
 import { parseSections } from "../../utils/parseSections";
 import { OriginalImageOverlay, ViewOriginalImageButton } from "../../shared/OriginalImageViewer";
 import { OriginalSourceOverlay, ViewOriginalSourceButton } from "../../shared/OriginalSourceViewer";
+import { VoiceRecordingDetail } from "./VoiceRecordingDetail";
 
 type InteractivePhase = "idle" | "planning" | "coding" | "ready" | "skipped" | "failed";
 
-export function CardDetailContent({
+function StandardCardDetailContent({
   card, unifiedContent, onUpdateCard, exportRef,
 }: {
   card: CardData;
@@ -492,4 +493,16 @@ export function CardDetailContent({
       </div>
     </div>
   );
+}
+
+export function CardDetailContent(props: {
+  card: CardData;
+  unifiedContent?: string;
+  onUpdateCard?: (cardId: string, updates: Partial<CardData>) => void;
+  exportRef?: React.RefObject<HTMLDivElement | null>;
+}) {
+  if (props.card.sourceDocument?.type === "voice") {
+    return <VoiceRecordingDetail card={props.card} exportRef={props.exportRef}/>;
+  }
+  return <StandardCardDetailContent {...props}/>;
 }

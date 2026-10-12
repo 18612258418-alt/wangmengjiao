@@ -11,6 +11,7 @@ import { BUILTIN_SYLLABUS_BY_CARD } from "../data/subjectSyllabi";
 import { DEMO_SEED_PATCH, DEMO_SEED_PATCH_KEY } from "../data/demoSeedCards";
 import { ENABLE_HOMEWORK_DEMO_SEED, HOMEWORK_SEED_PATCH, HOMEWORK_SEED_PATCH_KEY } from "../data/homeworkSeedCards";
 import { BUILTIN_CARD_META } from "../data/builtinCardMeta";
+import { RECORDING_ANCHOR_PATCH_KEY, RECORDING_SEED_CARDS_BY_ID, RECORDING_SEED_PATCH, RECORDING_SEED_PATCH_KEY } from "../data/recordingSeedCards";
 import type { MergeUndoSnapshot } from "../utils/memoryMerge";
 
 const CARD_META_PATCH_KEY = "card_meta_patch_v1";
@@ -93,6 +94,20 @@ export function useMemoryDB(): MemoryDBHook {
           await applySeedPatch(DEMO_SEED_PATCH, INITIAL_SUBJECTS);
           localStorage.setItem(DEMO_SEED_PATCH_KEY, "1");
           storedSubjects = await getAllSubjects();
+        }
+
+        if (!localStorage.getItem(RECORDING_SEED_PATCH_KEY)) {
+          await applySeedPatch(RECORDING_SEED_PATCH, INITIAL_SUBJECTS);
+          localStorage.setItem(RECORDING_SEED_PATCH_KEY, "1");
+          storedSubjects = await getAllSubjects();
+        }
+
+        if (!localStorage.getItem(RECORDING_ANCHOR_PATCH_KEY)) {
+          const cards = await getAllCards();
+          await Promise.all(cards
+            .filter(card => RECORDING_SEED_CARDS_BY_ID[card.id])
+            .map(card => putCard({ ...card, ...RECORDING_SEED_CARDS_BY_ID[card.id] })));
+          localStorage.setItem(RECORDING_ANCHOR_PATCH_KEY, "1");
         }
 
         if (ENABLE_HOMEWORK_DEMO_SEED && !localStorage.getItem(HOMEWORK_SEED_PATCH_KEY)) {
