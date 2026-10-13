@@ -21,12 +21,13 @@ import { VoiceRecordingDetail } from "./VoiceRecordingDetail";
 type InteractivePhase = "idle" | "planning" | "coding" | "ready" | "skipped" | "failed";
 
 function StandardCardDetailContent({
-  card, unifiedContent, onUpdateCard, exportRef,
+  card, unifiedContent, onUpdateCard, exportRef, onOpenVoiceSource,
 }: {
   card: CardData;
   unifiedContent?: string;
   onUpdateCard?: (cardId: string, updates: Partial<CardData>) => void;
   exportRef?: React.RefObject<HTMLDivElement | null>;
+  onOpenVoiceSource?: (card: CardData) => void;
 }) {
   const skillMeta = getSkillMeta(card.skill);
   const [activeTab, setActiveTab] = useState<"analysis" | "mindmap" | "interactive">("analysis");
@@ -147,7 +148,7 @@ function StandardCardDetailContent({
             {([
               { key: "analysis", label: "智能总结" },
               { key: "mindmap", label: "知识脉络" },
-              { key: "interactive", label: "交互演示" },
+              { key: "interactive", label: "互动演示" },
             ] as const).map(tab => {
               const isActive = activeTab === tab.key;
               const isInteractive = tab.key === "interactive";
@@ -194,7 +195,7 @@ function StandardCardDetailContent({
             })}
           </div>
           {card.sourceDocument ? (
-            <ViewOriginalSourceButton onClick={() => setShowOriginalSource(true)} sourceType={card.sourceDocument.type} />
+            <ViewOriginalSourceButton onClick={() => card.sourceDocument?.type === "voice" && onOpenVoiceSource ? onOpenVoiceSource(card) : setShowOriginalSource(true)} sourceType={card.sourceDocument.type} />
           ) : card.img && (
             <ViewOriginalImageButton onClick={() => setShowOriginalImage(true)} />
           )}
@@ -479,6 +480,7 @@ function StandardCardDetailContent({
           open={showOriginalSource}
           onClose={() => setShowOriginalSource(false)}
           source={card.sourceDocument}
+          voiceContent={card.sourceDocument.type === "voice" ? <VoiceRecordingDetail card={card} /> : undefined}
         />
       )}
 
@@ -500,9 +502,7 @@ export function CardDetailContent(props: {
   unifiedContent?: string;
   onUpdateCard?: (cardId: string, updates: Partial<CardData>) => void;
   exportRef?: React.RefObject<HTMLDivElement | null>;
+  onOpenVoiceSource?: (card: CardData) => void;
 }) {
-  if (props.card.sourceDocument?.type === "voice") {
-    return <VoiceRecordingDetail card={props.card} exportRef={props.exportRef}/>;
-  }
   return <StandardCardDetailContent {...props}/>;
 }

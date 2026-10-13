@@ -119,6 +119,7 @@ export default function App() {
     onUndo: () => void;
   } | null>(null);
   const [showVoice, setShowVoice] = useState(false);
+  const [voiceSourceCard, setVoiceSourceCard] = useState<CardData | null>(null);
   const [showFormFill, setShowFormFill] = useState(false);
   const [onboardingMode, setOnboardingMode] = useState<"first" | "demo" | null>(null);
   const [flyPhase, setFlyPhase] = useState<"idle" | "center" | "corner" | "fading">("idle");
@@ -1356,6 +1357,11 @@ export default function App() {
           subjects={subjects}
           currentSubjectId={drawerCardSubject}
           onMoveSubject={handleMoveDrawerCard}
+          onOpenVoiceSource={(card) => {
+            setDrawerCard(null);
+            setVoiceSourceCard(card);
+            setShowVoice(true);
+          }}
         />
 
         <SearchOverlay
@@ -1560,7 +1566,14 @@ export default function App() {
 
       {showVoice && (
         <VoiceModal
-          onClose={() => setShowVoice(false)}
+          onClose={() => { setShowVoice(false); setVoiceSourceCard(null); }}
+          initialRecording={voiceSourceCard?.sourceDocument?.type === "voice" ? {
+            id: voiceSourceCard.sourceAnchor?.fileId ?? voiceSourceCard.id,
+            title: voiceSourceCard.sourceDocument.title || voiceSourceCard.title.replace(/^记忆[:：]\s*/, ""),
+            durationSeconds: voiceSourceCard.sourceDocument.durationSeconds ?? 0,
+            transcript: voiceSourceCard.sourceDocument.paragraphs?.join("\n\n") ?? voiceSourceCard.overview ?? "",
+            audioUrl: voiceSourceCard.sourceDocument.url,
+          } : undefined}
           saveLocation={`${INITIAL_SUBJECTS.find(s => s.id === (activeSubject !== "all" && activeSubject !== "__pending__" ? activeSubject : "physics"))?.short ?? "大学物理"} / 笔记`}
           onSave={(transcript, recording) => {
             const now = new Date();

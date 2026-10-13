@@ -40,7 +40,7 @@ function OriginalSourcePane({ card }: { card: CardData }) {
   );
 }
 
-export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateCard, subjects = [], currentSubjectId, onMoveSubject, onGenerateFromCard }: {
+export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateCard, subjects = [], currentSubjectId, onMoveSubject, onGenerateFromCard, onOpenVoiceSource }: {
   card: CardData | null;
   onClose: () => void;
   onDelete: () => void;
@@ -50,6 +50,7 @@ export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateC
   currentSubjectId?: string;
   onMoveSubject?: (targetSubjectId: string) => void;
   onGenerateFromCard?: (cardId: string) => void;
+  onOpenVoiceSource?: (card: CardData) => void;
 }) {
   const isOpen = card !== null;
   const srcLabel = sourceLabel(card?.source ?? "");
@@ -321,6 +322,7 @@ export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateC
               unifiedContent={unifiedContent}
               onUpdateCard={onUpdateCard}
               exportRef={exportRef}
+              onOpenVoiceSource={onOpenVoiceSource}
             />
               </section>
             </div>

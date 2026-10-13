@@ -1,4 +1,5 @@
 import { createPortal } from "react-dom";
+import type { ReactNode } from "react";
 import { AudioLines, ExternalLink, FileText, Globe2, X } from "lucide-react";
 import type { SourceDocument } from "../types";
 
@@ -16,7 +17,7 @@ export function ViewOriginalSourceButton({ onClick, sourceType }: { onClick: () 
   );
 }
 
-export function OriginalSourceOverlay({ open, onClose, source }: { open: boolean; onClose: () => void; source: SourceDocument }) {
+export function OriginalSourceOverlay({ open, onClose, source, voiceContent }: { open: boolean; onClose: () => void; source: SourceDocument; voiceContent?: ReactNode }) {
   if (!open) return null;
   const isPdf = source.type === "pdf";
   const isVoice = source.type === "voice";
@@ -40,8 +41,8 @@ export function OriginalSourceOverlay({ open, onClose, source }: { open: boolean
           <button type="button" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-full text-[#7B8291] hover:bg-[#F2F4F8]" aria-label="关闭原文"><X size={18} /></button>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-7">
-          {isVoice ? (
+        <div className={`min-h-0 flex-1 ${isVoice && voiceContent ? "overflow-hidden" : "overflow-y-auto p-7"}`}>
+          {isVoice && voiceContent ? voiceContent : isVoice ? (
             <article className="mx-auto max-w-[760px] rounded-2xl bg-white px-10 py-9 shadow-[0_3px_18px_rgba(15,23,42,0.08)]">
               <div className="flex items-center gap-3">
                 <span className="grid h-11 w-11 place-items-center rounded-full bg-[#EEF0FF] text-[#5364FF]"><AudioLines size={20} /></span>

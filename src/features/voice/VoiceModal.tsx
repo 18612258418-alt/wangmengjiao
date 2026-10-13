@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { X, Square, Loader2, BookmarkCheck, Minimize2, Maximize2, Pause, Play, Search, AudioLines, FileText, MoreHorizontal, Check, Sparkles, Bot, Hand, Clock3 } from "lucide-react";
 import { DEMO_TRANSCRIPT } from "./demoTranscript";
 
@@ -7,6 +7,7 @@ interface Props {
   /** 转录完成后回调，传入转录文字，由 App 层保存到记忆 */
   onSave: (transcript: string, recording: { title: string; durationSeconds: number; audioUrl?: string }) => void;
   saveLocation?: string;
+  initialRecording?: { id: string; title: string; durationSeconds: number; transcript: string; audioUrl?: string };
 }
 
 type Phase = "idle" | "recording" | "paused" | "transcribing" | "done" | "saved";
@@ -51,6 +52,22 @@ function fmt(s: number) {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
+function buildTranscriptSegments(text: string, duration: number) {
+  const paragraphs = text.split(/\n\s*\n/).map(item => item.trim()).filter(Boolean);
+  const items = paragraphs.length > 1
+    ? paragraphs
+    : (text.match(/[^。！？!?]+[。！？!?]?/g) ?? [text]).map(item => item.trim()).filter(Boolean);
+  const demoTimes = [0, 18, 42, 68, 96];
+  const totalCharacters = Math.max(1, items.reduce((sum, item) => sum + item.length, 0));
+  let consumedCharacters = 0;
+  return items.map((item, index) => {
+    const proportionalTime = Math.floor((consumedCharacters / totalCharacters) * Math.max(duration, 1));
+    const startTime = text.trim() === DEMO_TRANSCRIPT.trim() ? (demoTimes[index] ?? proportionalTime) : proportionalTime;
+    consumedCharacters += item.length;
+    return { id: `transcript_${index}`, text: item, startTime };
+  });
+}
+
 function recordingTitle() {
   const now = new Date();
   return `${now.getMonth() + 1}月${now.getDate()}日 课堂录音`;
@@ -68,24 +85,24 @@ function showDemoTranscript(
   }, DEMO_SPINNER_MS);
 }
 
-export function VoiceModal({ onClose, onSave, saveLocation = "当前学科 / 笔记" }: Props) {
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [seconds, setSeconds] = useState(0);
-  const [transcript, setTranscript] = useState("");
+export function VoiceModal({ onClose, onSave, saveLocation = "当前学科 / 笔记", initialRecording }: Props) {
+  const [phase, setPhase] = useState<Phase>(initialRecording ? "saved" : "idle");
+  const [seconds, setSeconds] = useState(initialRecording?.durationSeconds ?? 0);
+  const [transcript, setTranscript] = useState(initialRecording?.transcript ?? "");
   const [liveTranscript, setLiveTranscript] = useState("");
   const [minimized, setMinimized] = useState(false);
-  const [title, setTitle] = useState(recordingTitle);
+  const [title, setTitle] = useState(initialRecording?.title ?? recordingTitle);
   const [search, setSearch] = useState("");
   const [autoSaveMemory, setAutoSaveMemory] = useState(true);
   const [saveToastVisible, setSaveToastVisible] = useState(false);
-  const [audioUrl, setAudioUrl] = useState<string>();
+  const [audioUrl, setAudioUrl] = useState<string | undefined>(initialRecording?.audioUrl);
   const [rightTab, setRightTab] = useState<RightPanelTab>("insights");
   const [selectedInsightId, setSelectedInsightId] = useState<string>();
   const [anchorNotice, setAnchorNotice] = useState<string>();
   const [insightPlayhead, setInsightPlayhead] = useState(0);
   const [insightPlaying, setInsightPlaying] = useState(false);
   const [recordingHistory, setRecordingHistory] = useState<RecordingHistoryItem[]>([]);
-  const [currentRecordingId, setCurrentRecordingId] = useState(() => `recording_${Date.now()}`);
+  const [currentRecordingId, setCurrentRecordingId] = useState(() => initialRecording?.id ?? `recording_${Date.now()}`);
   const [activeRecordingId, setActiveRecordingId] = useState(currentRecordingId);
   const bars = useWaveform(phase === "recording");
 
@@ -296,7 +313,6 @@ export function VoiceModal({ onClose, onSave, saveLocation = "当前学科 / 笔
 
   const visibleInsights = phase === "idle" ? [] : DEMO_INSIGHTS.slice(0, phase === "done" || phase === "saved" ? DEMO_INSIGHTS.length : Math.max(1, Math.min(DEMO_INSIGHTS.length, Math.ceil(((liveTranscript || transcript).length) / Math.max(1, DEMO_TRANSCRIPT.length) * DEMO_INSIGHTS.length))));
   const canSeekInsights = phase === "done" || phase === "saved";
-  const aiProgress = phase === "done" || phase === "saved" ? 100 : Math.max(8, Math.min(96, Math.round(((liveTranscript || transcript).length / Math.max(1, DEMO_TRANSCRIPT.length)) * 100)));
   const riskCount = visibleInsights.filter(item => item.kind === "risk").length;
   const taskCount = visibleInsights.filter(item => item.kind === "task").length;
 
@@ -365,6 +381,24 @@ export function VoiceModal({ onClose, onSave, saveLocation = "当前学科 / 笔
 
   const hasRecording = phase !== "idle";
   const panelText = phase === "done" || phase === "saved" ? transcript : liveTranscript;
+  const transcriptSegments = useMemo(
+    () => buildTranscriptSegments(panelText, USE_DEMO_TRANSCRIPT ? Math.max(seconds, 120) : seconds),
+    [panelText, seconds],
+  );
+  const activeTranscriptSegment = [...transcriptSegments].reverse().find(segment => insightPlayhead >= segment.startTime);
+
+  const seekToTranscript = (time: number) => {
+    if (!canSeekInsights) return;
+    setSelectedInsightId(undefined);
+    setInsightPlayhead(time);
+    setInsightPlaying(true);
+    setAnchorNotice(`已定位到 ${fmt(time)}`);
+    if (previewAudioRef.current) {
+      previewAudioRef.current.currentTime = Math.min(time, previewAudioRef.current.duration || time);
+      previewAudioRef.current.play().catch(() => undefined);
+    }
+    window.setTimeout(() => setAnchorNotice(undefined), 2200);
+  };
 
   return (
     <div className="fixed inset-0 z-[600] flex items-center justify-center bg-[#202532]/25 p-5 backdrop-blur-[2px]">
@@ -425,14 +459,13 @@ export function VoiceModal({ onClose, onSave, saveLocation = "当前学科 / 笔
             <div className="flex h-14 shrink-0 items-center justify-between px-5"><div className="flex items-center gap-2 text-[12px] font-bold text-[#292E39]">{rightTab === "insights" ? <><Bot size={16} className="text-[#4D5CFF]"/>AI 洞察</> : <><FileText size={15}/>录音文稿</>}</div><button type="button" onClick={() => setRightTab(value => value === "insights" ? "transcript" : "insights")} className="rounded-full bg-[#F2F3F6] px-3 py-1.5 text-[10px] font-semibold text-[#687082] transition hover:bg-[#E9EBF1]">{rightTab === "insights" ? "查看转写" : "查看 AI 洞察"}</button></div>
             <div className="min-h-0 flex-1 overflow-y-auto p-5">
               {rightTab === "transcript" ? (
-                panelText ? <p className="whitespace-pre-wrap text-[12px] leading-7 text-[#4C5360]">{panelText}{phase === "recording" && <span className="ml-1 inline-block h-4 w-[2px] animate-pulse align-middle bg-[#4D5CFF]"/>}</p> : <div className="flex h-full flex-col items-center justify-center text-center"><span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#F4F5F8] text-[#B2B7C1]"><FileText size={21}/></span><b className="mt-4 text-[12px] text-[#626977]">等待转写内容</b><p className="mt-1 max-w-[210px] text-[10px] leading-5 text-[#A0A6B2]">开始录音后，识别出的文字会实时出现在这里</p></div>
+                panelText ? <div><p className="mb-5 flex items-center gap-1.5 text-[10px] text-[#9AA1AE]"><Clock3 size={12}/>{canSeekInsights ? "点击时间戳，可从该段开始回听" : "录音结束并完成对齐后，可点击时间戳回听"}</p><div className="space-y-5">{transcriptSegments.map(segment => { const active = canSeekInsights && activeTranscriptSegment?.id === segment.id; return <div key={segment.id} className={`rounded-xl px-2 py-1 transition ${active ? "bg-[#F1F3FF]" : ""}`}><p className="text-[12px] leading-7 text-[#4C5360]"><button type="button" disabled={!canSeekInsights} onClick={() => seekToTranscript(segment.startTime)} className={`mr-2 inline-block font-mono text-[11px] font-bold tabular-nums underline decoration-2 underline-offset-4 transition ${active ? "text-[#4D5CFF]" : canSeekInsights ? "text-[#168ACB] hover:text-[#4D5CFF]" : "cursor-default text-[#A0A7B3] no-underline"}`} title={canSeekInsights ? `从 ${fmt(segment.startTime)} 开始播放` : "录音结束后可跳转"}>{fmt(segment.startTime)}</button>{segment.text}{phase === "recording" && segment.id === transcriptSegments[transcriptSegments.length - 1]?.id && <span className="ml-1 inline-block h-4 w-[2px] animate-pulse align-middle bg-[#4D5CFF]"/>}</p></div>})}</div></div> : <div className="flex h-full flex-col items-center justify-center text-center"><span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#F4F5F8] text-[#B2B7C1]"><FileText size={21}/></span><b className="mt-4 text-[12px] text-[#626977]">等待转写内容</b><p className="mt-1 max-w-[210px] text-[10px] leading-5 text-[#A0A6B2]">开始录音后，识别出的文字会实时出现在这里</p></div>
               ) : visibleInsights.length > 0 ? (
                 <div>
-                  <div className="sticky -top-5 z-20 mb-6 overflow-hidden rounded-2xl border border-[#DDE1F4] bg-[linear-gradient(135deg,#FAFBFF_0%,#F3F5FF_100%)] shadow-[0_10px_28px_rgba(77,92,255,.14)]">
-                    <div className="relative p-4 before:absolute before:-right-8 before:-top-10 before:h-24 before:w-24 before:rounded-full before:bg-[#9DA7FF]/10 before:blur-xl">
-                    {canSeekInsights ? <div className="flex items-center gap-3"><button type="button" onClick={toggleInsightPlayback} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#4D5CFF] text-white shadow-[0_6px_16px_rgba(77,92,255,.24)]" aria-label={insightPlaying ? "暂停录音" : "播放录音"}>{insightPlaying ? <Pause size={15} fill="currentColor"/> : <Play size={15} fill="currentColor"/>}</button><div className="min-w-0 flex-1"><div className="mb-2 flex items-center justify-between gap-2"><span className="truncate text-[11px] font-semibold text-[#303642]">{title}</span><span className="shrink-0 font-mono text-[9px] text-[#858C9A]">{fmt(Math.floor(insightPlayhead))} / {fmt(insightDuration)}</span></div><input type="range" min={0} max={insightDuration} step={1} value={Math.min(insightPlayhead, insightDuration)} onChange={event => { const time = Number(event.target.value); setInsightPlayhead(time); if (previewAudioRef.current) previewAudioRef.current.currentTime = time; }} className="h-1.5 w-full cursor-pointer accent-[#4D5CFF]" aria-label="录音播放进度"/></div></div> : <div className="flex items-center gap-3"><span className={`grid h-10 w-10 shrink-0 place-items-center rounded-full ${phase === "paused" ? "bg-[#EEF0F4] text-[#727A88]" : "bg-[#FFF0F1] text-[#E0525C]"}`}>{phase === "paused" ? <Pause size={15} fill="currentColor"/> : <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-current"/>}</span><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><span className="truncate text-[11px] font-semibold text-[#303642]">{title}</span><span className="shrink-0 font-mono text-[11px] font-semibold text-[#596170]">{fmt(seconds)}</span></div><p className="mt-1.5 flex items-center gap-1 text-[9px] text-[#8B92A0]"><Clock3 size={10}/>录音结束并完成对齐后，可点击洞察回听</p></div></div>}
-                    </div>
-                    <div className="border-t border-[#E1E4F2] bg-white/55 px-4 py-3"><div className="flex items-center justify-between"><span className="flex items-center gap-2 text-[10px] font-semibold text-[#41495A]"><span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#7C8AFF] opacity-60"/><span className="relative h-2 w-2 rounded-full bg-[#6675F5]"/></span>AI 实时理解中</span><b className="text-[11px] text-[#5664D9]">{aiProgress}%</b></div><div className="mt-2 h-1 overflow-hidden rounded-full bg-[#DDE1F0]"><div className="h-full rounded-full bg-[linear-gradient(90deg,#6675F5,#B16CF0)] transition-all duration-700" style={{width:`${aiProgress}%`}}/></div><div className="mt-2.5 flex gap-1.5"><span className="rounded-full bg-[#E9EBF5] px-2 py-1 text-[9px] text-[#596171]">{visibleInsights.length} 个洞察</span><span className="rounded-full bg-[#E9EBF5] px-2 py-1 text-[9px] text-[#596171]">{riskCount} 个易错点</span><span className="rounded-full bg-[#E9EBF5] px-2 py-1 text-[9px] text-[#596171]">{taskCount} 个待办</span></div></div>
+                  <div className="mb-6 flex items-center gap-2 rounded-xl bg-[#F7F8FB] px-3 py-2 text-[9px] text-[#9299A6]">
+                    <span className="relative flex h-1.5 w-1.5 shrink-0"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#7C8AFF] opacity-40"/><span className="relative h-1.5 w-1.5 rounded-full bg-[#7C86DE]"/></span>
+                    <span>{canSeekInsights ? "AI 已完成内容理解与时间对齐" : "AI 实时理解中"}</span>
+                    <span className="ml-auto tabular-nums">{visibleInsights.length} 个知识点{riskCount ? ` · ${riskCount} 个易错点` : ""}{taskCount ? ` · ${taskCount} 个待办` : ""}</span>
                   </div>
                   <div className="relative ml-1 border-l border-[#E0E3E9] pl-6">
                     {visibleInsights.map(item => {
@@ -450,6 +483,16 @@ export function VoiceModal({ onClose, onSave, saveLocation = "当前学科 / 笔
                 </div>
               ) : <div className="flex h-full flex-col items-center justify-center text-center"><span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#F2F3FF] text-[#7A86FF]"><Sparkles size={21}/></span><b className="mt-4 text-[12px] text-[#626977]">等待 AI 洞察</b><p className="mt-1 max-w-[220px] text-[10px] leading-5 text-[#A0A6B2]">开始录音后，AI 会从转写中实时提炼关键内容</p></div>}
             </div>
+            {hasRecording && <div className="shrink-0 border-t border-[#E5E8EF] bg-white px-4 py-3 shadow-[0_-8px_24px_rgba(31,38,58,.06)]">
+              <div className="flex items-center gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#EEF0FF] text-[#4D5CFF]"><AudioLines size={18}/></span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2"><b className="truncate text-[10px] text-[#303642]">{title}</b><span className="shrink-0 font-mono text-[9px] tabular-nums text-[#8B92A0]">{canSeekInsights ? fmt(Math.floor(insightPlayhead)) : fmt(seconds)} / {canSeekInsights ? fmt(insightDuration) : "--:--"}</span></div>
+                  {canSeekInsights ? <input type="range" min={0} max={insightDuration} step={1} value={Math.min(insightPlayhead, insightDuration)} onChange={event => { const time = Number(event.target.value); setInsightPlayhead(time); if (previewAudioRef.current) previewAudioRef.current.currentTime = time; }} className="mt-2 h-1 w-full cursor-pointer accent-[#4D5CFF]" aria-label="录音播放进度"/> : <p className="mt-1.5 text-[9px] text-[#A0A6B2]">{phase === "paused" ? "录音已暂停" : "正在录音，完成后可回听"}</p>}
+                </div>
+                <button type="button" disabled={!canSeekInsights} onClick={toggleInsightPlayback} className={`grid h-11 w-11 shrink-0 place-items-center rounded-full transition ${canSeekInsights ? "bg-[#4D5CFF] text-white shadow-[0_5px_14px_rgba(77,92,255,.24)]" : "cursor-default bg-[#F0F2F5] text-[#B1B6C0]"}`} aria-label={canSeekInsights ? (insightPlaying ? "暂停录音" : "播放录音") : "录音完成后可播放"}>{canSeekInsights && insightPlaying ? <Pause size={16} fill="currentColor"/> : <Play size={16} fill="currentColor"/>}</button>
+              </div>
+            </div>}
             {anchorNotice && <div className="pointer-events-none absolute left-1/2 top-[72px] z-10 -translate-x-1/2 rounded-full bg-[#252A35] px-3 py-2 text-[10px] font-semibold text-white shadow-lg">{anchorNotice}</div>}
           </aside>
         </div>
