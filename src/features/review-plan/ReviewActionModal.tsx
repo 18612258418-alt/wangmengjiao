@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, ChevronDown, ChevronUp, Eraser, FileText, Lightbulb, PenLine, Send, Sparkles, X } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronUp, Eraser, FileText, Lightbulb, PenLine, Sparkles, X } from "lucide-react";
 import type { ReviewOutcome } from "./reviewScheduler";
 
 export type ReviewActionKind = "notes" | "homework" | "practice";
@@ -88,8 +88,6 @@ export function ReviewActionModal({ subjectName, topic, item, onClose, onComplet
   const [feedback, setFeedback] = useState("");
   const [gradingResult, setGradingResult] = useState<"correct" | "incorrect" | null>(null);
   const [answerExpanded, setAnswerExpanded] = useState(false);
-  const [question, setQuestion] = useState("");
-  const [messages, setMessages] = useState<string[]>([]);
   const [selectedPaperQuestionId, setSelectedPaperQuestionId] = useState(item.initialQuestionId ?? item.questions?.[0]?.id ?? item.title);
   const meta = MODE_META[item.action];
   const inkStorageKey = `memo:wrong-question-ink:${subjectName}:${topic}:${item.title}`;
@@ -190,12 +188,6 @@ export function ReviewActionModal({ subjectName, topic, item, onClose, onComplet
         : "第 1 题思路正确；第 2 题还需要明确写出 dx 与 du 的对应关系。订正后即可完成。"
     );
   };
-  const send = () => {
-    const value = question.trim();
-    if (!value) return;
-    setMessages(current => [...current, value, item.action === "notes" ? "我会结合左侧原笔记解释，但先不给完整答案。你可以先说说自己卡在哪个条件。" : "我已经带上当前题目和你的笔迹。建议先检查换元变量、微分和上下限是否同时改变。"]) ;
-    setQuestion("");
-  };
   const inferredOutcome: ReviewOutcome = feedback
     ? item.action === "notes" ? "pass" : "partial"
     : "reviewed";
@@ -287,10 +279,6 @@ export function ReviewActionModal({ subjectName, topic, item, onClose, onComplet
         <div className="mt-3 flex items-center gap-2">
           <button onClick={check} className="rounded-full bg-[#4D5CFF] px-5 py-3 text-[10px] font-semibold text-white">{item.action === "notes" ? "检查我的回忆" : "AI 批改"}</button>
           <span className="flex items-center gap-1 text-[9px] text-[#9AA1AE]"><Lightbulb size={12}/>结合本次复习内容和你的作答反馈</span>
-        </div>
-        <div className="mt-4 border-t border-[#ECEEF3] pt-4">
-          {messages.slice(-2).map((message, index) => <p key={`${message}-${index}`} className={`mb-2 rounded-xl px-3 py-2 text-[9px] leading-5 ${index % 2 === 0 ? "ml-12 bg-[#4D5CFF] text-white" : "mr-7 bg-[#F4F5F8] text-[#666E7E]"}`}>{message}</p>)}
-          <div className="flex gap-2"><input value={question} onChange={event => setQuestion(event.target.value)} onKeyDown={event => { if (event.key === "Enter") send(); }} placeholder="针对当前内容提问…" className="h-11 min-w-0 flex-1 rounded-xl bg-[#F3F4F7] px-4 text-[10px] outline-none"/><button onClick={send} className="grid h-11 w-11 place-items-center rounded-xl bg-[#EEF0FF] text-[#4D5CFF]" aria-label="发送问题"><Send size={15}/></button></div>
         </div>
       </section>
     </main>

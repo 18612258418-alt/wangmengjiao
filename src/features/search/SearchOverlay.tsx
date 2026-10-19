@@ -89,6 +89,26 @@ function answerFor(query: string) {
   const asksErrors = /错误|错题|做错|薄弱|哪里.*错/.test(query);
   const asksFind = /找|在哪|之前|拍过|上周/.test(query);
   const asksExternal = /外部|联网|视频|网上|公开课|直观/.test(query);
+  const asksStudyPriority = /先复习|复习什么|从哪里开始|考试.*先|怎么复习|复习顺序/.test(query);
+  const asksSummary = /总结|概括|提炼|考试重点|课件.*重点|重点.*课件/.test(query);
+
+  if (asksStudyPriority) {
+    return {
+      title: "建议先复习定积分换元，再检查边界条件",
+      body: "先用 8 分钟回看换元法的典型例题，再完成 3 道诊断题。若能独立完成并解释为什么要修改上下限，再继续复习曲边梯形面积；不必从整本课件第一页重新看起。",
+      personal: "依据：这两项都在下周考试范围内；最近 2 次相关作业中有 1 次遗漏换元后的新区间，而其他章节近期没有重复错误。预计本轮用时 25 分钟。",
+      external: false,
+    };
+  }
+
+  if (asksSummary) {
+    return {
+      title: "这份课件的考试重点集中在 3 个部分",
+      body: "优先掌握核心定义与适用条件，其次梳理典型题的解题步骤，最后复习老师反复强调的边界条件和易错点。建议先看标记为重点的章节，再用一道例题确认是否真正掌握。",
+      personal: "已结合课件标题、课堂录音和你的近期错题提炼；重点内容可以继续生成闪卡或练习题。",
+      external: false,
+    };
+  }
 
   if (asksErrors) {
     return {
@@ -128,6 +148,7 @@ function answerFor(query: string) {
 export function SearchOverlay({
   isOpen,
   startWithVoice = false,
+  initialQuery = "",
   onClose,
   allFeedGroups,
   subjects,
@@ -139,6 +160,7 @@ export function SearchOverlay({
 }: {
   isOpen: boolean;
   startWithVoice?: boolean;
+  initialQuery?: string;
   onClose: () => void;
   allFeedGroups: Record<string, FeedGroup[]>;
   subjects: SubjectData[];
@@ -168,16 +190,19 @@ export function SearchOverlay({
 
   useEffect(() => {
     if (!isOpen) return;
-    setQuery("");
+    const preset = initialQuery.trim();
+    setQuery(preset);
     setFollowUp("");
-    setSubmittedQuery("");
-    setMode("idle");
+    setSubmittedQuery(preset);
+    setMode(preset ? "thinking" : "idle");
     setNotice("");
     setSourcesOpen(false);
     setVoiceStatus("idle");
     setAddMenuOpen(false);
-    setTimeout(() => inputRef.current?.focus(), 80);
-  }, [isOpen]);
+    if (timerRef.current) window.clearTimeout(timerRef.current);
+    if (preset) timerRef.current = window.setTimeout(() => setMode("answered"), 720);
+    else setTimeout(() => inputRef.current?.focus(), 80);
+  }, [isOpen, initialQuery]);
 
   useEffect(() => () => {
     if (timerRef.current) window.clearTimeout(timerRef.current);

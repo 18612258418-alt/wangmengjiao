@@ -106,6 +106,7 @@ export default function App() {
   const [drawerCardSubject, setDrawerCardSubject] = useState<string>("");
   const [showSearch, setShowSearch] = useState(false);
   const [searchStartsWithVoice, setSearchStartsWithVoice] = useState(false);
+  const [searchInitialQuery, setSearchInitialQuery] = useState("");
   const [sourceSearchTarget, setSourceSearchTarget] = useState<string | null>(null);
   const [showAddSource, setShowAddSource] = useState(false);
   const [pdfReaderFile, setPdfReaderFile] = useState<File | null>(null);
@@ -1240,6 +1241,13 @@ export default function App() {
               }}
               onProject={() => { setActiveWorkspace("project"); setActiveResearchTitle("短视频平台与大学生冲动消费研究"); setResearchDetailOpen(true); }}
               onGoals={() => setActiveWorkspace("goals")}
+              onSearch={(query) => {
+                setSearchInitialQuery(query);
+                setSearchStartsWithVoice(false);
+                setShowSearch(true);
+              }}
+              onAddSource={() => setShowAddSource(true)}
+              onOpenRecorder={() => setShowVoice(true)}
               memorySuggestion={memorySuggestedTask}
             />
           )}
@@ -1367,9 +1375,11 @@ export default function App() {
         <SearchOverlay
           isOpen={showSearch}
           startWithVoice={searchStartsWithVoice}
+          initialQuery={searchInitialQuery}
           onClose={() => {
             setShowSearch(false);
             setSearchStartsWithVoice(false);
+            setSearchInitialQuery("");
           }}
           allFeedGroups={allFeedGroups}
           subjects={subjects}
