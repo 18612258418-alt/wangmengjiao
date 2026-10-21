@@ -205,3 +205,29 @@
   mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
   animation: voice-insight-rainbow-spin 1.15s linear infinite;
 }
+
+@keyframes voice-subtitle-current-in {
+  0% { opacity: 0; transform: translateY(7px) scale(.94); filter: blur(2px); }
+  55% { opacity: 1; transform: translateY(-1px) scale(1.025); filter: blur(0); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+@keyframes voice-subtitle-previous-up {
+  0% { opacity: .9; transform: translateY(5px) scale(1); color: #697180; }
+  100% { opacity: .62; transform: translateY(-2px) scale(.94); color: #aeb3be; }
+}
+
+.voice-subtitle-current {
+  transform-origin: center bottom;
+  animation: voice-subtitle-current-in .48s cubic-bezier(.2,.8,.2,1) both;
+}
+
+.voice-subtitle-previous {
+  transform-origin: center bottom;
+  animation: voice-subtitle-previous-up .42s cubic-bezier(.2,.8,.2,1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-subtitle-current,
+  .voice-subtitle-previous { animation: none; }
+}

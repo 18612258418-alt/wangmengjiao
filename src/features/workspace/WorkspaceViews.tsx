@@ -76,7 +76,7 @@ export function TodayView({onTask,onClassSession,onPractice,onProject,onGoals,on
   const startSearch=(value=searchQuery)=>{const next=value.trim();if(!next)return;onSearch(next);};
   const searchSuggestions=["找上周高数课讲过的换元法","根据最近错题，告诉我先复习什么","总结这份课件的考试重点"];
   return <Page eyebrow={todayLabel} title="今天想找什么，或者完成什么？" subtitle="先从你的资料中找依据，再回答问题或给出下一步建议。" action={<button onClick={()=>setShowSemester(true)} className="rounded-full bg-[#EEF2FF] px-4 py-2 text-[11px] font-semibold text-[#4D5CFF] hover:bg-[#E4E9FF]">查看学期课表</button>}><div className="max-w-[900px]">
-    <section className="relative overflow-hidden rounded-[28px] bg-[linear-gradient(135deg,#EEF1FF_0%,#F7F9FF_58%,#EAF7FF_100%)] p-6 shadow-[0_14px_40px_rgba(62,76,150,.09)] ring-1 ring-[#E0E5F5]">
+    <section className="hidden">
       <div className="flex items-center gap-2 text-[#4D5CFF]"><Sparkles size={16}/><span className="text-[11px] font-bold tracking-[.08em]">问 MEMO</span></div>
       <form onSubmit={event=>{event.preventDefault();startSearch();}} className="mt-4 flex h-[66px] items-center rounded-2xl bg-white px-4 shadow-[0_10px_28px_rgba(55,72,132,.10)] ring-1 ring-white focus-within:ring-[#AEB8FF]">
         <Search size={20} className="shrink-0 text-[#7C8492]"/>

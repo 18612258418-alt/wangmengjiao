@@ -149,6 +149,7 @@ export function SearchOverlay({
   isOpen,
   startWithVoice = false,
   initialQuery = "",
+  onOpen,
   onClose,
   allFeedGroups,
   subjects,
@@ -161,6 +162,7 @@ export function SearchOverlay({
   isOpen: boolean;
   startWithVoice?: boolean;
   initialQuery?: string;
+  onOpen: () => void;
   onClose: () => void;
   allFeedGroups: Record<string, FeedGroup[]>;
   subjects: SubjectData[];
@@ -396,29 +398,26 @@ export function SearchOverlay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, startWithVoice]);
 
-  if (!isOpen) return null;
+  if (!isOpen) return <button type="button" onClick={onOpen} className="fixed left-1/2 top-4 z-[180] flex h-14 w-[min(620px,calc(100vw-32px))] -translate-x-1/2 items-center gap-3 rounded-full border border-white/80 bg-[#20232B]/95 px-5 text-left text-white shadow-[0_14px_38px_rgba(28,33,45,.24)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:shadow-[0_18px_46px_rgba(28,33,45,.28)]" aria-label="打开 Memo AI 对话">
+    <span className="relative grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,#7E8BFF,#C76CDD)]"><Sparkles size={15}/><span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#20232B] bg-[#41D39C]"/></span>
+    <span className="min-w-0 flex-1"><b className="block text-[12px] font-semibold">问 Memo</b><span className="block truncate text-[10px] text-white/55">找资料、问问题，或继续完成一件事</span></span>
+    <span className="rounded-full bg-white/10 px-3 py-1.5 text-[9px] text-white/65">⌘ K</span>
+  </button>;
 
   if (mode === "idle") {
     return (
-      <div className="fixed inset-0 z-[220] overflow-hidden bg-[#F7F8FA] text-[#171A24]">
-        <div className="absolute inset-x-0 top-0 h-[78%] bg-[radial-gradient(ellipse_at_52%_50%,rgba(183,220,255,.88)_0%,rgba(218,235,252,.72)_34%,rgba(244,247,250,.45)_68%,rgba(247,248,250,0)_88%)]"/>
-        <button onClick={onClose} aria-label="返回" className="absolute left-8 top-8 z-10 grid h-11 w-11 place-items-center rounded-full text-[#555D68] transition hover:bg-white/60">
-          <ArrowLeft size={23}/>
-        </button>
-
-        <main className="relative z-10 mx-auto flex h-full w-full max-w-[1120px] flex-col justify-center px-8 pb-[13vh]">
-          <h1 className="text-center text-[42px] font-light tracking-[-.045em] text-[#2F3339]">你想找什么，或者继续做什么？</h1>
-
-          <div className="relative mt-12">
-          <div className="flex h-[96px] items-center rounded-full bg-white px-5 shadow-[0_14px_38px_rgba(84,126,166,.18)] ring-1 ring-white/80 focus-within:ring-[#B9C9F6]">
+      <div className="fixed left-1/2 top-4 z-[220] w-[min(760px,calc(100vw-48px))] -translate-x-1/2 overflow-visible rounded-[30px] border border-white/80 bg-[#F9FAFC]/95 p-2 text-[#171A24] shadow-[0_20px_60px_rgba(35,42,60,.22)] backdrop-blur-xl">
+          <div className="relative">
+          <div className="flex h-16 items-center rounded-full bg-white px-3 shadow-sm ring-1 ring-[#E3E6ED] focus-within:ring-[#AEB7FF]">
+            <span className="ml-1 grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,#7887FF,#C36DD8)] text-white"><Sparkles size={18}/></span>
             <button
               type="button"
               onClick={() => setAddMenuOpen(open => !open)}
               aria-label={addMenuOpen ? "关闭添加菜单" : "添加资料"}
               aria-expanded={addMenuOpen}
-              className={`grid h-12 w-12 shrink-0 place-items-center rounded-full text-[#16191E] transition ${addMenuOpen ? "bg-[#F1F4F8]" : "hover:bg-[#F3F5F8]"}`}
+              className={`ml-1 grid h-10 w-10 shrink-0 place-items-center rounded-full text-[#616977] transition ${addMenuOpen ? "bg-[#F1F4F8]" : "hover:bg-[#F3F5F8]"}`}
             >
-              {addMenuOpen ? <X size={27} strokeWidth={2}/> : <Plus size={27}/>} 
+              {addMenuOpen ? <X size={20} strokeWidth={2}/> : <Plus size={20}/>}
             </button>
             {voiceStatus === "listening" || voiceStatus === "processing" ? (
               <>
@@ -440,18 +439,19 @@ export function SearchOverlay({
                   onChange={event => setQuery(event.target.value)}
                   onKeyDown={event => { if (event.key === "Enter" && query.trim()) submit(); }}
                   placeholder="找记忆、问问题，或让 Memo 帮你完成一件事"
-                  className="min-w-0 flex-1 bg-transparent px-3 text-[17px] text-[#292D33] outline-none placeholder:text-[#777D86]"
+                  className="min-w-0 flex-1 bg-transparent px-3 text-[14px] text-[#292D33] outline-none placeholder:text-[#8C929C]"
                 />
                 {voiceStatus === "requesting" && <span className="shrink-0 text-[12px] font-medium text-[#5967D9]">正在连接麦克风…</span>}
                 {voiceStatus === "error" && <span className="shrink-0 text-[12px] font-medium text-[#C45C54]">麦克风暂不可用</span>}
                 <button type="button" onClick={toggleVoiceInput} aria-label="语音输入" className={`ml-1 grid h-11 w-11 shrink-0 place-items-center rounded-full transition ${voiceStatus === "requesting" ? "bg-[#EEF0FF] text-[#4D5CFF]" : "text-[#20242A] hover:bg-[#F4F6F8]"}`}><Mic size={21}/></button>
                 {query.trim() && <button onClick={() => submit()} aria-label="发送" className="ml-1 grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#4D5CFF] text-white"><Send size={17}/></button>}
+                <button type="button" onClick={onClose} aria-label="收起" className="ml-1 grid h-10 w-10 shrink-0 place-items-center rounded-full text-[#8B929E] hover:bg-[#F2F3F6]"><ChevronUp size={18}/></button>
               </>
             )}
           </div>
 
           {addMenuOpen && (
-            <div className="absolute left-5 top-[110px] z-20 w-[360px] overflow-hidden rounded-[28px] bg-white px-5 py-5 shadow-[0_18px_52px_rgba(55,78,108,.18)] ring-1 ring-black/[.025]">
+            <div className="absolute left-12 top-[74px] z-20 w-[320px] overflow-hidden rounded-[22px] bg-white px-4 py-4 shadow-[0_18px_52px_rgba(55,78,108,.18)] ring-1 ring-black/[.025]">
               <div className="space-y-1">
                 <button type="button" onClick={openAddSource} className="flex h-14 w-full items-center gap-5 rounded-2xl px-3 text-left text-[17px] text-[#171A1F] transition hover:bg-[#F5F7FA]">
                   <Paperclip size={22} strokeWidth={1.9}/><span>上传文件</span>
@@ -471,20 +471,19 @@ export function SearchOverlay({
           )}
           </div>
 
-          <div className="mt-9 space-y-2 pl-5">
+          <div className="flex flex-wrap gap-2 px-3 pb-2 pt-3">
             {suggestions.slice(0, 3).map(({ text }) => (
-              <button key={text} onClick={() => submit(text)} className="flex w-fit items-center gap-4 rounded-xl px-3 py-2.5 text-left text-[15px] text-[#252A31] transition hover:bg-white/55">
-                <span className="text-[22px] leading-none">↪</span><span>{text}</span>
+              <button key={text} onClick={() => submit(text)} className="rounded-full bg-white px-3 py-2 text-left text-[10px] text-[#5F6674] ring-1 ring-[#E4E8F0] transition hover:text-[#4D5CFF]">
+                {text}
               </button>
             ))}
           </div>
-        </main>
       </div>
     );
   }
 
   return (
-    <div className="fixed inset-0 z-[220] flex flex-col bg-[#F4F5F9] text-[#171A24]">
+    <div className="fixed left-1/2 top-4 z-[220] flex max-h-[calc(100vh-32px)] w-[min(920px,calc(100vw-48px))] -translate-x-1/2 flex-col overflow-hidden rounded-[30px] border border-white/80 bg-[#F4F5F9]/98 text-[#171A24] shadow-[0_24px_80px_rgba(31,38,58,.25)] backdrop-blur-xl">
       <style>{`
         @keyframes memoSearchEnter { from { opacity: 0; transform: translateY(-8px) } to { opacity: 1; transform: translateY(0) } }
         @keyframes memoPulse { 0%,100% { opacity:.38 } 50% { opacity:1 } }

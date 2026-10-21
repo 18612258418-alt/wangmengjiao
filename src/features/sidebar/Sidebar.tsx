@@ -60,11 +60,7 @@ export function Sidebar({ activeWorkspace, activeSubject, onSelectWorkspace, onS
         <span className="grid h-10 w-10 place-items-center rounded-[14px] bg-gradient-to-br from-[#EC6392] via-[#CB6CDA] to-[#618AFF] text-white"><Sparkles size={19}/></span>
         <span className="block text-[22px] font-bold leading-none text-[#020418]">Memo</span>
       </button>
-      <div className="mt-3 flex h-11 items-center gap-2">
-        <button onClick={onOpenSearch} className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-2xl bg-white px-3 text-left shadow-sm ring-1 ring-[#E5E8EF] transition hover:shadow-md focus:ring-[#BBC3FF]" aria-label="问 Memo">
-          <Search size={17} className="shrink-0 text-[#7C8492]"/>
-          <span className={`block truncate text-[12px] font-medium text-[#9AA0AA] transition-all duration-300 ${promptVisible ? "translate-y-0 opacity-100" : "-translate-y-1 opacity-0"}`}>{memoPrompts[promptIndex]}</span>
-        </button>
+      <div className="mt-3 flex h-11 items-center justify-end gap-2">
         <button onClick={onUploadFile} className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-white text-[#555C69] shadow-sm ring-1 ring-[#E5E8EF] transition hover:bg-[#F8F9FB] hover:text-[#20242C] hover:shadow-md" aria-label="添加资料">
           <Plus size={20}/>
         </button>

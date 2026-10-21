@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { X, Square, Loader2, BookmarkCheck, Minimize2, Maximize2, Pause, Play, Search, AudioLines, FileText, MoreHorizontal, Check, Sparkles, Bot, Clock3, ChevronDown, ChevronRight, Network } from "lucide-react";
+import { X, Square, Loader2, BookmarkCheck, Minimize2, Maximize2, Pause, Play, Search, AudioLines, FileText, MoreHorizontal, Check, Sparkles, Bot, Clock3, ChevronDown, ChevronRight, Network, ArrowLeft } from "lucide-react";
 import { DEMO_TRANSCRIPT } from "./demoTranscript";
 
 interface Props {
@@ -36,19 +36,20 @@ const DEMO_SPINNER_MS = 180;
 
 // 随机波形柱高度（录音时动态更新）
 function useWaveform(active: boolean) {
-  const [bars, setBars] = useState(() => Array.from({ length: 28 }, () => 0.15));
+  const [bars, setBars] = useState(() => Array.from({ length: 72 }, (_, index) => 0.22 + Math.sin(index * .45) * .04));
 
   useEffect(() => {
     if (!active) {
-      setBars(Array.from({ length: 28 }, () => 0.15));
+      setBars(Array.from({ length: 72 }, (_, index) => 0.22 + Math.sin(index * .45) * .04));
       return;
     }
     const id = setInterval(() => {
       setBars(prev => prev.map((v, i) => {
-        const target = Math.random() * 0.7 + 0.15;
-        return v + (target - v) * (0.25 + Math.sin(i) * 0.1);
+        const neighboringWave = .28 + Math.sin(Date.now() / 310 + i * .34) * .12;
+        const target = neighboringWave + Math.random() * .22;
+        return v + (target - v) * .14;
       }));
-    }, 80);
+    }, 120);
     return () => clearInterval(id);
   }, [active]);
 
@@ -106,6 +107,7 @@ export function VoiceModal({ onClose, onSave, saveLocation = "当前学科 / 笔
   const [rightTab, setRightTab] = useState<RightPanelTab>("insights");
   const [selectedInsightId, setSelectedInsightId] = useState<string>();
   const [expandedInsightId, setExpandedInsightId] = useState<string>();
+  const [expandedSubpointKey, setExpandedSubpointKey] = useState<string>();
   const [anchorNotice, setAnchorNotice] = useState<string>();
   const [insightPlayhead, setInsightPlayhead] = useState(0);
   const [insightPlaying, setInsightPlaying] = useState(false);
@@ -398,6 +400,32 @@ export function VoiceModal({ onClose, onSave, saveLocation = "当前学科 / 笔
     [panelText, seconds],
   );
   const activeTranscriptSegment = [...transcriptSegments].reverse().find(segment => insightPlayhead >= segment.startTime);
+  const liveSubtitle = useMemo(() => {
+    const clean = liveTranscript.replace(/\s+/g, "").trim();
+    if (!clean) return { previous: "", current: "正在识别老师和同学的讲话…" };
+    const sentences = clean.match(/[^。！？!?；;]+[。！？!?；;]?/g) ?? [clean];
+    if (sentences.length > 1) {
+      return {
+        previous: sentences.at(-2)?.slice(-38) ?? "",
+        current: sentences.at(-1)?.slice(-42) ?? "",
+      };
+    }
+    return {
+      previous: clean.length > 42 ? clean.slice(-76, -38) : "",
+      current: clean.slice(-42),
+    };
+  }, [liveTranscript]);
+  const subtitleLines = useMemo(() => {
+    if (!canSeekInsights || transcriptSegments.length === 0) return liveSubtitle;
+    const activeIndex = Math.max(0, transcriptSegments.findIndex(segment => segment.id === activeTranscriptSegment?.id));
+    return {
+      previous: activeIndex > 0 ? transcriptSegments[activeIndex - 1].text.slice(-42) : "",
+      current: transcriptSegments[activeIndex]?.text.slice(0, 48) ?? "",
+    };
+  }, [activeTranscriptSegment?.id, canSeekInsights, liveSubtitle, transcriptSegments]);
+  const subtitleAnimationKey = canSeekInsights
+    ? activeTranscriptSegment?.id ?? "playback-start"
+    : `live-${liveTranscript.match(/[。！？!?；;]/g)?.length ?? 0}`;
 
   const seekToTranscript = (time: number) => {
     if (!canSeekInsights) return;
@@ -466,12 +494,9 @@ export function VoiceModal({ onClose, onSave, saveLocation = "当前学科 / 笔
             )}
             <div className="flex h-16 shrink-0 items-center gap-5 border-b border-[#ECEEF2] px-5">
               <input value={title} onChange={e=>setTitle(e.target.value)} className="min-w-0 max-w-[320px] flex-1 bg-transparent text-[14px] font-semibold text-[#2B303B] outline-none" aria-label="录音标题"/>
-              <div className="ml-auto flex h-9 items-center rounded-xl bg-[#F2F3F6] p-1">
-                <button type="button" onClick={() => setRightTab("transcript")} className={`flex h-7 items-center gap-1.5 rounded-lg px-4 text-[10px] font-semibold transition ${rightTab === "transcript" ? "bg-white text-[#39404D] shadow-sm" : "text-[#8A919E]"}`}><FileText size={13}/>转写</button>
-                <button type="button" onClick={() => setRightTab("insights")} className={`flex h-7 items-center gap-1.5 rounded-lg px-4 text-[10px] font-semibold transition ${rightTab === "insights" ? "bg-white text-[#4D5CFF] shadow-sm" : "text-[#8A919E]"}`}><Bot size={14}/>知识总结</button>
-              </div>
+              {rightTab === "transcript" && <button type="button" onClick={() => setRightTab("insights")} className="ml-auto flex h-9 items-center gap-1.5 rounded-full bg-[#F1F3F6] px-4 text-[10px] font-semibold text-[#596170] transition hover:bg-[#E8EBF1]" aria-label="返回知识总结"><ArrowLeft size={13}/>返回知识总结</button>}
             </div>
-            <div className={`min-h-0 flex-1 overflow-y-auto p-5 ${(phase === "recording" || phase === "paused" || phase === "saved") ? "pb-24" : ""}`}>
+            <div className={`min-h-0 flex-1 overflow-y-auto p-5 ${(phase === "recording" || phase === "paused" || phase === "done" || phase === "saved") ? "pb-48" : ""}`}>
               {rightTab === "transcript" ? (
                 panelText ? <div><p className="mb-5 flex items-center gap-1.5 text-[10px] text-[#9AA1AE]"><Clock3 size={12}/>{canSeekInsights ? "点击时间戳，可从该段开始回听" : "录音结束并完成对齐后，可点击时间戳回听"}</p><div className="space-y-5">{transcriptSegments.map(segment => { const active = canSeekInsights && activeTranscriptSegment?.id === segment.id; return <div key={segment.id} className={`rounded-xl px-2 py-1 transition ${active ? "bg-[#F1F3FF]" : ""}`}><p className="text-[12px] leading-7 text-[#4C5360]"><button type="button" disabled={!canSeekInsights} onClick={() => seekToTranscript(segment.startTime)} className={`mr-2 inline-block font-mono text-[11px] font-bold tabular-nums underline decoration-2 underline-offset-4 transition ${active ? "text-[#4D5CFF]" : canSeekInsights ? "text-[#168ACB] hover:text-[#4D5CFF]" : "cursor-default text-[#A0A7B3] no-underline"}`} title={canSeekInsights ? `从 ${fmt(segment.startTime)} 开始播放` : "录音结束后可跳转"}>{fmt(segment.startTime)}</button>{segment.text}{phase === "recording" && segment.id === transcriptSegments[transcriptSegments.length - 1]?.id && <span className="ml-1 inline-block h-4 w-[2px] animate-pulse align-middle bg-[#4D5CFF]"/>}</p></div>})}</div></div> : <div className="flex h-full flex-col items-center justify-center text-center"><span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#F4F5F8] text-[#B2B7C1]"><FileText size={21}/></span><b className="mt-4 text-[12px] text-[#626977]">等待转写内容</b><p className="mt-1 max-w-[210px] text-[10px] leading-5 text-[#A0A6B2]">开始录音后，识别出的文字会实时出现在这里</p></div>
               ) : visibleInsights.length > 0 ? (
@@ -486,6 +511,8 @@ export function VoiceModal({ onClose, onSave, saveLocation = "当前学科 / 笔
                       const selected = selectedInsightId === item.id;
                       const currentLiveInsight = !canSeekInsights && index === visibleInsights.length - 1;
                       const expanded = currentLiveInsight || (canSeekInsights && expandedInsightId === item.id);
+                      const liveCardProgress = Math.max(0, Math.min(1, ((liveTranscript || transcript).length / Math.max(1, DEMO_TRANSCRIPT.length)) * DEMO_INSIGHTS.length - index));
+                      const revealedSubpoints = canSeekInsights ? item.subpoints.length : currentLiveInsight ? Math.max(1, Math.ceil(liveCardProgress * item.subpoints.length)) : 0;
                       return <div ref={currentLiveInsight ? currentInsightRef : undefined} key={item.id} className={`relative mb-4 w-full rounded-2xl border transition-all duration-300 ${expanded ? "border-[#D9DDFF] bg-[linear-gradient(135deg,#F5F6FF,#FBFAFF)] shadow-[0_8px_22px_rgba(77,92,255,.10)]" : "border-[#ECEEF3] bg-white hover:bg-[#F8F9FC]"}`}>
                         {index < visibleInsights.length - 1 && <span className="absolute -left-[27px] top-5 h-[calc(100%+1rem)] w-px bg-[#E0E3E9]"/>}
                         <span className={`absolute -left-[39px] top-2 z-10 grid h-6 w-6 place-items-center rounded-full border-2 border-white text-[8px] font-bold transition-colors ${currentLiveInsight ? "voice-insight-rainbow" : ""} ${expanded ? "bg-white text-[#252A35] shadow-[0_0_7px_rgba(77,92,255,.20)]" : "bg-[#AEB4BF] text-white"}`}><span className="relative z-10">{item.number}</span></span>
@@ -493,27 +520,30 @@ export function VoiceModal({ onClose, onSave, saveLocation = "当前学科 / 笔
                         <span className={`flex items-center gap-2 text-[10px] font-semibold text-[#9298A4] ${canSeekInsights ? "pr-9" : ""}`}><span>{canSeekInsights ? fmt(item.time) : `约 ${fmt(item.time)}`}</span>{item.kind === "risk" && <span className="rounded-full bg-[#FFF1E6] px-2 py-1 text-[8px] font-bold text-[#C56A24]">易错点</span>}{item.kind === "task" && <span className="rounded-full bg-[#EAF7F0] px-2 py-1 text-[8px] font-bold text-[#27845D]">待办</span>}</span>
                         <strong className="mt-2.5 block pr-9 text-[13px] leading-6 text-[#171B24]">{item.title}</strong>
                         <span className="absolute right-2 top-3 grid h-8 w-7 place-items-center">{expanded ? <ChevronDown size={16} className="text-[#4D5CFF]"/> : <ChevronRight size={16} className="text-[#9298A4]"/>}</span>
-                        {expanded && <span className="mt-3 block border-t border-[#E6E8F5] pt-3">
+                        <span aria-hidden={!expanded} className={`block overflow-hidden transition-[max-height,opacity,margin,padding] duration-500 ease-[cubic-bezier(.2,.8,.2,1)] ${expanded ? "mt-3 max-h-[1100px] border-t border-[#E6E8F5] pt-3 opacity-100" : "pointer-events-none mt-0 max-h-0 pt-0 opacity-0"}`}>
                           <span className="block text-[11px] leading-6 text-[#4F5664]">{item.summary}</span>
                           <span className="mt-4 block space-y-4">{item.subpoints.map((point, subIndex) => {
                             const pointTitle = point.replace(/^\d+\.\d+\s*/, "");
                             const pointNumber = `${item.number}.${subIndex + 1}`;
-                            const pointTime = item.time + subIndex * 12;
-                            return <span key={point} className="grid grid-cols-[34px_1fr] gap-2.5">
+                            const pointKey = `${item.id}-${subIndex}`;
+                            const subpointExpanded = currentLiveInsight ? subIndex === revealedSubpoints - 1 : expandedSubpointKey === pointKey;
+                            return <span key={point} className={`grid grid-cols-[34px_1fr] gap-2.5 overflow-hidden transition-[max-height,opacity,transform] duration-500 ease-[cubic-bezier(.2,.8,.2,1)] ${subIndex < revealedSubpoints ? "max-h-[280px] translate-y-0 opacity-100" : "max-h-0 translate-y-2 opacity-0"}`} style={{transitionDelay: subIndex < revealedSubpoints ? `${subIndex * 90}ms` : "0ms"}}>
                               <span className="grid h-7 place-items-center rounded-lg border border-[#DDE1FF] bg-white text-[9px] font-bold text-[#4D5CFF]">{pointNumber}</span>
                               <span className="min-w-0">
-                                <span className="flex flex-wrap items-center gap-2"><b className="text-[11px] leading-5 text-[#252A35]">{pointTitle}</b><span className="inline-flex items-center gap-1 rounded-full bg-[#F1F2F6] px-2 py-0.5 font-mono text-[8px] text-[#858D9A]"><Clock3 size={9}/>{fmt(pointTime)}</span></span>
-                                <span className="mt-1 block text-[9px] leading-[18px] text-[#687080]">{INSIGHT_DETAIL_COPY[item.id]?.[subIndex]}</span>
-                                {item.id === "insight_1" && subIndex === 0 && <span className="mt-2 block rounded-lg bg-[linear-gradient(90deg,#F0F4FF,#F7F4FF)] px-3 py-2 text-center font-serif text-[14px] text-[#333A54]">x(t) = A cos(ωt + φ₀)</span>}
-                                {item.id === "insight_1" && subIndex === 1 && <span className="mt-2 grid grid-cols-2 gap-2 rounded-xl bg-white p-2 ring-1 ring-[#E7E9F2]"><span className="relative block h-16 rounded-lg bg-[#F7F8FB]"><i className="absolute left-1/2 top-2 h-12 w-12 -translate-x-1/2 rounded-full border border-[#C9CFDC]"/><i className="absolute left-1/2 top-1/2 h-px w-11 -translate-x-1/2 bg-[#AAB2C1]"/><i className="absolute left-1/2 top-1/2 h-0.5 w-7 origin-left -rotate-45 bg-[#4D7BFF]"/></span><span className="relative block h-16 overflow-hidden rounded-lg bg-[#F7F8FB]"><svg viewBox="0 0 150 64" className="h-full w-full" aria-label="简谐振动曲线"><path d="M0 32 C18 2 36 2 54 32 S90 62 108 32 S132 2 150 32" fill="none" stroke="#4D7BFF" strokeWidth="2"/><path d="M0 32H150" stroke="#CBD0DB" strokeWidth="1"/></svg></span><span className="col-span-2 flex justify-between px-1 text-[7px] text-[#9AA1AD]"><span>旋转矢量示意</span><span>对应的简谐振动</span></span></span>}
-                                {item.id === "insight_2" && subIndex === 0 && <span className="mt-2 flex gap-2 rounded-lg bg-[#FFF5E9] px-3 py-2 text-[9px] leading-4 text-[#B76722]"><span className="font-bold">易错提醒</span><span>只有相位差为 0 时，合振幅才等于 A₁ + A₂。</span></span>}
-                                {item.id === "insight_2" && subIndex === 1 && <span className="mt-2 block rounded-lg bg-[linear-gradient(90deg,#F0F4FF,#F7F4FF)] px-2 py-2 text-center font-serif text-[12px] text-[#333A54]">R = √(A₁² + A₂² + 2A₁A₂ cos Δφ)</span>}
+                                <span className="flex items-center gap-2"><b className="min-w-0 flex-1 text-[11px] leading-5 text-[#252A35]">{pointTitle}</b><span role="button" tabIndex={canSeekInsights ? 0 : -1} onClick={event => { if (!canSeekInsights) return; event.stopPropagation(); setExpandedSubpointKey(value => value === pointKey ? undefined : pointKey); }} onKeyDown={event => { if (!canSeekInsights || (event.key !== "Enter" && event.key !== " ")) return; event.preventDefault(); event.stopPropagation(); setExpandedSubpointKey(value => value === pointKey ? undefined : pointKey); }} className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-[#818998] transition ${canSeekInsights ? "cursor-pointer hover:bg-[#ECEEFF] hover:text-[#4D5CFF]" : "cursor-default"}`} aria-label={subpointExpanded ? `收起${pointTitle}` : `展开${pointTitle}`}><ChevronDown size={13} className={`transition-transform duration-300 ${subpointExpanded ? "rotate-0" : "-rotate-90"}`}/></span></span>
+                                <span className={`block overflow-hidden transition-[max-height,opacity,transform,margin] duration-500 ease-[cubic-bezier(.2,.8,.2,1)] ${subpointExpanded ? "mt-1 max-h-[220px] translate-y-0 opacity-100" : "mt-0 max-h-0 -translate-y-1 opacity-0"}`}>
+                                  <span className="block text-[9px] leading-[18px] text-[#687080]">{INSIGHT_DETAIL_COPY[item.id]?.[subIndex]}</span>
+                                  {item.id === "insight_1" && subIndex === 0 && <span className="mt-2 block rounded-lg bg-[linear-gradient(90deg,#F0F4FF,#F7F4FF)] px-3 py-2 text-center font-serif text-[14px] text-[#333A54]">x(t) = A cos(ωt + φ₀)</span>}
+                                  {item.id === "insight_1" && subIndex === 1 && <span className="mt-2 grid grid-cols-2 gap-2 rounded-xl bg-white p-2 ring-1 ring-[#E7E9F2]"><span className="relative block h-16 rounded-lg bg-[#F7F8FB]"><i className="absolute left-1/2 top-2 h-12 w-12 -translate-x-1/2 rounded-full border border-[#C9CFDC]"/><i className="absolute left-1/2 top-1/2 h-px w-11 -translate-x-1/2 bg-[#AAB2C1]"/><i className="absolute left-1/2 top-1/2 h-0.5 w-7 origin-left -rotate-45 bg-[#4D7BFF]"/></span><span className="relative block h-16 overflow-hidden rounded-lg bg-[#F7F8FB]"><svg viewBox="0 0 150 64" className="h-full w-full" aria-label="简谐振动曲线"><path d="M0 32 C18 2 36 2 54 32 S90 62 108 32 S132 2 150 32" fill="none" stroke="#4D7BFF" strokeWidth="2"/><path d="M0 32H150" stroke="#CBD0DB" strokeWidth="1"/></svg></span><span className="col-span-2 flex justify-between px-1 text-[7px] text-[#9AA1AD]"><span>旋转矢量示意</span><span>对应的简谐振动</span></span></span>}
+                                  {item.id === "insight_2" && subIndex === 0 && <span className="mt-2 flex gap-2 rounded-lg bg-[#FFF5E9] px-3 py-2 text-[9px] leading-4 text-[#B76722]"><span className="font-bold">易错提醒</span><span>只有相位差为 0 时，合振幅才等于 A₁ + A₂。</span></span>}
+                                  {item.id === "insight_2" && subIndex === 1 && <span className="mt-2 block rounded-lg bg-[linear-gradient(90deg,#F0F4FF,#F7F4FF)] px-2 py-2 text-center font-serif text-[12px] text-[#333A54]">R = √(A₁² + A₂² + 2A₁A₂ cos Δφ)</span>}
+                                </span>
                               </span>
                             </span>;
                           })}</span>
                           {item.visual === "outline" && <span className="mt-4 block rounded-xl bg-white p-3 ring-1 ring-[#E5E8F4]"><span className="mb-2 flex items-center gap-1.5 text-[9px] font-semibold text-[#6972D9]"><Network size={12}/>知识脉络</span><span className="flex items-center justify-between gap-1 text-[8px] font-semibold text-[#5E6677]"><span className="rounded-md bg-[#EEF0FF] px-2 py-1.5">简谐振动</span><span className="text-[#B0B5C0]">→</span><span className="rounded-md bg-[#F5F6F9] px-2 py-1.5">振幅 A</span><span className="rounded-md bg-[#F5F6F9] px-2 py-1.5">角频率 ω</span><span className="rounded-md bg-[#F5F6F9] px-2 py-1.5">初相 φ₀</span></span></span>}
                           {currentLiveInsight && <span className="mt-4 block border-t border-[#E8EAF2] pt-4" aria-label="正在生成更多知识总结"><span className="mb-3 flex items-center gap-2 text-[8px] font-medium text-[#9AA1AE]"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#7C86DE]"/>正在补充细节</span><span className="block space-y-2.5"><span className="voice-insight-skeleton block h-3 w-[82%] rounded-full"/><span className="voice-insight-skeleton block h-3 w-full rounded-full"/><span className="voice-insight-skeleton block h-3 w-[64%] rounded-full"/><span className="voice-insight-skeleton mt-3 block h-14 w-full rounded-xl"/></span></span>}
-                        </span>}
+                        </span>
                         </button>
                         {canSeekInsights && <button type="button" onClick={() => seekToInsight(item.id, item.time)} className={`absolute right-10 top-3 grid h-8 w-8 place-items-center rounded-full transition ${selected && insightPlaying ? "bg-[#4D5CFF] text-white shadow-[0_4px_12px_rgba(77,92,255,.28)]" : "bg-[#EEF0FF] text-[#4D5CFF] hover:bg-[#E2E6FF]"}`} aria-label={`定位播放 ${item.title} ${fmt(item.time)}`}>{selected && insightPlaying ? <span className="flex items-end gap-[2px]"><i className="h-2 w-[2px] animate-pulse bg-current"/><i className="h-3 w-[2px] animate-pulse bg-current"/><i className="h-1.5 w-[2px] animate-pulse bg-current"/></span> : <Play size={12} fill="currentColor"/>}</button>}
                       </div>;
@@ -522,32 +552,29 @@ export function VoiceModal({ onClose, onSave, saveLocation = "当前学科 / 笔
                 </div>
               ) : <div className="flex h-full flex-col items-center justify-center text-center"><span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#F2F3FF] text-[#7A86FF]"><Sparkles size={21}/></span><b className="mt-4 text-[12px] text-[#626977]">等待 AI 洞察</b><p className="mt-1 max-w-[220px] text-[10px] leading-5 text-[#A0A6B2]">开始录音后，AI 会从转写中实时提炼关键内容</p></div>}
             </div>
-            {canSeekInsights && phase !== "saved" && <div className="shrink-0 border-t border-[#E5E8EF] bg-white px-4 py-3 shadow-[0_-8px_24px_rgba(31,38,58,.06)]">
-              <div className="flex items-center gap-3">
-                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#EEF0FF] text-[#4D5CFF]"><AudioLines size={18}/></span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2"><b className="truncate text-[10px] text-[#303642]">{title}</b><span className="shrink-0 font-mono text-[9px] tabular-nums text-[#8B92A0]">{canSeekInsights ? fmt(Math.floor(insightPlayhead)) : fmt(seconds)} / {canSeekInsights ? fmt(insightDuration) : "--:--"}</span></div>
-                  {canSeekInsights ? <input type="range" min={0} max={insightDuration} step={1} value={Math.min(insightPlayhead, insightDuration)} onChange={event => { const time = Number(event.target.value); setInsightPlayhead(time); if (previewAudioRef.current) previewAudioRef.current.currentTime = time; }} className="mt-2 h-1 w-full cursor-pointer accent-[#4D5CFF]" aria-label="录音播放进度"/> : <p className="mt-1.5 text-[9px] text-[#A0A6B2]">{phase === "paused" ? "录音已暂停" : "正在录音，完成后可回听"}</p>}
-                </div>
-                <button type="button" disabled={!canSeekInsights} onClick={toggleInsightPlayback} className={`grid h-11 w-11 shrink-0 place-items-center rounded-full transition ${canSeekInsights ? "bg-[#4D5CFF] text-white shadow-[0_5px_14px_rgba(77,92,255,.24)]" : "cursor-default bg-[#F0F2F5] text-[#B1B6C0]"}`} aria-label={canSeekInsights ? (insightPlaying ? "暂停录音" : "播放录音") : "录音完成后可播放"}>{canSeekInsights && insightPlaying ? <Pause size={16} fill="currentColor"/> : <Play size={16} fill="currentColor"/>}</button>
+            {(phase === "recording" || phase === "paused" || phase === "done" || phase === "saved") && rightTab === "insights" && <div className="absolute bottom-4 left-5 right-5 z-20">
+              <span className="pointer-events-none absolute -bottom-4 -left-5 -right-5 -top-16 z-0 bg-[linear-gradient(to_top,rgba(255,255,255,1)_0%,rgba(255,255,255,.96)_42%,rgba(255,255,255,.72)_68%,rgba(255,255,255,.28)_86%,transparent_100%)] backdrop-blur-[3px] [mask-image:linear-gradient(to_top,black_0%,black_66%,transparent_100%)]"/>
+              <div className="relative z-10 flex h-14 items-center gap-3 rounded-full border border-white bg-white/88 px-2.5 shadow-[0_12px_34px_rgba(39,47,72,.14)] ring-1 ring-[#E3E6EE]/80 backdrop-blur-2xl">
+                {canSeekInsights ? <button type="button" onClick={toggleInsightPlayback} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#F0F2F6] text-[#343A46] transition hover:bg-[#E7EAF0]" aria-label={insightPlaying ? "暂停录音" : "播放录音"}>{insightPlaying ? <Pause size={15} fill="currentColor"/> : <Play size={15} fill="currentColor"/>}</button> : <button onClick={phase === "paused" ? resumeRecording : pauseRecording} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#F0F2F6] text-[#343A46] transition hover:bg-[#E7EAF0]" aria-label={phase === "paused" ? "继续录音" : "暂停录音"}>{phase === "paused" ? <Play size={15} fill="currentColor"/> : <Pause size={15} fill="currentColor"/>}</button>}
+                <div className="min-w-0 flex-1 px-1"><div className="flex items-center justify-between gap-3"><b className="truncate text-[10px] text-[#353B47]">{title}</b><span className="shrink-0 font-mono text-[9px] tabular-nums text-[#858C99]">{canSeekInsights ? `${fmt(Math.floor(insightPlayhead))} / ${fmt(insightDuration)}` : fmt(seconds)}</span></div>{canSeekInsights ? <input type="range" min={0} max={insightDuration} step={1} value={Math.min(insightPlayhead, insightDuration)} onChange={event => { const time = Number(event.target.value); setInsightPlayhead(time); if (previewAudioRef.current) previewAudioRef.current.currentTime = time; }} className="mt-2 h-1 w-full cursor-pointer accent-[#4D5CFF]" aria-label="录音播放进度"/> : <div className="mt-1 flex h-4 w-full items-center gap-[2px] overflow-hidden" aria-label={phase === "paused" ? "录音波形已暂停" : "实时声音波形"}>{bars.map((height, index) => <i key={index} className={`min-w-px max-w-[3px] flex-1 rounded-full transition-[height,background-color,opacity] duration-300 ease-out ${phase === "recording" ? "bg-[#6674FF]" : "bg-[#B6BCC7]"}`} style={{height:`${Math.max(3, Math.round(height * 14))}px`, opacity: phase === "recording" ? .5 + height * .45 : .7}}/>)}</div>}</div>
+                {!canSeekInsights && <button onClick={stopRecording} className="flex h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-[#4D5CFF] px-5 text-[10px] font-semibold text-white shadow-[0_5px_14px_rgba(77,92,255,.22)]"><Square size={11} fill="currentColor"/>完成</button>}
+                {canSeekInsights && <span className="pr-3 text-[9px] font-semibold text-[#7E8592]">已完成</span>}
               </div>
+              <button type="button" onClick={() => setRightTab("transcript")} className="group relative z-10 mt-2 block w-full px-8 py-1.5 text-center" aria-label="展开完整转写">
+                {subtitleLines.previous && <span key={`previous-${subtitleAnimationKey}`} className="voice-subtitle-previous line-clamp-1 block text-[10px] leading-5 text-[#AEB3BE]">{subtitleLines.previous}</span>}
+                <span key={`current-${subtitleAnimationKey}`} className="voice-subtitle-current line-clamp-1 block text-[12px] font-semibold leading-6 tracking-[.01em] text-[#252A35] drop-shadow-[0_0_10px_rgba(77,92,255,.14)]">{subtitleLines.current}<span className={phase === "recording" ? "ml-1 inline-block h-3.5 w-[2px] animate-pulse align-middle bg-[#6674FF]" : ""}/></span>
+                <span className="mt-1 flex items-center justify-center gap-1 text-[8px] text-[#A0A6B2] opacity-70 transition group-hover:text-[#6674FF] group-hover:opacity-100"><ChevronDown size={12} className="rotate-180 transition-transform duration-300 group-hover:-translate-y-0.5"/>展开完整转写</span>
+              </button>
             </div>}
+            {rightTab === "transcript" && <button type="button" onClick={() => setRightTab("insights")} className="absolute bottom-3 left-1/2 z-20 grid h-7 w-10 -translate-x-1/2 place-items-center rounded-full border border-white bg-white/90 text-[#858D9A] shadow-[0_5px_16px_rgba(35,43,66,.14)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:text-[#4D5CFF]" aria-label="收起完整转写"><ChevronDown size={15}/></button>}
             {anchorNotice && <div className="pointer-events-none absolute left-1/2 top-[72px] z-10 -translate-x-1/2 rounded-full bg-[#252A35] px-3 py-2 text-[10px] font-semibold text-white shadow-lg">{anchorNotice}</div>}
           </aside>
-          {(phase === "idle" || phase === "recording" || phase === "paused") && <div className="absolute bottom-0 left-0 right-0 z-30 flex h-20 items-center justify-center gap-3 border-t border-[#E4E7EE] bg-white/95 shadow-[0_-8px_26px_rgba(31,38,58,.07)] backdrop-blur">
-            {phase === "idle" ? <button onClick={startRecording} className="flex h-12 min-w-[156px] items-center justify-center gap-2 rounded-full bg-[#FF4D57] px-7 text-[11px] font-semibold text-white shadow-[0_7px_18px_rgba(255,77,87,.24)]" aria-label="开始录音"><span className="grid h-6 w-6 place-items-center rounded-full border-2 border-white"><span className="h-2 w-2 rounded-full bg-white"/></span>开始录音</button> : <>
-              <button onClick={phase === "paused" ? resumeRecording : pauseRecording} className="flex h-12 min-w-[112px] items-center justify-center gap-2 rounded-full bg-[#F0F2F5] px-5 text-[11px] font-semibold text-[#343A46]" aria-label={phase === "paused" ? "继续录音" : "暂停录音"}>{phase === "paused" ? <Play size={16} fill="currentColor"/> : <Pause size={16} fill="currentColor"/>}{phase === "paused" ? "继续录音" : "暂停录音"}</button>
-              <button onClick={stopRecording} className="flex h-12 min-w-[132px] items-center justify-center gap-2 rounded-full bg-[#4D5CFF] px-6 text-[11px] font-semibold text-white shadow-[0_6px_16px_rgba(77,92,255,.22)]"><Square size={13} fill="currentColor"/>完成录音</button>
-            </>}
+          {phase === "idle" && <div className="absolute bottom-0 left-0 z-30 flex h-20 w-[250px] items-center px-4">
+            <button onClick={startRecording} className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#FF4D57] px-5 text-[11px] font-semibold text-white shadow-[0_7px_18px_rgba(255,77,87,.24)]" aria-label="开始录音"><span className="grid h-6 w-6 place-items-center rounded-full border-2 border-white"><span className="h-2 w-2 rounded-full bg-white"/></span>开始录音</button>
           </div>}
-          {phase === "saved" && <div className="absolute bottom-0 left-0 right-0 z-30 flex h-20 items-stretch border-t border-[#E4E7EE] bg-[#FAFBFD]/95 shadow-[0_-8px_26px_rgba(31,38,58,.06)] backdrop-blur">
-            <div className="flex w-[250px] shrink-0 items-center justify-center border-r border-[#E4E7EE] px-4">
-              <button type="button" onClick={startNewRecording} className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#EEF0F5] px-4 text-[11px] font-semibold text-[#505866] transition hover:bg-[#E5E8EF]" aria-label="开始新录音"><span className="grid h-6 w-6 place-items-center rounded-full border-2 border-[#89919F]"><span className="h-2 w-2 rounded-full bg-[#89919F]"/></span>开始新录音</button>
-            </div>
-            <div className="flex min-w-0 flex-1 items-center gap-3 px-5">
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#EEF0FF] text-[#4D5CFF]"><AudioLines size={18}/></span>
-              <div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><b className="truncate text-[10px] text-[#303642]">{title}</b><span className="shrink-0 font-mono text-[9px] tabular-nums text-[#8B92A0]">{fmt(Math.floor(insightPlayhead))} / {fmt(insightDuration)}</span></div><input type="range" min={0} max={insightDuration} step={1} value={Math.min(insightPlayhead, insightDuration)} onChange={event => { const time = Number(event.target.value); setInsightPlayhead(time); if (previewAudioRef.current) previewAudioRef.current.currentTime = time; }} className="mt-2 h-1 w-full cursor-pointer accent-[#4D5CFF]" aria-label="录音播放进度"/></div>
-              <button type="button" onClick={toggleInsightPlayback} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#E8EBFF] text-[#4D5CFF] transition hover:bg-[#DDE1FF]" aria-label={insightPlaying ? "暂停录音" : "播放录音"}>{insightPlaying ? <Pause size={16} fill="currentColor"/> : <Play size={16} fill="currentColor"/>}</button>
+          {phase === "saved" && <div className="absolute bottom-0 left-0 z-30 flex h-20 w-[250px] items-stretch">
+            <div className="flex w-full items-center justify-center px-4">
+              <button type="button" onClick={startNewRecording} className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#EEF0F5] px-4 text-[11px] font-semibold text-[#505866] transition hover:bg-[#E5E8EF]" aria-label="开始新录音"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[conic-gradient(from_20deg,#FF6B7A,#FFB84D,#72D7A7,#58A6FF,#826CFF,#E66BD4,#FF6B7A)] p-[2px] shadow-[0_3px_10px_rgba(104,113,255,.22)]"><span className="grid h-full w-full place-items-center rounded-full bg-white"><span className="h-2 w-2 rounded-full bg-[linear-gradient(135deg,#6574FF,#C06BEA)]"/></span></span>开始新录音</button>
             </div>
           </div>}
         </div>

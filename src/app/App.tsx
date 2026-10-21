@@ -123,6 +123,18 @@ export default function App() {
   const [voiceSourceCard, setVoiceSourceCard] = useState<CardData | null>(null);
   const [showFormFill, setShowFormFill] = useState(false);
   const [onboardingMode, setOnboardingMode] = useState<"first" | "demo" | null>(null);
+
+  useEffect(() => {
+    const openMemoDialog = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k") return;
+      event.preventDefault();
+      setSearchStartsWithVoice(false);
+      setSearchInitialQuery("");
+      setShowSearch(true);
+    };
+    window.addEventListener("keydown", openMemoDialog);
+    return () => window.removeEventListener("keydown", openMemoDialog);
+  }, []);
   const [flyPhase, setFlyPhase] = useState<"idle" | "center" | "corner" | "fading">("idle");
   const [flyImg, setFlyImg] = useState<string>("");
   const [sidebarLoading, setSidebarLoading] = useState(false);
@@ -1221,7 +1233,7 @@ export default function App() {
           todayCount={memorySuggestedTask ? 3 : 2}
         />
 
-        <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#F5F6FA]">
+        <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#F5F6FA] pt-20">
           {activeWorkspace === "today" && (
             <TodayView
               onTask={setActiveTodayTask}
@@ -1376,6 +1388,11 @@ export default function App() {
           isOpen={showSearch}
           startWithVoice={searchStartsWithVoice}
           initialQuery={searchInitialQuery}
+          onOpen={() => {
+            setSearchStartsWithVoice(false);
+            setSearchInitialQuery("");
+            setShowSearch(true);
+          }}
           onClose={() => {
             setShowSearch(false);
             setSearchStartsWithVoice(false);
