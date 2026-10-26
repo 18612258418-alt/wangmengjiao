@@ -12,15 +12,16 @@ import {
   FileText,
   FolderSync,
   Globe2,
+  Link2,
   Mic,
   Paperclip,
-  PenLine,
   PlayCircle,
   Plus,
   Search,
   Send,
   Sparkles,
   Square,
+  Trash2,
   X,
 } from "lucide-react";
 import type { CardData, FeedGroup, SubjectData } from "../../types";
@@ -158,6 +159,7 @@ export function SearchOverlay({
   onAddSource,
   onOpenCamera,
   onOpenVoice,
+  onOpenConnections,
 }: {
   isOpen: boolean;
   startWithVoice?: boolean;
@@ -171,6 +173,7 @@ export function SearchOverlay({
   onAddSource: () => void;
   onOpenCamera: () => void;
   onOpenVoice: () => void;
+  onOpenConnections: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [followUp, setFollowUp] = useState("");
@@ -180,6 +183,12 @@ export function SearchOverlay({
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>("idle");
   const [notice, setNotice] = useState("");
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [lumoEnabled, setLumoEnabled] = useState(false);
+  const [resultTab, setResultTab] = useState<"笔记"|"作业"|"资料">("笔记");
+  const [typedSummary, setTypedSummary] = useState("");
+  const [todayScrolled, setTodayScrolled] = useState(false);
+  const [todayScrollTop, setTodayScrollTop] = useState(0);
+  const [historyItems, setHistoryItems] = useState(["定积分换元法", "上周物理课的简谐振动", "英语论证结构", "最近做错的积分题", "明天需要预习什么", "误差测量实验"]);
   const inputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<number | null>(null);
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
@@ -213,11 +222,32 @@ export function SearchOverlay({
     microphoneStreamRef.current?.getTracks().forEach(track => track.stop());
   }, []);
 
+  useEffect(() => {
+    const handleTodayScroll = (event: Event) => {
+      const scrollTop = (event as CustomEvent<{ scrollTop: number }>).detail?.scrollTop ?? 0;
+      setTodayScrollTop(scrollTop);
+      setTodayScrolled(current => current ? scrollTop > 120 : scrollTop > 190);
+    };
+    window.addEventListener("memo-today-scroll", handleTodayScroll);
+    return () => window.removeEventListener("memo-today-scroll", handleTodayScroll);
+  }, []);
+
   const memoryMatches = useMemo(
     () => collectMatches(submittedQuery, allFeedGroups, subjects),
     [submittedQuery, allFeedGroups, subjects],
   );
-  const answer = useMemo(() => answerFor(submittedQuery), [submittedQuery]);
+  const answer = useMemo(() => ({ ...answerFor(submittedQuery), external: lumoEnabled }), [submittedQuery, lumoEnabled]);
+  useEffect(() => {
+    if (mode !== "answered") { setTypedSummary(""); return; }
+    setTypedSummary("");
+    let index = 0;
+    const timer = window.setInterval(() => {
+      index += 1;
+      setTypedSummary(answer.body.slice(0, index));
+      if (index >= answer.body.length) window.clearInterval(timer);
+    }, 22);
+    return () => window.clearInterval(timer);
+  }, [mode, answer.body]);
 
   const evidence = useMemo<EvidenceItem[]>(() => {
     const cardEvidence = memoryMatches.slice(0, 3).map(({ card, subject, date }) => ({
@@ -239,6 +269,7 @@ export function SearchOverlay({
     ] : [];
     return [...personal, ...web];
   }, [memoryMatches, answer.external]);
+  const displayedEvidence = evidence.filter(item => resultTab === "笔记" ? item.label.includes("笔记") : resultTab === "作业" ? item.label.includes("作业") : !item.label.includes("笔记") && !item.label.includes("作业"));
 
   const submit = (nextQuery?: string) => {
     const value = (nextQuery ?? query).trim();
@@ -398,106 +429,99 @@ export function SearchOverlay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, startWithVoice]);
 
-  if (!isOpen) return <button type="button" onClick={onOpen} className="fixed left-1/2 top-4 z-[180] flex h-14 w-[min(620px,calc(100vw-32px))] -translate-x-1/2 items-center gap-3 rounded-full border border-white/80 bg-[#20232B]/95 px-5 text-left text-white shadow-[0_14px_38px_rgba(28,33,45,.24)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:shadow-[0_18px_46px_rgba(28,33,45,.28)]" aria-label="打开 Memo AI 对话">
-    <span className="relative grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,#7E8BFF,#C76CDD)]"><Sparkles size={15}/><span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#20232B] bg-[#41D39C]"/></span>
-    <span className="min-w-0 flex-1"><b className="block text-[12px] font-semibold">问 Memo</b><span className="block truncate text-[10px] text-white/55">找资料、问问题，或继续完成一件事</span></span>
-    <span className="rounded-full bg-white/10 px-3 py-1.5 text-[9px] text-white/65">⌘ K</span>
-  </button>;
+  const currentHour = new Date().getHours();
+  const greeting = currentHour < 6 ? "夜深了" : currentHour < 12 ? "上午好" : currentHour < 18 ? "下午好" : "晚上好";
+
+  if (!isOpen && todayScrolled) return <div className="fixed left-[336px] right-0 top-4 z-[180] animate-in px-[10%] duration-200 fade-in slide-in-from-top-2">
+    <div className="flex h-16 w-full items-center rounded-full border border-[#E1E4EA] bg-white/95 px-3 backdrop-blur-xl">
+      <div className="flex min-w-0 flex-1 items-center gap-3 px-3">
+        <Search size={17} className="shrink-0 text-[#737B89]"/>
+        <input value={query} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"&&query.trim()){onOpen();submit();}}} className="min-w-0 flex-1 bg-transparent text-[13px] text-[#292D33] outline-none placeholder:text-[#969DA9]" placeholder="从课程、笔记和学习记录中搜索" aria-label="搜索内容"/>
+      </div>
+      <button type="button" onClick={onOpenVoice} className="flex h-9 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[10px] text-[#59606D] hover:bg-[#F2F3F6]" aria-label="开始录音"><Mic size={14}/><span>录音</span></button>
+      <button type="button" onClick={onAddSource} className="flex h-9 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[10px] text-[#59606D] hover:bg-[#F2F3F6]" aria-label="上传资料"><Plus size={15}/><span>上传</span></button>
+      <button type="button" onClick={onOpenConnections} className="flex h-9 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[10px] text-[#59606D] hover:bg-[#F2F3F6]" aria-label="连接知识来源"><Link2 size={14}/><span>连接</span></button>
+      <button type="button" onClick={()=>setLumoEnabled(value=>!value)} className={`memo-ai-glow-button flex h-9 shrink-0 items-center gap-1 rounded-full border px-2.5 text-[9px] font-medium text-[#313640] transition ${lumoEnabled?"ring-2 ring-[#C9CEFF]":""}`} aria-label="问 AI" aria-pressed={lumoEnabled}><Sparkles size={12}/><span>问 AI</span></button>
+      <div className="ml-auto flex w-[80px] shrink-0 items-center justify-end gap-2">
+        {query&&<button type="button" onClick={()=>setQuery("")} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#F1F2F5] text-[#7D8490] transition hover:bg-[#E6E8ED] hover:text-[#292D33]" aria-label="清空搜索内容"><X size={16}/></button>}
+        <button type="button" onClick={()=>{if(query.trim()){onOpen();submit();}}} disabled={!query.trim()} className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-white transition ${query.trim()?"bg-[#17191F] hover:bg-black":"bg-[#D9DCE2] cursor-default"}`} aria-label="搜索"><Search size={17}/></button>
+      </div>
+    </div>
+  </div>;
+
+  if (!isOpen) return <div className="fixed left-[336px] right-0 top-20 z-[180] px-[10%] text-[#252932]" style={{transform:`translateY(-${Math.min(todayScrollTop, 190)}px)`}}>
+    <div className="mb-7 text-center">
+      <h1 className="text-[32px] font-semibold leading-[1.2] tracking-[-.025em] text-[#181B23]">让学过的知识，随时为你所用</h1>
+    </div>
+    <div className="mb-10 flex items-center justify-center gap-3">
+      <button type="button" onClick={onOpenVoice} className="flex h-11 min-w-[144px] items-center justify-center gap-2 rounded-full border border-white/90 bg-[linear-gradient(105deg,#FFF0E6_0%,#FFFFFF_46%,#DDF8FF_100%)] px-6 text-[12px] font-medium text-[#313640] ring-1 ring-[#DDE1E8] transition hover:-translate-y-0.5 hover:ring-[#BFC7FF]"><Mic size={15}/><span>录音</span></button>
+      <button type="button" onClick={onAddSource} className="flex h-11 min-w-[144px] items-center justify-center gap-2 rounded-full border border-white/90 bg-[linear-gradient(105deg,#F0ECFF_0%,#FFFFFF_48%,#E5F7FF_100%)] px-6 text-[12px] font-medium text-[#313640] ring-1 ring-[#DDE1E8] transition hover:-translate-y-0.5 hover:ring-[#BFC7FF]"><Plus size={16}/><span>上传</span></button>
+      <button type="button" onClick={onOpenConnections} className="flex h-11 min-w-[144px] items-center justify-center gap-2 rounded-full border border-white/90 bg-[linear-gradient(105deg,#EAF7FF_0%,#FFFFFF_48%,#F4ECFF_100%)] px-6 text-[12px] font-medium text-[#313640] ring-1 ring-[#DDE1E8] transition hover:-translate-y-0.5 hover:ring-[#BFC7FF]"><Link2 size={15}/><span>连接</span></button>
+    </div>
+    <div className="flex h-[112px] flex-col rounded-[28px] border border-[#E1E4EA] bg-white/95 px-7 py-5 backdrop-blur-xl">
+      <div className="relative flex w-full items-center">
+        <input value={query} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"&&query.trim()){onOpen();submit();}}} placeholder="从课程、笔记和学习记录中搜索，或问我一个学习问题" className="w-full bg-transparent text-[15px] text-[#292D33] outline-none placeholder:text-[#9CA2AD]" aria-label="搜索内容"/>
+      </div>
+      <div className="mt-auto flex items-center gap-3">
+        <button type="button" onClick={()=>setLumoEnabled(value=>!value)} className={`memo-ai-glow-button flex h-9 min-w-0 items-center gap-1 rounded-full border px-2.5 text-[9px] font-medium text-[#313640] transition ${lumoEnabled?"ring-2 ring-[#C9CEFF]":""}`} aria-pressed={lumoEnabled} aria-label={lumoEnabled?"关闭 AI 联网深度推理":"开启 AI 联网深度推理"}>
+          <Sparkles size={12}/><span>问 AI</span>
+        </button>
+        <div className="ml-auto flex w-[80px] shrink-0 items-center justify-end gap-2">
+          {query&&<button type="button" onClick={()=>setQuery("")} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#F1F2F5] text-[#7D8490] transition hover:bg-[#E6E8ED] hover:text-[#292D33]" aria-label="清空搜索内容"><X size={16}/></button>}
+          <button type="button" onClick={()=>{if(query.trim()){onOpen();submit();}}} disabled={!query.trim()} className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-white transition ${query.trim()?"bg-[#17191F] hover:bg-black":"bg-[#D9DCE2] cursor-default"}`} aria-label="搜索"><Search size={17}/></button>
+        </div>
+      </div>
+    </div>
+  </div>;
 
   if (mode === "idle") {
     return (
-      <div className="fixed left-1/2 top-4 z-[220] w-[min(760px,calc(100vw-48px))] -translate-x-1/2 overflow-visible rounded-[30px] border border-white/80 bg-[#F9FAFC]/95 p-2 text-[#171A24] shadow-[0_20px_60px_rgba(35,42,60,.22)] backdrop-blur-xl">
-          <div className="relative">
-          <div className="flex h-16 items-center rounded-full bg-white px-3 shadow-sm ring-1 ring-[#E3E6ED] focus-within:ring-[#AEB7FF]">
-            <span className="ml-1 grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,#7887FF,#C36DD8)] text-white"><Sparkles size={18}/></span>
-            <button
-              type="button"
-              onClick={() => setAddMenuOpen(open => !open)}
-              aria-label={addMenuOpen ? "关闭添加菜单" : "添加资料"}
-              aria-expanded={addMenuOpen}
-              className={`ml-1 grid h-10 w-10 shrink-0 place-items-center rounded-full text-[#616977] transition ${addMenuOpen ? "bg-[#F1F4F8]" : "hover:bg-[#F3F5F8]"}`}
-            >
-              {addMenuOpen ? <X size={20} strokeWidth={2}/> : <Plus size={20}/>}
-            </button>
-            {voiceStatus === "listening" || voiceStatus === "processing" ? (
-              <>
-                <div aria-label={voiceStatus === "listening" ? "正在录音" : "正在识别"} className={`mx-8 flex min-w-0 flex-1 items-center justify-center overflow-hidden ${voiceStatus === "listening" ? "animate-pulse" : "opacity-45"}`}>
-                  <img src={recordingWaveformReference} alt="" className="h-[30px] w-full max-w-[650px] object-fill"/>
-                </div>
-                <button type="button" onClick={toggleVoiceInput} aria-label="停止录音" disabled={voiceStatus === "processing"} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[#D9D9DB] text-[#202124] transition hover:bg-[#CDCDD0] disabled:opacity-55">
-                  <Square size={16} strokeWidth={2} fill="currentColor"/>
-                </button>
-                <button type="button" onClick={sendVoiceInput} aria-label="发送录音" disabled={voiceStatus === "processing"} className="ml-3 grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[#9BD1FF] text-[#101318] transition hover:bg-[#86C7FF] disabled:opacity-55">
-                  <ArrowUp size={25} strokeWidth={2.1}/>
-                </button>
-              </>
-            ) : (
-              <>
-                <input
-                  ref={inputRef}
-                  value={query}
-                  onChange={event => setQuery(event.target.value)}
-                  onKeyDown={event => { if (event.key === "Enter" && query.trim()) submit(); }}
-                  placeholder="找记忆、问问题，或让 Memo 帮你完成一件事"
-                  className="min-w-0 flex-1 bg-transparent px-3 text-[14px] text-[#292D33] outline-none placeholder:text-[#8C929C]"
-                />
-                {voiceStatus === "requesting" && <span className="shrink-0 text-[12px] font-medium text-[#5967D9]">正在连接麦克风…</span>}
-                {voiceStatus === "error" && <span className="shrink-0 text-[12px] font-medium text-[#C45C54]">麦克风暂不可用</span>}
-                <button type="button" onClick={toggleVoiceInput} aria-label="语音输入" className={`ml-1 grid h-11 w-11 shrink-0 place-items-center rounded-full transition ${voiceStatus === "requesting" ? "bg-[#EEF0FF] text-[#4D5CFF]" : "text-[#20242A] hover:bg-[#F4F6F8]"}`}><Mic size={21}/></button>
-                {query.trim() && <button onClick={() => submit()} aria-label="发送" className="ml-1 grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#4D5CFF] text-white"><Send size={17}/></button>}
-                <button type="button" onClick={onClose} aria-label="收起" className="ml-1 grid h-10 w-10 shrink-0 place-items-center rounded-full text-[#8B929E] hover:bg-[#F2F3F6]"><ChevronUp size={18}/></button>
-              </>
-            )}
-          </div>
-
-          {addMenuOpen && (
-            <div className="absolute left-12 top-[74px] z-20 w-[320px] overflow-hidden rounded-[22px] bg-white px-4 py-4 shadow-[0_18px_52px_rgba(55,78,108,.18)] ring-1 ring-black/[.025]">
-              <div className="space-y-1">
-                <button type="button" onClick={openAddSource} className="flex h-14 w-full items-center gap-5 rounded-2xl px-3 text-left text-[17px] text-[#171A1F] transition hover:bg-[#F5F7FA]">
-                  <Paperclip size={22} strokeWidth={1.9}/><span>上传文件</span>
-                </button>
-                <button type="button" onClick={openCamera} className="flex h-14 w-full items-center gap-5 rounded-2xl px-3 text-left text-[17px] text-[#171A1F] transition hover:bg-[#F5F7FA]">
-                  <Camera size={22} strokeWidth={1.9}/><span>添加图片或扫描件</span>
-                </button>
-                <button type="button" onClick={openVoiceRecorder} className="flex h-14 w-full items-center gap-5 rounded-2xl px-3 text-left text-[17px] text-[#171A1F] transition hover:bg-[#F5F7FA]">
-                  <Mic size={22} strokeWidth={1.9}/><span>录音</span>
-                </button>
-              </div>
-              <div className="my-3 h-px bg-[#E7E9ED]"/>
-              <button type="button" onClick={openAddSource} className="flex h-14 w-full items-center gap-5 rounded-2xl px-3 text-left text-[17px] text-[#171A1F] transition hover:bg-[#F5F7FA]">
-                <FolderSync size={22} strokeWidth={1.9}/><span>自动获取学习资料</span>
-              </button>
+      <>
+      <button type="button" onClick={onClose} className="fixed inset-0 z-[210] cursor-default bg-transparent" aria-label="收起搜索"/>
+      <div className="fixed left-[336px] right-0 top-[230px] z-[220] px-[10%] text-[#171A24]">
+      <div className="relative w-full origin-top animate-in overflow-visible rounded-[30px] border border-[#D9DDE5] bg-white/98 px-6 py-5 shadow-[0_22px_64px_rgba(35,42,60,.16)] backdrop-blur-xl duration-200 fade-in slide-in-from-top-1">
+        <div className="relative">
+          <input ref={inputRef} value={query} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"&&query.trim())submit();}} placeholder="找函数相关的笔记" className="w-full bg-transparent text-[15px] text-[#292D33] outline-none placeholder:text-[#A0A5AE]"/>
+          <div className="mt-5 flex items-center gap-3">
+            <button type="button" onClick={()=>setAddMenuOpen(open=>!open)} className="grid h-9 w-9 place-items-center rounded-full hover:bg-[#F3F4F7]" aria-label="添加资料">{addMenuOpen?<X size={20}/>:<Plus size={23}/>}</button>
+            <button type="button" onClick={openVoiceRecorder} className="grid h-9 w-9 place-items-center rounded-full hover:bg-[#F3F4F7]" aria-label="开始录音"><Mic size={18}/></button>
+            <span className="h-6 w-px bg-[#E2E5EA]"/>
+            <button type="button" onClick={()=>setLumoEnabled(value=>!value)} className={`memo-ai-glow-button flex h-9 items-center gap-1 rounded-full border px-2.5 text-[10px] font-medium text-[#313640] transition ${lumoEnabled?"ring-2 ring-[#C9CEFF]":""}`} aria-pressed={lumoEnabled} aria-label={lumoEnabled?"关闭 AI 联网深度推理":"开启 AI 联网深度推理"}><Sparkles size={12}/><span>问 AI</span></button>
+            <div className="ml-auto flex w-[80px] shrink-0 items-center justify-end gap-2">
+              {query&&<button type="button" onClick={()=>{setQuery("");inputRef.current?.focus();}} className="grid h-9 w-9 place-items-center rounded-full bg-[#F1F2F5] text-[#7D8490] transition hover:bg-[#E6E8ED] hover:text-[#292D33]" aria-label="清空搜索内容"><X size={16}/></button>}
+              <button type="button" onClick={()=>query.trim()&&submit()} disabled={!query.trim()} className={`grid h-9 w-9 place-items-center rounded-full text-white transition ${query.trim()?"bg-[#17191F] hover:bg-black":"bg-[#D9DCE2] cursor-default"}`} aria-label="搜索"><Search size={17}/></button>
             </div>
-          )}
           </div>
-
-          <div className="flex flex-wrap gap-2 px-3 pb-2 pt-3">
-            {suggestions.slice(0, 3).map(({ text }) => (
-              <button key={text} onClick={() => submit(text)} className="rounded-full bg-white px-3 py-2 text-left text-[10px] text-[#5F6674] ring-1 ring-[#E4E8F0] transition hover:text-[#4D5CFF]">
-                {text}
-              </button>
-            ))}
-          </div>
+          {addMenuOpen&&<div className="absolute left-0 top-[84px] z-20 w-[260px] rounded-[20px] bg-white p-3 shadow-[0_18px_52px_rgba(55,78,108,.18)] ring-1 ring-black/[.04]"><button type="button" onClick={openAddSource} className="flex h-11 w-full items-center gap-3 rounded-xl px-3 text-[13px] hover:bg-[#F5F7FA]"><Paperclip size={18}/>上传文件</button><button type="button" onClick={openCamera} className="flex h-11 w-full items-center gap-3 rounded-xl px-3 text-[13px] hover:bg-[#F5F7FA]"><Camera size={18}/>添加图片或扫描件</button><button type="button" onClick={openVoiceRecorder} className="flex h-11 w-full items-center gap-3 rounded-xl px-3 text-[13px] hover:bg-[#F5F7FA]"><Mic size={18}/>录音</button><button type="button" onClick={()=>{setAddMenuOpen(false);onOpenConnections();}} className="flex h-11 w-full items-center gap-3 rounded-xl px-3 text-[13px] hover:bg-[#F5F7FA]"><Link2 size={18}/>连接知识来源</button></div>}
+        </div>
+        <div className="my-5 h-px bg-[#E2E5EA]"/>
+        {historyItems.length>0&&<section><div className="flex items-center"><h3 className="text-[13px] font-medium text-[#8F96A2]">历史记录</h3><button type="button" onClick={()=>setHistoryItems([])} className="ml-auto grid h-8 w-8 place-items-center rounded-full text-[#737A87] hover:bg-[#F3F4F7]" aria-label="清空历史记录"><Trash2 size={16}/></button></div><div className="mt-3 flex flex-wrap gap-2">{historyItems.map(item=><button key={item} onClick={()=>submit(item)} className="rounded-full border border-[#D7DAE1] px-3 py-1.5 text-[11px] text-[#666D79] transition hover:border-[#AAB2FF] hover:text-[#4D5CFF]">{item}</button>)}</div></section>}
+        <section className={historyItems.length?"mt-6":""}><h3 className="text-[13px] font-medium text-[#8F96A2]">猜你想搜</h3><div className="mt-3 grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">{suggestions.map(({text})=><button key={text} onClick={()=>submit(text)} className="text-left text-[12px] text-[#383D46] hover:text-[#4D5CFF]">{text}</button>)}</div></section>
+        <button type="button" onClick={onClose} aria-label="收起" className="absolute bottom-4 right-5 grid h-8 w-8 place-items-center rounded-full text-[#8B929E] hover:bg-[#F2F3F6]"><ChevronUp size={17}/></button>
       </div>
+      </div>
+      </>
     );
   }
 
   return (
-    <div className="fixed left-1/2 top-4 z-[220] flex max-h-[calc(100vh-32px)] w-[min(920px,calc(100vw-48px))] -translate-x-1/2 flex-col overflow-hidden rounded-[30px] border border-white/80 bg-[#F4F5F9]/98 text-[#171A24] shadow-[0_24px_80px_rgba(31,38,58,.25)] backdrop-blur-xl">
+    <div className="fixed bottom-0 left-[336px] right-0 top-0 z-[220] flex flex-col overflow-hidden border-l border-[#E3E6ED] bg-[#F4F5F9] text-[#171A24]">
       <style>{`
         @keyframes memoSearchEnter { from { opacity: 0; transform: translateY(-8px) } to { opacity: 1; transform: translateY(0) } }
         @keyframes memoPulse { 0%,100% { opacity:.38 } 50% { opacity:1 } }
         .memo-search-enter { animation: memoSearchEnter .2s ease-out both; }
       `}</style>
 
-      <header className="flex h-[76px] shrink-0 items-center gap-4 border-b border-[#E5E8EF] bg-white px-6">
+      <header className="flex h-[112px] shrink-0 items-center gap-4 px-7">
         <button onClick={onClose} aria-label="返回" className="grid h-10 w-10 place-items-center rounded-full text-[#5F6674] transition hover:bg-[#F1F3F7]">
           <ArrowLeft size={21} />
         </button>
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#EEF0FF] text-[#4D5CFF]"><Sparkles size={18}/></span>
-          <div className="min-w-0"><b className="block text-[14px]">Memo 搜索</b><span className="block truncate text-[10px] text-[#9299A6]">{mode === "answered" ? "已结合个人记忆完成回答，可继续追问" : mode === "thinking" ? "正在理解问题并调用相关记忆" : "描述印象、问题，或想完成的事"}</span></div>
+        <div className="mx-auto flex h-14 min-w-0 max-w-[920px] flex-1 items-center rounded-full border border-[#D8DCE4] bg-white px-5 shadow-[0_10px_28px_rgba(35,42,60,.08)] focus-within:border-[#AAB2FF]">
+          <input value={query} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"&&query.trim())submit();}} className="min-w-0 flex-1 bg-transparent text-[14px] outline-none" aria-label="搜索内容"/>
+          {query&&<button type="button" onClick={()=>setQuery("")} className="mr-1 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#F1F2F5] text-[#7D8490] transition hover:bg-[#E6E8ED] hover:text-[#292D33]" aria-label="清空搜索内容"><X size={16}/></button>}
+          <button type="button" onClick={()=>query.trim()&&submit()} disabled={!query.trim()} className={`grid h-10 w-10 shrink-0 place-items-center rounded-full text-white transition ${query.trim()?"bg-[#17191F] hover:bg-black":"bg-[#D9DCE2] cursor-default"}`} aria-label="搜索"><Search size={17}/></button>
         </div>
+        <div className="w-10"/>
       </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto">
@@ -505,61 +529,34 @@ export function SearchOverlay({
           <div className="mx-auto flex max-w-[820px] flex-col items-center px-6 py-24 text-center">
             <div className="grid h-14 w-14 place-items-center rounded-2xl bg-[#EAEDFF] text-[#4D5CFF]"><Sparkles size={25} /></div>
             <h2 className="mt-5 text-[18px] font-bold">正在理解你的问题</h2>
-            <p className="mt-2 text-[12px] text-[#878E9C]">先查找你的笔记、作业和错题，再判断是否需要外部补充</p>
+            <p className="mt-2 text-[12px] text-[#878E9C]">{lumoEnabled?"正在结合 Memo 内容、联网信息与深度推理":"仅搜索 Memo 内的笔记、作业、错题和资料"}</p>
             <div className="mt-7 flex gap-2">{[0,1,2].map(i => <span key={i} className="h-2 w-2 rounded-full bg-[#6672F6]" style={{animation:`memoPulse 1s ${i * .18}s infinite`}} />)}</div>
           </div>
         )}
 
         {mode === "answered" && (
-          <div className="memo-search-enter mx-auto max-w-[980px] px-7 py-8">
-            <div className="space-y-5">
-              <div className="flex justify-end">
-                <div className="max-w-[72%] rounded-[24px] rounded-tr-md bg-[#4D5CFF] px-5 py-4 text-[15px] font-medium leading-7 text-white shadow-sm">{submittedQuery}</div>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <span className="mt-1 grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#E9ECFF] text-[#4D5CFF]"><Sparkles size={19}/></span>
-                <div className="min-w-0 max-w-[820px] flex-1 space-y-5">
-                  <section className="rounded-[26px] rounded-tl-md bg-white p-6 shadow-sm ring-1 ring-[#E5E8EF]">
-                    <div className="text-[12px] font-bold text-[#4D5CFF]">Memo</div>
-                    <h2 className="mt-3 text-[22px] font-bold leading-9">{answer.title}</h2>
-                    <p className="mt-3 text-[14px] leading-8 text-[#4F5664]">{answer.body}</p>
-                    <p className="mt-4 rounded-2xl bg-[#F0F2FF] px-5 py-4 text-[13px] leading-7 text-[#565F78]">{answer.personal}</p>
-                  </section>
-
-              <section className="rounded-[24px] bg-white p-5 ring-1 ring-[#E5E8EF]">
-                <h3 className="text-[15px] font-bold">接下来可以做</h3>
-                <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                  <button onClick={() => showNotice("已进入换元积分复习内容")} className="flex items-center gap-3 rounded-2xl bg-[#4D5CFF] px-5 py-4 text-left text-white"><PlayCircle size={18}/><span className="text-[12px] font-semibold">开始复习</span></button>
-                  <button onClick={() => showNotice("已打开典型错题笔写作答页")} className="flex items-center gap-3 rounded-2xl bg-white px-5 py-4 text-left text-[#3F4653] ring-1 ring-[#E1E5EC]"><PenLine size={18}/><span className="text-[12px] font-semibold">重做相关错题</span></button>
-                  <button onClick={() => showNotice("已生成 3 道同知识点变式题")} className="flex items-center gap-3 rounded-2xl bg-white px-5 py-4 text-left text-[#3F4653] ring-1 ring-[#E1E5EC]"><Sparkles size={18}/><span className="text-[12px] font-semibold">生成变式题</span></button>
-                </div>
-              </section>
-
-              <section className="rounded-[24px] bg-white px-5 py-2 ring-1 ring-[#E5E8EF]">
-                <button onClick={() => setSourcesOpen(open => !open)} className="flex w-full items-center justify-between py-4 text-left">
-                  <span><b className="block text-[15px]">记忆依据</b><small className="mt-1 block text-[11px] text-[#949BA8]">{evidence.filter(item => item.kind === "memory").length} 条个人记忆{answer.external ? ` · ${evidence.filter(item => item.kind === "web").length} 条外部补充` : ""}</small></span>
-                  {sourcesOpen ? <ChevronUp size={18} className="text-[#89909D]"/> : <ChevronDown size={18} className="text-[#89909D]"/>}
-                </button>
-                {sourcesOpen && <div className="grid gap-2 sm:grid-cols-2">
-                  {evidence.map(item => (
-                    <button key={item.id} onClick={() => item.sourceId ? onOpenSource(item.sourceId) : showNotice(item.kind === "web" ? "已打开外部原文预览" : "已定位到对应原文位置")} className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3 text-left ring-1 ring-[#E5E8EF] transition hover:bg-[#F8F9FB]">
-                      <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${item.kind === "web" ? "bg-[#EAF7F2] text-[#168A68]" : "bg-[#EEF0FF] text-[#4D5CFF]"}`}>{item.kind === "web" ? <Globe2 size={16}/> : <FileText size={16}/>}</span>
-                      <span className="min-w-0 flex-1"><span className={`text-[9px] font-bold ${item.kind === "web" ? "text-[#178568]" : "text-[#6570D6]"}`}>{item.kind === "web" ? "外部补充" : item.label}</span><b className="mt-0.5 block truncate text-[11px]">{item.title}</b><small className="mt-1 block truncate text-[9px] text-[#969DA9]">{item.meta}</small></span>
-                      <ExternalLink size={14} className="text-[#A7ADB7]"/>
-                    </button>
-                  ))}
-                </div>}
-              </section>
-                </div>
-              </div>
+          <div className="memo-search-enter px-7 pb-10">
+            <section className="mx-auto mb-5 max-w-[920px] rounded-[26px] bg-white p-6 shadow-sm ring-1 ring-[#E4E7ED]">
+              <div className="flex items-center gap-2"><span className={`h-3 w-3 rounded-full ${lumoEnabled?'bg-[#77E0CC]':'bg-[#B8BFCA]'}`}/><span className="text-[12px] font-semibold">{lumoEnabled?'Lumo 联网总结':'Memo 内容总结'}</span><span className="rounded-full bg-[#DDF5F0] px-1.5 py-0.5 text-[8px] text-[#318878]">AI</span></div>
+              <h2 className="mt-4 text-[19px] font-bold leading-8">{answer.title}</h2>
+              <p className="mt-3 min-h-[56px] text-[13px] leading-7 text-[#4F5664]">{typedSummary}<span className={`${typedSummary.length<answer.body.length?'inline-block':'hidden'} ml-0.5 h-4 w-[2px] animate-pulse bg-[#6674FF] align-middle`}/></p>
+              {typedSummary.length>=answer.body.length&&<p className="mt-4 animate-in fade-in duration-500 rounded-2xl bg-[#F3F4F8] px-4 py-3 text-[11px] leading-6 text-[#697181]">{answer.personal}</p>}
+              <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-[#ECEEF2] pt-4"><span className="text-[10px] font-semibold text-[#7C838F]">依据来源</span>{evidence.slice(0,3).map(item=><button key={item.id} className="flex max-w-[220px] items-center gap-2 text-left text-[10px] text-[#666E7B]"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#6674FF]"/><span className="truncate">{item.title}</span></button>)}</div>
+            </section>
+            <div className="flex h-14 items-center border-b border-[#E3E6EC]">
+              {(['笔记','作业','资料'] as const).map(tab=><button key={tab} onClick={()=>setResultTab(tab)} className={`relative mr-8 h-full text-[13px] ${resultTab===tab?'font-semibold text-[#242832]':'text-[#7C838F]'}`}>{tab}{resultTab===tab&&<span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#242832]"/>}</button>)}
             </div>
-
+            <div className="mt-6 min-h-0">
+              <section>
+                <div className="mb-4 flex items-center justify-between"><h2 className="text-[15px] font-semibold">与“{submittedQuery}”相关的{resultTab}</h2><span className="text-[11px] text-[#9299A5]">{displayedEvidence.length} 条结果</span></div>
+                <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 2xl:grid-cols-3">{displayedEvidence.map((item,index)=><button key={item.id} onClick={()=>item.sourceId?onOpenSource(item.sourceId):showNotice(item.kind==='web'?'已打开外部原文预览':'已定位到对应原文位置')} className="group overflow-hidden rounded-[22px] bg-white text-left shadow-sm ring-1 ring-[#E4E7ED] transition hover:-translate-y-1 hover:shadow-lg"><div className={`flex h-32 items-center justify-center ${index%3===0?'bg-[linear-gradient(135deg,#202638,#6875FF)]':index%3===1?'bg-[linear-gradient(135deg,#F3E8FF,#D7E2FF)]':'bg-[linear-gradient(135deg,#E8F7F3,#B8E6DC)]'}`}>{item.kind==='web'?<Globe2 size={36} className="text-white/90"/>:<FileText size={38} className={index%3===0?'text-white/90':'text-[#5967D9]'}/>}</div><div className="p-4"><span className={`text-[9px] font-semibold ${item.kind==='web'?'text-[#168A68]':'text-[#6570D6]'}`}>{item.kind==='web'?'联网资料':item.label}</span><h3 className="mt-1 line-clamp-2 text-[13px] font-semibold leading-5">{item.title}</h3><p className="mt-2 truncate text-[10px] text-[#969DA9]">{item.meta}</p></div></button>)}</div>
+              </section>
+            </div>
           </div>
         )}
       </main>
 
-      <footer className="shrink-0 bg-[#F4F5F9]/95 px-6 pb-5 pt-3 backdrop-blur">
+      {mode !== "answered" && <footer className="shrink-0 bg-[#F4F5F9]/95 px-6 pb-5 pt-3 backdrop-blur">
         <div className="mx-auto flex h-[72px] max-w-[980px] items-center rounded-full bg-white px-3 shadow-[0_12px_34px_rgba(60,74,108,.16)] ring-1 ring-[#E1E4EB] focus-within:ring-[#B9C0FF]">
           <button type="button" onClick={onAddSource} aria-label="添加资料" className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-[#171A20] transition hover:bg-[#F3F5F8]"><Plus size={25}/></button>
           {voiceStatus === "listening" || voiceStatus === "processing" ? (
@@ -598,7 +595,7 @@ export function SearchOverlay({
             </>
           )}
         </div>
-      </footer>
+      </footer>}
 
       {notice && <div className="fixed bottom-[100px] left-1/2 z-[250] -translate-x-1/2 rounded-full bg-[#202431] px-5 py-3 text-[11px] font-semibold text-white shadow-xl">{notice}</div>}
     </div>

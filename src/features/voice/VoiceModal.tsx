@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { X, Square, Loader2, BookmarkCheck, Minimize2, Maximize2, Pause, Play, Search, AudioLines, FileText, MoreHorizontal, Check, Sparkles, Bot, Clock3, ChevronDown, ChevronRight, Network, ArrowLeft } from "lucide-react";
+import { X, Square, Loader2, BookmarkCheck, Minimize2, Maximize2, Pause, Play, Search, AudioLines, FileText, MoreHorizontal, Check, Sparkles, Bot, Clock3, ChevronDown, ChevronRight, Network, ArrowLeft, Trash2 } from "lucide-react";
 import { DEMO_TRANSCRIPT } from "./demoTranscript";
 
 interface Props {
@@ -112,6 +112,7 @@ export function VoiceModal({ onClose, onSave, saveLocation = "当前学科 / 笔
   const [insightPlayhead, setInsightPlayhead] = useState(0);
   const [insightPlaying, setInsightPlaying] = useState(false);
   const [recordingHistory, setRecordingHistory] = useState<RecordingHistoryItem[]>([]);
+  const [recordingMenuId, setRecordingMenuId] = useState<string>();
   const [currentRecordingId, setCurrentRecordingId] = useState(() => initialRecording?.id ?? `recording_${Date.now()}`);
   const [activeRecordingId, setActiveRecordingId] = useState(currentRecordingId);
   const bars = useWaveform(phase === "recording");
@@ -365,33 +366,34 @@ export function VoiceModal({ onClose, onSave, saveLocation = "当前学科 / 笔
     onClose();
   };
 
-  if (minimized && (phase === "recording" || phase === "paused")) {
-    return (
-      <div className="fixed left-1/2 top-4 z-[600] flex w-[min(520px,calc(100vw-32px))] -translate-x-1/2 items-center gap-3 rounded-2xl border border-[#E0E4EB] bg-white px-3 py-2.5 shadow-[0_12px_38px_rgba(25,31,47,0.18)]">
-        <button type="button" onClick={() => setMinimized(false)} className="flex min-w-0 flex-1 items-center gap-3 text-left" aria-label="展开录音窗口">
-          <span className={`relative grid h-9 w-9 shrink-0 place-items-center rounded-full ${phase === "paused" ? "bg-[#F0F2F6]" : "bg-[#FFF0F1]"}`}>
-            {phase === "paused" ? <Pause size={14} className="text-[#697180]"/> : <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-[#EF535D]"/>}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="flex items-center gap-2 text-[13px] font-semibold text-[#272C36]">{phase === "paused" ? "录音已暂停" : "正在录音"} <span className="font-mono text-[12px] text-[#737A88]">{fmt(seconds)}</span></span>
-            <span className="block truncate text-[11px] text-[#9298A5]">{liveTranscript || "正在实时转写…"}</span>
-          </span>
-        </button>
-        <button type="button" onClick={() => setMinimized(false)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[#747B89] transition hover:bg-[#F1F2F5]" aria-label="展开录音窗口">
-          <Maximize2 size={16}/>
-        </button>
-        <button type="button" onClick={phase === "paused" ? resumeRecording : pauseRecording} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#F1F2F5] text-[#252932]" aria-label={phase === "paused" ? "继续录音" : "暂停录音"}>
-          {phase === "paused" ? <Play size={14} fill="currentColor"/> : <Pause size={14} fill="currentColor"/>}
-        </button>
-        <button type="button" onClick={stopRecording} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#F1F2F5] text-[#252932]" aria-label="停止录音">
-          <Square size={13} fill="currentColor"/>
-        </button>
-        <button type="button" onClick={closeRecording} className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[#747B89] transition hover:bg-[#FFF0F1] hover:text-[#D64F59]" aria-label="关闭录音">
-          <X size={17}/>
-        </button>
-      </div>
-    );
-  }
+  const deleteCurrentRecording = () => {
+    stopTimer();
+    speechRecognitionRef.current?.stop();
+    speechRecognitionRef.current = null;
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") recorder.stop();
+    mediaRecorderRef.current = null;
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+    setPhase("idle");
+    setSeconds(0);
+    setTranscript("");
+    setLiveTranscript("");
+    liveTranscriptRef.current = "";
+    setAudioUrl(undefined);
+    setTitle(recordingTitle());
+    setInsightPlaying(false);
+    setInsightPlayhead(0);
+    setSelectedInsightId(undefined);
+    setExpandedInsightId(undefined);
+    setRecordingMenuId(undefined);
+  };
+
+  const deleteHistoryRecording = (id: string) => {
+    setRecordingHistory(items => items.filter(item => item.id !== id));
+    if (activeRecordingId === id) setActiveRecordingId(currentRecordingId);
+    setRecordingMenuId(undefined);
+  };
 
   const hasRecording = phase !== "idle";
   const panelText = phase === "done" || phase === "saved" ? transcript : liveTranscript;
@@ -440,6 +442,29 @@ export function VoiceModal({ onClose, onSave, saveLocation = "当前学科 / 笔
     window.setTimeout(() => setAnchorNotice(undefined), 2200);
   };
 
+  if (minimized && phase !== "idle") {
+    const minimizedStatus = phase === "recording" ? "正在录音" : phase === "paused" ? "录音已暂停" : phase === "transcribing" ? "正在整理转写" : "录音已完成";
+    return (
+      <div onClick={() => setMinimized(false)} className="fixed bottom-[72px] left-3 z-[600] flex w-[312px] cursor-pointer items-center gap-2 rounded-2xl border border-[#DCE0E8] bg-white/95 px-2.5 py-2.5 shadow-[0_10px_28px_rgba(25,31,47,0.14)] backdrop-blur-xl" role="button" tabIndex={0} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") setMinimized(false); }} aria-label="展开录音窗口">
+        <div className="flex min-w-0 flex-1 items-center gap-3 text-left">
+          <span className={`relative grid h-9 w-9 shrink-0 place-items-center rounded-full ${(phase === "recording" || phase === "paused") ? "bg-[#EEF0FF]" : "bg-[#F0F2F6]"}`}>
+            {(phase === "recording" || phase === "paused") ? <span className="flex h-5 items-center justify-center gap-[2px]" aria-label={phase === "recording" ? "实时音波" : "音波已暂停"}>{[.46,.78,1,.68,.88,.52].map((height,index)=><span key={index} className={`w-[2px] rounded-full bg-[#6674FF] ${phase === "recording" ? "animate-pulse" : "opacity-55"}`} style={{height:`${Math.round(height*16)}px`,animationDelay:`${index*90}ms`,animationDuration:"720ms"}}/>)}</span> : phase === "transcribing" ? <Loader2 size={15} className="animate-spin text-[#6674FF]"/> : <AudioLines size={15} className="text-[#6674FF]"/>}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-1.5 truncate text-[11px] font-semibold text-[#272C36]">{minimizedStatus} <span className="font-mono text-[10px] text-[#737A88]">{fmt(seconds)}</span></span>
+            <span className="relative block h-4 overflow-hidden">
+              <span key={`current-${liveSubtitle.current}`} className={`absolute inset-x-0 top-0 block truncate text-[9px] leading-4 text-[#858C9A] ${phase === "recording" ? "animate-in fade-in slide-in-from-bottom-1 duration-500" : ""}`}>{liveSubtitle.current}</span>
+            </span>
+          </span>
+        </div>
+        {(phase === "recording" || phase === "paused") && <button type="button" onClick={event => { event.stopPropagation(); phase === "paused" ? resumeRecording() : pauseRecording(); }} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#F1F2F5] text-[#252932]" aria-label={phase === "paused" ? "继续录音" : "暂停录音"}>{phase === "paused" ? <Play size={14} fill="currentColor"/> : <Pause size={14} fill="currentColor"/>}</button>}
+        {(phase === "recording" || phase === "paused") && <button type="button" onClick={event => { event.stopPropagation(); stopRecording(); }} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#F1F2F5] text-[#252932]" aria-label="完成录音"><Square size={13} fill="currentColor"/></button>}
+        {(phase === "done" || phase === "saved") && <button type="button" onClick={event => { event.stopPropagation(); toggleInsightPlayback(); }} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#EEF0FF] text-[#4D5CFF]" aria-label={insightPlaying ? "暂停回听" : "播放回听"}>{insightPlaying ? <Pause size={14} fill="currentColor"/> : <Play size={14} fill="currentColor"/>}</button>}
+        <button type="button" onClick={event => { event.stopPropagation(); closeRecording(); }} className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[#747B89] transition hover:bg-[#FFF0F1] hover:text-[#D64F59]" aria-label="关闭录音"><X size={17}/></button>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-[600] flex items-center justify-center bg-[#202532]/25 p-5 backdrop-blur-[2px]">
       <section className="relative flex h-[min(820px,90vh)] w-full max-w-[1180px] flex-col overflow-hidden rounded-[26px] border border-white/90 bg-white shadow-[0_30px_100px_rgba(24,30,45,0.24)]">
@@ -453,7 +478,7 @@ export function VoiceModal({ onClose, onSave, saveLocation = "当前学科 / 笔
               <p className="mt-0.5 text-[8px] text-[#9299A6]">{autoSaveMemory ? "保存后可搜索、回听和复习" : "开启后自动沉淀为可复习的知识记忆"}</p>
             </div>
             <button type="button" role="switch" aria-checked={autoSaveMemory} aria-label="自动保存到记忆" onClick={() => setAutoSaveMemory(value => !value)} className={`relative h-6 w-11 shrink-0 rounded-full transition ${autoSaveMemory ? "bg-[#4D5CFF]" : "bg-[#CDD2DB]"}`}><span className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-all ${autoSaveMemory ? "left-6" : "left-1"}`}/></button>
-            {(phase === "recording" || phase === "paused") && <button onClick={()=>setMinimized(true)} className="ml-1 grid h-9 w-9 place-items-center rounded-full bg-[#F1F3F6] text-[#59606D] hover:bg-[#E8EBF0]" aria-label="最小化"><Minimize2 size={17}/></button>}
+            {phase !== "idle" && <button onClick={()=>setMinimized(true)} className="ml-1 grid h-9 w-9 place-items-center rounded-full bg-[#F1F3F6] text-[#59606D] hover:bg-[#E8EBF0]" aria-label="最小化"><Minimize2 size={17}/></button>}
           </div>
         </header>
 
@@ -461,7 +486,19 @@ export function VoiceModal({ onClose, onSave, saveLocation = "当前学科 / 笔
           <aside className="flex w-[250px] shrink-0 flex-col border-r border-[#E8EBF0] bg-[#F7F8FA]">
             <div className="p-4"><b className="text-[14px] text-[#292E39]">所有录音</b><div className="mt-3 flex h-9 items-center rounded-xl bg-white px-3 ring-1 ring-[#E5E8EE]"><Search size={14} className="mr-2 text-[#9299A6]"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="搜索标题、转写" className="min-w-0 flex-1 bg-transparent text-[11px] outline-none placeholder:text-[#ADB2BC]"/></div></div>
             <div className={`min-h-0 flex-1 overflow-y-auto px-3 pb-3 ${(phase === "idle" || phase === "recording" || phase === "paused" || phase === "saved") ? "mb-20" : ""}`}>
-              {hasRecording ? <><button ref={currentRecordingTabRef} type="button" onClick={() => setActiveRecordingId(currentRecordingId)} className={`w-full rounded-2xl p-3 text-left transition-all ${activeRecordingId === currentRecordingId ? "bg-[#EEF0FF] ring-1 ring-[#DCE0FF]" : "hover:bg-white"}`}><div className="flex items-start gap-2.5"><span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-white text-[#4D5CFF]"><AudioLines size={15}/></span><span className="min-w-0 flex-1"><b className="block truncate text-[11px] text-[#303642]">{title}</b><span className="mt-1 block text-[9px] text-[#858C9A]">今天 · {fmt(seconds)}{phase === "done" ? " · 待保存" : phase === "paused" ? " · 已暂停" : phase === "recording" ? " · 录制中" : ""}</span></span><MoreHorizontal size={15} className="text-[#969CAA]"/></div></button>{recordingHistory.map(item => <div key={item.id} className="mt-2 w-full rounded-2xl p-3 text-left"><div className="flex items-start gap-2.5"><span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-white text-[#7F8795] shadow-sm"><AudioLines size={15}/></span><span className="min-w-0 flex-1"><b className="block truncate text-[11px] text-[#4B5260]">{item.title}</b><span className="mt-1 block text-[9px] text-[#969DAA]">今天 · {fmt(item.duration)}</span></span><MoreHorizontal size={15} className="text-[#A3A9B4]"/></div></div>)}</> : <div className="flex h-full flex-col items-center justify-center px-5 text-center"><span className="grid h-12 w-12 place-items-center rounded-2xl bg-white text-[#B2B7C1] shadow-sm"><AudioLines size={22}/></span><b className="mt-4 text-[12px] text-[#606774]">还没有录音</b><p className="mt-1 text-[10px] leading-5 text-[#A0A6B2]">开始录制后，会在这里保留记录</p></div>}
+              {recordingMenuId && <button type="button" className="fixed inset-0 z-10 cursor-default" onClick={()=>setRecordingMenuId(undefined)} aria-label="关闭录音操作菜单"/>}
+              {hasRecording ? <>
+                <div className="relative">
+                  <button ref={currentRecordingTabRef} type="button" onClick={() => setActiveRecordingId(currentRecordingId)} className={`w-full rounded-2xl p-3 pr-10 text-left transition-all ${activeRecordingId === currentRecordingId ? "bg-[#EEF0FF] ring-1 ring-[#DCE0FF]" : "hover:bg-white"}`}><div className="flex items-start gap-2.5"><span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-white text-[#4D5CFF]"><AudioLines size={15}/></span><span className="min-w-0 flex-1"><b className="block truncate text-[11px] text-[#303642]">{title}</b><span className="mt-1 block text-[9px] text-[#858C9A]">今天 · {fmt(seconds)}{phase === "done" ? " · 待保存" : phase === "paused" ? " · 已暂停" : phase === "recording" ? " · 录制中" : ""}</span></span></div></button>
+                  <button type="button" onClick={event=>{event.stopPropagation();setRecordingMenuId(value=>value===currentRecordingId?undefined:currentRecordingId);}} className="absolute right-2 top-2 z-20 grid h-8 w-8 place-items-center rounded-full text-[#969CAA] hover:bg-white" aria-label="录音操作"><MoreHorizontal size={15}/></button>
+                  {recordingMenuId===currentRecordingId&&<div className="absolute right-2 top-11 z-20 w-[120px] rounded-xl border border-[#E4E7ED] bg-white p-1.5 shadow-[0_12px_30px_rgba(34,40,58,.16)]"><button type="button" onClick={deleteCurrentRecording} className="flex h-9 w-full items-center gap-2 rounded-lg px-3 text-[10px] font-medium text-[#D64F59] hover:bg-[#FFF0F1]"><Trash2 size={14}/>删除录音</button></div>}
+                </div>
+                {recordingHistory.map(item => <div key={item.id} className="relative mt-2">
+                  <button type="button" onClick={()=>setActiveRecordingId(item.id)} className="w-full rounded-2xl p-3 pr-10 text-left hover:bg-white"><div className="flex items-start gap-2.5"><span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-white text-[#7F8795] shadow-sm"><AudioLines size={15}/></span><span className="min-w-0 flex-1"><b className="block truncate text-[11px] text-[#4B5260]">{item.title}</b><span className="mt-1 block text-[9px] text-[#969DAA]">今天 · {fmt(item.duration)}</span></span></div></button>
+                  <button type="button" onClick={()=>setRecordingMenuId(value=>value===item.id?undefined:item.id)} className="absolute right-2 top-2 z-20 grid h-8 w-8 place-items-center rounded-full text-[#A3A9B4] hover:bg-white" aria-label="录音操作"><MoreHorizontal size={15}/></button>
+                  {recordingMenuId===item.id&&<div className="absolute right-2 top-11 z-20 w-[120px] rounded-xl border border-[#E4E7ED] bg-white p-1.5 shadow-[0_12px_30px_rgba(34,40,58,.16)]"><button type="button" onClick={()=>deleteHistoryRecording(item.id)} className="flex h-9 w-full items-center gap-2 rounded-lg px-3 text-[10px] font-medium text-[#D64F59] hover:bg-[#FFF0F1]"><Trash2 size={14}/>删除录音</button></div>}
+                </div>)}
+              </> : <div className="flex h-full flex-col items-center justify-center px-5 text-center"><span className="grid h-12 w-12 place-items-center rounded-2xl bg-white text-[#B2B7C1] shadow-sm"><AudioLines size={22}/></span><b className="mt-4 text-[12px] text-[#606774]">还没有录音</b><p className="mt-1 text-[10px] leading-5 text-[#A0A6B2]">开始录制后，会在这里保留记录</p></div>}
             </div>
           </aside>
 

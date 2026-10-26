@@ -4,16 +4,23 @@ import type { FeedGroup, SubjectData } from "../../types";
 
 const Card = ({children,className=""}:{children:React.ReactNode;className?:string}) => <section className={`rounded-2xl border border-[#E7EAF0] bg-white ${className}`}>{children}</section>;
 const Header = ({icon,title,action,onAction}:{icon:React.ReactNode;title:string;action?:string;onAction?:()=>void}) => <div className="flex items-center gap-2 text-[#4D5CFF]">{icon}<h2 className="text-[14px] font-bold text-[#252936]">{title}</h2>{action&&<button onClick={onAction} className="ml-auto text-[11px] font-semibold text-[#4D5CFF]">{action}</button>}</div>;
-const Page = ({eyebrow,title,subtitle,action,children}:{eyebrow:string;title:string;subtitle:string;action?:React.ReactNode;children:React.ReactNode}) => <div className="h-full overflow-y-auto px-8 py-7"><p className="text-[11px] font-bold tracking-[.12em] text-[#8C93A3]">{eyebrow}</p><div className={`mt-2 flex items-center ${action?"max-w-[900px]":""}`}><h1 className="text-[28px] font-bold text-[#171A24]">{title}</h1>{action&&<div className="ml-auto">{action}</div>}</div>{subtitle&&<p className="mb-7 mt-1 text-[13px] text-[#7B8291]">{subtitle}</p>}{!subtitle&&<div className="mb-7"/>}{children}</div>;
+const Page = ({eyebrow,title,subtitle,action,children,onScroll,topClass="pt-16"}:{eyebrow:string;title:string;subtitle:string;action?:React.ReactNode;children:React.ReactNode;onScroll?:React.UIEventHandler<HTMLDivElement>;topClass?:string}) => <div onScroll={onScroll} className={`h-full overflow-y-auto px-4 pb-7 sm:px-6 lg:px-8 ${topClass}`}>
+  <div className="mx-auto w-full max-w-[900px]">
+    <div className="flex items-center"><p className="text-[11px] font-bold tracking-[.12em] text-[#8C93A3]">{eyebrow}</p>{!title&&action&&<div className="ml-auto">{action}</div>}</div>
+    {title&&<div className="mt-2 flex items-center"><h1 className="text-[28px] font-bold text-[#171A24]">{title}</h1>{action&&<div className="ml-auto">{action}</div>}</div>}
+    {subtitle&&<p className="mb-7 mt-1 text-[13px] text-[#7B8291]">{subtitle}</p>}
+    {!subtitle&&<div className="mb-2"/>}
+  </div>{children}
+</div>;
 
-export function TodayView({onTask,onClassSession,onPractice,onProject,onGoals,onSearch,onAddSource,onOpenRecorder,memorySuggestion}:{onTask:(task:"physics-lab"|"english-review"|"physics-preview"|"math-homework")=>void;onClassSession:(subjectId:string,title:string)=>void;onPractice:()=>void;onProject:()=>void;onGoals:()=>void;onSearch:(query:string)=>void;onAddSource:()=>void;onOpenRecorder:()=>void;memorySuggestion?:string|null}) {
+export function TodayView({onTask,onClassSession,onPractice,onProject,onGoals,onSearch,onAddSource,onOpenRecorder,memorySuggestion,assistantHeaderVisible=true}:{onTask:(task:"physics-lab"|"english-review"|"physics-preview"|"math-homework")=>void;onClassSession:(subjectId:string,title:string)=>void;onPractice:()=>void;onProject:()=>void;onGoals:()=>void;onSearch:(query:string)=>void;onAddSource:()=>void;onOpenRecorder:()=>void;memorySuggestion?:string|null;assistantHeaderVisible?:boolean}) {
   const [feedbackTask,setFeedbackTask]=useState<string|null>(null);
   const [searchQuery,setSearchQuery]=useState("");
   const [completedIds,setCompletedIds]=useState<Set<string>>(()=>new Set());
   const [showCompleted,setShowCompleted]=useState(false);
   const [showSemester,setShowSemester]=useState(false);
   const [week,setWeek]=useState(6);
-  const todayLabel=new Intl.DateTimeFormat("zh-CN",{year:"numeric",month:"long",day:"numeric",weekday:"long"}).format(new Date());
+  const todayLabel=new Intl.DateTimeFormat("zh-CN",{year:"numeric",month:"long",day:"numeric"}).format(new Date());
   const currentHour=new Date().getHours();
   const timeline = [
     {
@@ -75,7 +82,7 @@ export function TodayView({onTask,onClassSession,onPractice,onProject,onGoals,on
   };
   const startSearch=(value=searchQuery)=>{const next=value.trim();if(!next)return;onSearch(next);};
   const searchSuggestions=["找上周高数课讲过的换元法","根据最近错题，告诉我先复习什么","总结这份课件的考试重点"];
-  return <Page eyebrow={todayLabel} title="今天想找什么，或者完成什么？" subtitle="先从你的资料中找依据，再回答问题或给出下一步建议。" action={<button onClick={()=>setShowSemester(true)} className="rounded-full bg-[#EEF2FF] px-4 py-2 text-[11px] font-semibold text-[#4D5CFF] hover:bg-[#E4E9FF]">查看学期课表</button>}><div className="max-w-[900px]">
+  return <Page topClass={assistantHeaderVisible?"pt-[376px]":"pt-16"} onScroll={event=>window.dispatchEvent(new CustomEvent("memo-today-scroll",{detail:{scrollTop:event.currentTarget.scrollTop}}))} eyebrow={todayLabel} title="" subtitle="" action={<button onClick={()=>setShowSemester(true)} className="rounded-full bg-[#EEF2FF] px-4 py-2 text-[11px] font-semibold text-[#4D5CFF] hover:bg-[#E4E9FF]">查看学期课表</button>}><div className="mx-auto w-full max-w-[900px]">
     <section className="hidden">
       <div className="flex items-center gap-2 text-[#4D5CFF]"><Sparkles size={16}/><span className="text-[11px] font-bold tracking-[.08em]">问 MEMO</span></div>
       <form onSubmit={event=>{event.preventDefault();startSearch();}} className="mt-4 flex h-[66px] items-center rounded-2xl bg-white px-4 shadow-[0_10px_28px_rgba(55,72,132,.10)] ring-1 ring-white focus-within:ring-[#AEB8FF]">
@@ -89,7 +96,6 @@ export function TodayView({onTask,onClassSession,onPractice,onProject,onGoals,on
         <button onClick={onOpenRecorder} className="flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-[11px] font-semibold text-[#444B58] shadow-sm"><Mic size={14} className="text-[#4D5CFF]"/>开始录音</button>
       </div>
     </section>
-    <div className="mb-3 mt-7 flex items-end"><div><h2 className="text-[15px] font-bold text-[#252936]">今天要做 · {activeItems.length}</h2><p className="mt-1 text-[9px] text-[#969CA8]">明确截止的事项和你主动加入的安排</p></div></div>
     <Card className="p-5">
       <section><div className="mb-3 flex items-end"><div><h3 className="text-[13px] font-bold text-[#252936]">有明确时间 · {timedItems.length}</h3><p className="mt-1 text-[9px] text-[#969CA8]">先做有时间要求的事</p></div></div><div className="space-y-3">{timedItems.map(x=>renderTask(x))}</div></section>
       <section className="mt-7"><div className="mb-3 flex items-end"><div><h3 className="text-[13px] font-bold text-[#252936]">建议今天推进 · {suggestedItems.length}</h3><p className="mt-1 text-[9px] text-[#969CA8]">今天有空时可以做</p></div></div><div className="space-y-3">{suggestedItems.map(x=>renderTask(x))}</div></section>

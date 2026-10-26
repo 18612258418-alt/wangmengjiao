@@ -57,6 +57,7 @@ import { Sidebar, type WorkspaceId } from "../features/sidebar/Sidebar";
 import { ClassSessionPanel, GoalsView, KnowledgeView, TodayView } from "../features/workspace/WorkspaceViews";
 import { ResearchHome, ResearchWorkspace } from "../features/workspace/ResearchWorkspace";
 import { AddSourceModal, type SourceDraft, isAudioFile } from "../features/source/AddSourceModal";
+import { ConnectionModal } from "../features/source/ConnectionModal";
 import { SourceLibraryView, type LibrarySource } from "../features/source/SourceLibraryView";
 import { FlyThumbnail } from "../shared/FlyThumbnail";
 
@@ -109,6 +110,7 @@ export default function App() {
   const [searchInitialQuery, setSearchInitialQuery] = useState("");
   const [sourceSearchTarget, setSourceSearchTarget] = useState<string | null>(null);
   const [showAddSource, setShowAddSource] = useState(false);
+  const [showConnections, setShowConnections] = useState(false);
   const [pdfReaderFile, setPdfReaderFile] = useState<File | null>(null);
   const [showWritableReview, setShowWritableReview] = useState(false);
   const [activeTodayTask, setActiveTodayTask] = useState<StudyTaskKind | null>(null);
@@ -123,6 +125,26 @@ export default function App() {
   const [voiceSourceCard, setVoiceSourceCard] = useState<CardData | null>(null);
   const [showFormFill, setShowFormFill] = useState(false);
   const [onboardingMode, setOnboardingMode] = useState<"first" | "demo" | null>(null);
+  const [padScale, setPadScale] = useState(1);
+  const [showOpeningSplash, setShowOpeningSplash] = useState(true);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setShowOpeningSplash(false), 2350);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const updatePadScale = () => {
+      const availableWidth = Math.max(window.innerWidth - 48, 320);
+      const availableHeight = Math.max(window.innerHeight - 48, 240);
+      setPadScale(Math.min(availableWidth / 1396, availableHeight / 1052, 1));
+    };
+
+    updatePadScale();
+    window.addEventListener("resize", updatePadScale);
+    return () => window.removeEventListener("resize", updatePadScale);
+  }, []);
+
 
   useEffect(() => {
     const openMemoDialog = (event: KeyboardEvent) => {
@@ -1186,6 +1208,24 @@ export default function App() {
   return (
     <ApiConfigProvider>
       <PenContextProvider>
+      <div className="fixed inset-0 flex items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_top,#F5F7FC_0%,#E7EAF1_55%,#DDE1E9_100%)] p-6">
+        <div
+          className="relative shrink-0 overflow-hidden bg-[#171A20] shadow-[0_34px_90px_rgba(24,30,45,.32),0_8px_24px_rgba(24,30,45,.18)] ring-1 ring-black/40"
+          style={{
+            width: 1396 * padScale,
+            height: 1052 * padScale,
+            borderRadius: 34 * padScale,
+          }}
+        >
+          <span
+            className="pointer-events-none absolute left-1/2 z-[10000] -translate-x-1/2 rounded-full bg-[#343945] ring-1 ring-black/70"
+            style={{ top: 3 * padScale, width: 5 * padScale, height: 5 * padScale }}
+            aria-hidden="true"
+          />
+          <div
+            className="absolute h-[1032px] w-[1376px] origin-top-left transform-gpu overflow-hidden rounded-[25px] bg-[#F5F6FA]"
+            style={{ left: 10 * padScale, top: 10 * padScale, transform: `scale(${padScale})` }}
+          >
       <PenSceneSync
         annotationType={annotationType}
         pdfReaderFile={pdfReaderFile}
@@ -1193,6 +1233,17 @@ export default function App() {
         showFormFill={showFormFill}
       />
       <div className="fixed inset-0 flex overflow-hidden bg-[#F5F6FA]">
+        {showOpeningSplash && (
+          <div className="memo-opening-splash fixed inset-0 z-[20000] grid place-items-center overflow-hidden bg-[#F4F4F5]" aria-label="MEMO 启动画面">
+            <div className="relative grid h-[320px] w-[320px] place-items-center">
+              <span className="memo-opening-wave memo-opening-wave-one" aria-hidden="true" />
+              <span className="memo-opening-wave memo-opening-wave-two" aria-hidden="true" />
+              <span className="memo-opening-ring" aria-hidden="true" />
+              <span className="memo-opening-core" aria-hidden="true" />
+              <strong className="memo-opening-word">MEMO</strong>
+            </div>
+          </div>
+        )}
         {dbLoading && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#F5F6FA]">
             <div className="flex flex-col items-center gap-3">
@@ -1233,7 +1284,7 @@ export default function App() {
           todayCount={memorySuggestedTask ? 3 : 2}
         />
 
-        <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#F5F6FA] pt-20">
+        <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#F5F6FA]">
           {activeWorkspace === "today" && (
             <TodayView
               onTask={setActiveTodayTask}
@@ -1261,6 +1312,7 @@ export default function App() {
               onAddSource={() => setShowAddSource(true)}
               onOpenRecorder={() => setShowVoice(true)}
               memorySuggestion={memorySuggestedTask}
+              assistantHeaderVisible={!showVoice}
             />
           )}
           {activeWorkspace === "knowledge" && <KnowledgeView />}
@@ -1384,7 +1436,7 @@ export default function App() {
           }}
         />
 
-        <SearchOverlay
+        {!showVoice && (activeWorkspace === "today" || showSearch) && <SearchOverlay
           isOpen={showSearch}
           startWithVoice={searchStartsWithVoice}
           initialQuery={searchInitialQuery}
@@ -1404,13 +1456,16 @@ export default function App() {
           onAddSource={() => setShowAddSource(true)}
           onOpenCamera={() => setShowCameraPicker(true)}
           onOpenVoice={() => setShowVoice(true)}
+          onOpenConnections={() => setShowConnections(true)}
           onOpenSource={(sourceId) => {
             setShowSearch(false);
             setSourceSearchTarget(sourceId);
             setActiveWorkspace("sources");
             setActiveClassSession(null);
           }}
-        />
+        />}
+
+        <ConnectionModal isOpen={showConnections} onClose={() => setShowConnections(false)} />
 
         <AddSourceModal
           isOpen={showAddSource}
@@ -1688,6 +1743,10 @@ export default function App() {
 
       {/* FlyThumbnail 必须放在所有 Modal 之后才能浮在最顶层 */}
       <FlyThumbnail phase={flyPhase} imgSrc={flyImg} />
+
+          </div>
+        </div>
+      </div>
 
       </PenContextProvider>
     </ApiConfigProvider>

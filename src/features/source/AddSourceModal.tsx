@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FolderSync } from "lucide-react";
+import { FolderSync, Trash2 } from "lucide-react";
 import type { CardContentType, DetailSection, ExpandedKnowledge, KnowledgeNode, SourceAnchor, SourceDocument, SubjectData } from "../../types";
 
 export type SourceKind = "image" | "file" | "link" | "text" | "audio";
@@ -132,6 +132,10 @@ export function AddSourceModal({
 
   const updateItem = (id: string, updates: Partial<SourceDraft>) => {
     setItems(prev => prev.map(item => item.id === id ? { ...item, ...updates } : item));
+  };
+
+  const removeItem = (id: string) => {
+    setItems(prev => prev.filter(item => item.id !== id));
   };
 
   const addAnalyzingItem = (sourceKind: SourceKind, originalName: string) => {
@@ -339,6 +343,17 @@ export function AddSourceModal({
                     <span className={`text-[11px] flex-shrink-0 ${item.status === "failed" ? "text-[#EF4444]" : item.status === "saved" ? "text-[#10B981]" : "text-[#7B8291]"}`}>
                       {item.status === "analyzing" ? (item.sourceKind === "audio" ? "识别中" : "解析中") : item.status === "ready" ? "等你确认" : item.status === "saved" ? "已保存" : "失败"}
                     </span>
+                    {item.status === "analyzing" && (
+                      <button
+                        type="button"
+                        onClick={() => removeItem(item.id)}
+                        className="grid h-7 w-7 flex-shrink-0 place-items-center rounded-full bg-[#F2F3F6] text-[#858C98] transition hover:bg-[#FFF0F1] hover:text-[#D64F59]"
+                        aria-label={`删除正在上传的 ${item.originalName}`}
+                        title="删除"
+                      >
+                        <Trash2 size={13}/>
+                      </button>
+                    )}
                   </div>
                   <p className={`text-[12px] mt-1 line-clamp-2 ${item.status === "failed" ? "text-[#E11D48]" : "text-[#7B8291]"}`}>
                     {item.error || item.summary}
