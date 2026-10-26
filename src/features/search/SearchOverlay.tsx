@@ -46,6 +46,7 @@ type BrowserSpeechRecognition = {
 type EvidenceItem = {
   id: string;
   kind: "memory" | "web";
+  category: "笔记" | "作业" | "资料";
   label: string;
   title: string;
   meta: string;
@@ -202,16 +203,19 @@ export function SearchOverlay({
   useEffect(() => {
     if (!isOpen) return;
     const preset = initialQuery.trim();
-    setQuery(preset);
+    // Opening from the home search submits the local query in the same event.
+    // Keep that value instead of clearing it when the expanded view mounts.
+    const openingQuery = preset || query.trim();
+    setQuery(openingQuery);
     setFollowUp("");
-    setSubmittedQuery(preset);
-    setMode(preset ? "thinking" : "idle");
+    setSubmittedQuery(openingQuery);
+    setMode(openingQuery ? "thinking" : "idle");
     setNotice("");
     setSourcesOpen(false);
     setVoiceStatus("idle");
     setAddMenuOpen(false);
     if (timerRef.current) window.clearTimeout(timerRef.current);
-    if (preset) timerRef.current = window.setTimeout(() => setMode("answered"), 720);
+    if (openingQuery) timerRef.current = window.setTimeout(() => setMode("answered"), 720);
     else setTimeout(() => inputRef.current?.focus(), 80);
   }, [isOpen, initialQuery]);
 
@@ -253,23 +257,44 @@ export function SearchOverlay({
     const cardEvidence = memoryMatches.slice(0, 3).map(({ card, subject, date }) => ({
       id: card.id,
       kind: "memory" as const,
+      category: card.contentType === "homework" ? "作业" as const : "笔记" as const,
       label: subject,
       title: card.title,
       meta: `${date} · ${card.time || "个人记忆"}`,
     }));
     const fallback: EvidenceItem[] = [
-      { id: "memory-note", kind: "memory", label: "课堂笔记", title: "定积分换元后的上下限处理", meta: "高等数学 · 9 月 12 日" },
-      { id: "memory-homework", kind: "memory", label: "作业", title: "第 6 次作业 · 第 3 题", meta: "上次错误：沿用原变量区间" },
-      { id: "memory-book", kind: "memory", label: "教材", title: "定积分的换元法", meta: "高等数学 · 第 184 页" },
+      { id: "memory-note", kind: "memory", category: "笔记", label: "课堂笔记", title: "定积分换元后的上下限处理", meta: "高等数学 · 9 月 12 日" },
+      { id: "memory-homework", kind: "memory", category: "作业", label: "作业", title: "第 6 次作业 · 第 3 题", meta: "上次错误：沿用原变量区间" },
     ];
-    const personal = cardEvidence.length >= 2 ? cardEvidence : fallback;
+    const personal = cardEvidence.length ? cardEvidence : fallback;
+    const normalizedQuery = submittedQuery.toLowerCase();
+    const queryTokens = normalizedQuery.split(/[\s，。？！、]+/).filter(token => token.length >= 2);
+    const sourceMatches = SOURCE_LIBRARY_ITEMS
+      .filter(source => {
+        if (!queryTokens.length) return false;
+        const blob = [source.title, source.creator, source.detail, source.lastPosition, ...source.contexts, ...source.notes.flatMap(note => [note.title, note.anchor])].join(" ").toLowerCase();
+        return queryTokens.some(token => blob.includes(token));
+      })
+      .slice(0, 4)
+      .map(source => ({
+        id: `source-${source.id}`,
+        kind: "memory" as const,
+        category: "资料" as const,
+        label: source.type,
+        title: source.title,
+        meta: `${source.creator} · ${source.lastPosition}`,
+        sourceId: source.id,
+      }));
+    const sourceFallback: EvidenceItem[] = [
+      { id: "memory-book", kind: "memory", category: "资料", label: "教材", title: "定积分的换元法", meta: "高等数学 · 第 184 页", sourceId: "math-textbook" },
+    ];
     const web: EvidenceItem[] = answer.external ? [
-      { id: "web-course", kind: "web", label: "公开课程", title: "用面积变换理解定积分换元", meta: "大学数学开放课程 · 8 分钟" },
-      { id: "web-textbook", kind: "web", label: "开放教材", title: "Substitution in Definite Integrals", meta: "OpenStax Calculus · 已核对" },
+      { id: "web-course", kind: "web", category: "资料", label: "公开课程", title: "用面积变换理解定积分换元", meta: "大学数学开放课程 · 8 分钟" },
+      { id: "web-textbook", kind: "web", category: "资料", label: "开放教材", title: "Substitution in Definite Integrals", meta: "OpenStax Calculus · 已核对" },
     ] : [];
-    return [...personal, ...web];
-  }, [memoryMatches, answer.external]);
-  const displayedEvidence = evidence.filter(item => resultTab === "笔记" ? item.label.includes("笔记") : resultTab === "作业" ? item.label.includes("作业") : !item.label.includes("笔记") && !item.label.includes("作业"));
+    return [...personal, ...(sourceMatches.length ? sourceMatches : sourceFallback), ...web];
+  }, [memoryMatches, answer.external, submittedQuery]);
+  const displayedEvidence = evidence.filter(item => item.category === resultTab);
 
   const submit = (nextQuery?: string) => {
     const value = (nextQuery ?? query).trim();
