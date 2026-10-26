@@ -1,12 +1,46 @@
 import { useState, useEffect, useRef } from "react";
-import { X } from "lucide-react";
+import { ArrowLeft, AudioLines, FileText } from "lucide-react";
 import type { CardData, SubjectData } from "../../types";
 import { SourceIcon, sourceLabel } from "../../shared/SourceIcon";
 import { getSkillMeta } from "../../utils/cardDetailParsing";
 import { exportCardImage, exportCardMarkdown } from "../../utils/exportCard";
 import { CardDetailContent } from "./CardDetailContent";
 
-export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateCard, subjects = [], currentSubjectId, onMoveSubject, onGenerateFromCard }: {
+function OriginalSourcePane({ card }: { card: CardData }) {
+  const document = card.sourceDocument;
+  const sourceName = card.sourceAnchor?.fileName || document?.title || sourceLabel(card.source ?? "") || "原始记录";
+  const page = card.sourceAnchor?.page || document?.page;
+  const duration = document?.durationSeconds == null ? "" : `${String(Math.floor(document.durationSeconds / 60)).padStart(2, "0")}:${String(document.durationSeconds % 60).padStart(2, "0")}`;
+
+  return (
+    <section className="flex min-h-0 w-[52%] flex-col border-r border-[#E1E4EB] bg-[#ECEEF4] p-5">
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-[0_5px_24px_rgba(27,31,48,.10)]">
+        {document?.type === "voice" ? (
+          <article className="h-full w-full overflow-y-auto px-[8%] py-[7%] text-[#303441]">
+            <div className="flex items-center gap-3">
+              <span className="grid h-11 w-11 place-items-center rounded-full bg-[#EEF0FF] text-[#5364FF]"><AudioLines size={20}/></span>
+              <div><p className="text-[10px] font-semibold text-[#5364FF]">原始录音</p><h2 className="mt-1 text-[20px] font-bold leading-8">{document.title}</h2><p className="mt-1 text-[10px] text-[#8A909C]">{duration || "时长未记录"}</p></div>
+            </div>
+            {document.url ? <audio controls src={document.url} className="mt-7 w-full" aria-label={`${document.title}原始音频`}/> : <div className="mt-7 rounded-xl bg-[#F5F6FA] px-4 py-3 text-[11px] leading-6 text-[#7B8291]">当前演示录音保留完整转写；正式录制时可在这里回听原始音色。</div>}
+            <div className="mt-7 border-t border-[#EEF0F4] pt-5"><p className="text-[12px] font-bold text-[#202431]">完整转写</p><div className="mt-4 space-y-4 text-[12px] leading-7 text-[#555D6C]">{(document.paragraphs ?? []).map((paragraph,index)=><p key={index} className="whitespace-pre-wrap">{paragraph}</p>)}</div></div>
+          </article>
+        ) : document?.type === "pdf" && document.url ? (
+          <object data={`${document.url}#page=${page || 1}&toolbar=0&navpanes=0&view=FitH`} type="application/pdf" className="h-full w-full">
+            <div className="grid h-full place-items-center text-center"><FileText size={30} className="mx-auto text-[#4D5CFF]"/><p className="mt-3 text-[12px]">PDF 预览不可用</p></div>
+          </object>
+        ) : document?.type === "web" ? (
+          <article className="h-full w-full overflow-y-auto px-[9%] py-[7%] text-[#303441]"><p className="text-[10px] font-semibold text-[#4D5CFF]">网页原文</p><h2 className="mt-3 text-[24px] font-bold leading-9">{document.title}</h2>{document.author&&<p className="mt-2 text-[10px] text-[#8A909C]">{document.author} {document.publishedAt&&`· ${document.publishedAt}`}</p>}<div className="mt-6 space-y-4 text-[12px] leading-7 text-[#555D6C]">{(document.paragraphs?.length?document.paragraphs:[document.excerpt||card.detailIntro||"这条笔记由当前网页原文形成。"]).map((paragraph,index)=><p key={index}>{paragraph}</p>)}</div></article>
+        ) : card.img ? (
+          <img src={card.img} alt={`${card.title}的原始文件`} className="h-full w-full object-contain" />
+        ) : (
+          <div className="max-w-[520px] p-10 text-center"><FileText size={34} className="mx-auto text-[#4D5CFF]"/><h2 className="mt-4 text-[18px] font-bold">{sourceName}</h2><p className="mt-3 text-[11px] leading-6 text-[#7B8291]">这条笔记保留了原始来源定位；当前演示使用文字记录代替文件缩略图。</p></div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateCard, subjects = [], currentSubjectId, onMoveSubject, onGenerateFromCard, onOpenVoiceSource }: {
   card: CardData | null;
   onClose: () => void;
   onDelete: () => void;
@@ -16,6 +50,7 @@ export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateC
   currentSubjectId?: string;
   onMoveSubject?: (targetSubjectId: string) => void;
   onGenerateFromCard?: (cardId: string) => void;
+  onOpenVoiceSource?: (card: CardData) => void;
 }) {
   const isOpen = card !== null;
   const srcLabel = sourceLabel(card?.source ?? "");
@@ -27,6 +62,7 @@ export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateC
   const [titleDraft, setTitleDraft] = useState("");
   const [exporting, setExporting] = useState(false);
   const skillMeta = getSkillMeta(card?.skill);
+  const displayTitle = card?.title.replace(/^记忆[:：]\s*/, "") ?? "";
   const exportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -73,14 +109,14 @@ export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateC
     <>
       <div
         className="fixed inset-0 bg-black/40 z-40 transition-opacity duration-300"
-        style={{ opacity: isOpen ? 1 : 0, pointerEvents: isOpen ? "auto" : "none" }}
+        style={{ opacity: isOpen ? 0.2 : 0, pointerEvents: isOpen ? "auto" : "none" }}
         onClick={onClose}
       />
 
       <div
-        className="fixed top-0 right-0 bg-white z-50 shadow-[-8px_0_32px_rgba(0,0,0,0.12)] rounded-l-3xl transition-transform duration-300"
+        className="fixed right-0 top-0 z-50 rounded-l-[24px] bg-white shadow-[-8px_0_32px_rgba(0,0,0,0.12)] transition-transform duration-300"
         style={{
-          width: "42%",
+          width: "min(100vw, max(640px, 56vw))",
           height: "100dvh",
           maxHeight: "100dvh",
           transform: isOpen ? "translateX(0)" : "translateX(100%)",
@@ -91,6 +127,18 @@ export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateC
       >
         {card && (
           <>
+            <header className="flex h-[64px] shrink-0 items-center border-b border-[#E5E8EF] bg-white px-5">
+              <button
+                onClick={() => { onClose(); setConfirmDelete(false); }}
+                className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-[#343A49] transition hover:bg-[#F1F3F8]"
+                aria-label="返回笔记列表"
+                title="返回笔记"
+              >
+                <ArrowLeft size={18}/>
+              </button>
+            </header>
+            <div className="flex min-h-0 flex-1">
+              <section className="flex min-h-0 w-full flex-col bg-white">
             <div className="flex items-center gap-3 px-5 pt-5 pb-3" style={{ flexShrink: 0 }}>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 min-w-0">
@@ -112,7 +160,7 @@ export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateC
                     />
                   ) : (
                     <>
-                      <p className="text-[15px] text-[#020418] truncate" style={{ fontWeight: 700 }}>{card.title}</p>
+                      <p className="text-[15px] text-[#020418] truncate" style={{ fontWeight: 700 }}>{displayTitle}</p>
                       <button
                         onClick={() => {
                           setTitleDraft(card.title);
@@ -260,19 +308,13 @@ export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateC
                 <button
                   onClick={() => setConfirmDelete(true)}
                   className="w-8 h-8 flex items-center justify-center rounded-full bg-[#ECECEC] hover:bg-[#FFE4E4] transition-colors flex-shrink-0"
-                  title="删除此记忆"
+                  title="删除这条笔记"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
                   </svg>
                 </button>
               )}
-              <button
-                onClick={() => { onClose(); setConfirmDelete(false); }}
-                className="w-8 h-8 flex items-center justify-center rounded-full bg-[#ECECEC] hover:bg-[#E0E0E0] transition-colors flex-shrink-0"
-              >
-                <X size={14} className="text-[#020418]" />
-              </button>
             </div>
 
             <CardDetailContent
@@ -280,7 +322,10 @@ export function RightDrawer({ card, onClose, onDelete, unifiedContent, onUpdateC
               unifiedContent={unifiedContent}
               onUpdateCard={onUpdateCard}
               exportRef={exportRef}
+              onOpenVoiceSource={onOpenVoiceSource}
             />
+              </section>
+            </div>
           </>
         )}
       </div>

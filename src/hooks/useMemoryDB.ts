@@ -11,11 +11,13 @@ import { BUILTIN_SYLLABUS_BY_CARD } from "../data/subjectSyllabi";
 import { DEMO_SEED_PATCH, DEMO_SEED_PATCH_KEY } from "../data/demoSeedCards";
 import { ENABLE_HOMEWORK_DEMO_SEED, HOMEWORK_SEED_PATCH, HOMEWORK_SEED_PATCH_KEY } from "../data/homeworkSeedCards";
 import { BUILTIN_CARD_META } from "../data/builtinCardMeta";
+import { RECORDING_ANCHOR_PATCH_KEY, RECORDING_SEED_CARDS_BY_ID, RECORDING_SEED_PATCH, RECORDING_SEED_PATCH_KEY } from "../data/recordingSeedCards";
+import type { MergeUndoSnapshot } from "../utils/memoryMerge";
 
 const CARD_META_PATCH_KEY = "card_meta_patch_v1";
 const CONTENT_TYPE_PATCH_KEY = "content_type_patch_v1";
 const CONTENT_TYPE_V2_KEY = "content_type_patch_v2";
-const SUBJECT_LABELS_PATCH_KEY = "subject_labels_univ_v1";
+const SUBJECT_LABELS_PATCH_KEY = "subject_labels_univ_v2";
 const SYLLABUS_ENTRY_PATCH_KEY = "syllabus_entry_patch_v1";
 
 // ─── Public interface ─────────────────────────────────────────────────────────
@@ -25,17 +27,28 @@ export interface MemoryDBHook {
   exerciseSets: ExerciseSet[];
   subjects: SubjectData[];
   isLoading: boolean;
-  toast: string | null;
+  toast: ToastPayload | null;
   addCard: (params: AddCardParams) => Promise<void>;
   addExerciseSet: (exerciseSet: ExerciseSet) => void;
   updateExerciseSet: (exerciseSetId: string, updates: Partial<ExerciseSet>) => void;
   removeCard: (subjectId: string, date: string, cardId: string) => Promise<void>;
+  removeCardSilent: (subjectId: string, date: string, cardId: string) => Promise<void>;
+  restoreMergedCards: (snapshots: MergeUndoSnapshot[]) => Promise<void>;
   updateSummary: (subjectId: string, date: string, newSummary: string) => Promise<void>;
   updateCard: (subjectId: string, date: string, cardId: string, updates: Partial<CardData>) => Promise<void>;
   updateSubject: (subject: SubjectData) => void;
   addSubject: (subject: SubjectData) => void;
   moveCardToSubject: (cardId: string, fromSubjectId: string, date: string, toSubjectId: string) => Promise<void>;
-  showToast: (msg: string) => void;
+  showToast: (
+    msg: string,
+    opts?: { actionLabel?: string; onAction?: () => void; durationMs?: number },
+  ) => void;
+}
+
+export interface ToastPayload {
+  message: string;
+  actionLabel?: string;
+  onAction?: () => void;
 }
 
 export interface AddCardParams {
@@ -44,6 +57,7 @@ export interface AddCardParams {
   date: string;          // YYYYMMDD
   aiSummary: string;
   subjectShort: string;
+  silent?: boolean;
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -53,7 +67,7 @@ export function useMemoryDB(): MemoryDBHook {
   const [exerciseSets, setExerciseSets]     = useState<ExerciseSet[]>([]);
   const [subjects, setSubjects]           = useState<SubjectData[]>(INITIAL_SUBJECTS);
   const [isLoading, setIsLoading]         = useState(true);
-  const [toast, setToast]                 = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastPayload | null>(null);
   const toastTimer                        = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ─── Init ──────────────────────────────────────────────────────────────────
@@ -80,6 +94,20 @@ export function useMemoryDB(): MemoryDBHook {
           await applySeedPatch(DEMO_SEED_PATCH, INITIAL_SUBJECTS);
           localStorage.setItem(DEMO_SEED_PATCH_KEY, "1");
           storedSubjects = await getAllSubjects();
+        }
+
+        if (!localStorage.getItem(RECORDING_SEED_PATCH_KEY)) {
+          await applySeedPatch(RECORDING_SEED_PATCH, INITIAL_SUBJECTS);
+          localStorage.setItem(RECORDING_SEED_PATCH_KEY, "1");
+          storedSubjects = await getAllSubjects();
+        }
+
+        if (!localStorage.getItem(RECORDING_ANCHOR_PATCH_KEY)) {
+          const cards = await getAllCards();
+          await Promise.all(cards
+            .filter(card => RECORDING_SEED_CARDS_BY_ID[card.id])
+            .map(card => putCard({ ...card, ...RECORDING_SEED_CARDS_BY_ID[card.id] })));
+          localStorage.setItem(RECORDING_ANCHOR_PATCH_KEY, "1");
         }
 
         if (ENABLE_HOMEWORK_DEMO_SEED && !localStorage.getItem(HOMEWORK_SEED_PATCH_KEY)) {
@@ -131,6 +159,15 @@ export function useMemoryDB(): MemoryDBHook {
           storedSubjects = await getAllSubjects();
         }
 
+        // 始终提供“其他”作为未归类内容的固定承接文件夹；兼容已有本地数据库。
+        if (!storedSubjects.some(subject => subject.id === "misc")) {
+          const miscSubject = INITIAL_SUBJECTS.find(subject => subject.id === "misc");
+          if (miscSubject) {
+            await putSubject(miscSubject);
+            storedSubjects = [...storedSubjects, miscSubject];
+          }
+        }
+
         if (!localStorage.getItem(SYLLABUS_ENTRY_PATCH_KEY)) {
           const cards = await getAllCards();
           await Promise.all(
@@ -162,86 +199,100 @@ export function useMemoryDB(): MemoryDBHook {
 
   // ─── Toast helper ──────────────────────────────────────────────────────────
 
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
+  const showToast = useCallback((
+    msg: string,
+    opts?: { actionLabel?: string; onAction?: () => void; durationMs?: number },
+  ) => {
+    setToast(opts?.actionLabel && opts.onAction
+      ? { message: msg, actionLabel: opts.actionLabel, onAction: opts.onAction }
+      : { message: msg });
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 2200);
+    toastTimer.current = setTimeout(() => setToast(null), opts?.durationMs ?? 2200);
   }, []);
 
   // ─── Add card ──────────────────────────────────────────────────────────────
 
   const addCard = useCallback(async ({
-    targetSubjectId, card, date, aiSummary, subjectShort,
+    targetSubjectId, card, date, aiSummary, subjectShort, silent = false,
   }: AddCardParams) => {
     const fgKey = `${targetSubjectId}_${date}`;
+    const summary = aiSummary || `AI分析完成！本次批注归类至${subjectShort}笔记，新增1个知识点。建议结合已有笔记复习。`;
 
-    // Persist card + feedGroup meta concurrently
-    try {
-      const existingFGs = await getAllFeedGroups();
-      const existingFG  = existingFGs.find(fg => fg.id === fgKey);
-
-      await Promise.all([
-        putCard({ ...card, subjectId: targetSubjectId, date }),
-        putFeedGroup({
-          id:        fgKey,
-          subjectId: targetSubjectId,
-          date,
-          label:     existingFG
-            ? `新增了${(existingFG.label.match(/\d+/) ? Number(existingFG.label.match(/\d+/)![0]) : 0) + 1}个记忆`
-            : "新增了1个记忆",
-          summary:   aiSummary || `AI分析完成！本次批注归类至${subjectShort}笔记，新增1个知识点。建议结合已有笔记复习。`,
-        }),
-      ]);
-    } catch (err) {
-      console.error("[useMemoryDB] addCard persist failed", err);
-    }
-
-    // Update in-memory state
+    // 先更新内存，避免异步 persist 期间重复落卡；Toast 也立即弹出，不被后续合并 Toast 覆盖
+    let cardIsNew = true;
     setAllFeedGroups(prev => {
       const feeds = prev[targetSubjectId] ?? [];
       const idx   = feeds.findIndex(g => g.date === date);
-      const summary = aiSummary || `AI分析完成！本次批注归类至${subjectShort}笔记，新增1个知识点。建议结合已有笔记复习。`;
+      cardIsNew = !Object.values(prev).some(groups =>
+        groups?.some(g => g.cards.some(c => c.id === card.id)),
+      );
+
+      const upsertIntoGroup = (g: FeedGroup): FeedGroup => {
+        const hasId = g.cards.some(c => c.id === card.id);
+        return {
+          ...g,
+          cards: hasId
+            ? g.cards.map(c => c.id === card.id ? card : c)
+            : [card, ...g.cards],
+          label: hasId ? g.label : `新增了${g.cards.length + 1}个记忆`,
+        };
+      };
 
       const updated: FeedGroup[] = idx >= 0
-        ? feeds.map((g, i) => i === idx
-            ? { ...g, cards: [card, ...g.cards], label: `新增了${g.cards.length + 1}个记忆` }
-            : g)
+        ? feeds.map((g, i) => i === idx ? upsertIntoGroup(g) : g)
         : [{ date, label: "新增了1个记忆", summary, cards: [card] }, ...feeds];
 
       return { ...prev, [targetSubjectId]: updated };
     });
 
-    setSubjects(prev => prev.map(s => {
-      if (s.id !== targetSubjectId) return s;
-      const now       = new Date();
-      const dateLabel = `${now.getMonth() + 1}月${now.getDate()}日 · 批注新增1个记忆`;
-      const updated   = {
-        ...s,
-        count:   s.count + 1,
-        entries: [dateLabel, ...s.entries].slice(0, 3),
-        extra:   `刚刚 · ${s.count + 1}个知识点`,
-      };
-      putSubject(updated).catch(() => {});
-      return updated;
-    }));
+    if (cardIsNew) {
+      setSubjects(prev => prev.map(s => {
+        if (s.id !== targetSubjectId) return s;
+        const now       = new Date();
+        const dateLabel = `${now.getMonth() + 1}月${now.getDate()}日 · 批注新增1个记忆`;
+        const updated   = {
+          ...s,
+          count:   s.count + 1,
+          entries: [dateLabel, ...s.entries].slice(0, 3),
+          extra:   `刚刚 · ${s.count + 1}个知识点`,
+        };
+        putSubject(updated).catch(() => {});
+        return updated;
+      }));
+      if (!silent) {
+        showToast("已保存到本地 ✓");
+      }
+    }
 
-    showToast("已保存到本地 ✓");
+    void (async () => {
+      try {
+        const existingFGs = await getAllFeedGroups();
+        const existingFG  = existingFGs.find(fg => fg.id === fgKey);
+        await Promise.all([
+          putCard({ ...card, subjectId: targetSubjectId, date }),
+          putFeedGroup({
+            id:        fgKey,
+            subjectId: targetSubjectId,
+            date,
+            label:     existingFG
+              ? `新增了${(existingFG.label.match(/\d+/) ? Number(existingFG.label.match(/\d+/)![0]) : 0) + 1}个记忆`
+              : "新增了1个记忆",
+            summary,
+          }),
+        ]);
+      } catch (err) {
+        console.error("[useMemoryDB] addCard persist failed", err);
+      }
+    })();
   }, [showToast]);
 
-  // ─── Remove card ───────────────────────────────────────────────────────────
-
-  const removeCard = useCallback(async (
+  const removeCardInternal = useCallback(async (
     subjectId: string, date: string, cardId: string,
   ) => {
     try {
       await deleteCardById(cardId);
-
-      // 关键修复：如果删完后该 subject 在该日期已经没有任何卡片了，
-      // 必须同步把 feedGroups 表里的 meta 也删掉。否则下次刷新页面，
-      // buildFeedGroups 会从这条孤儿 meta 重新构造出"X 个记忆 + 智能总结
-      // 但下面没卡片"的幽灵 group。
       const remaining = (await getAllCards()).filter(
-        c => c.subjectId === subjectId && c.date === date
+        c => c.subjectId === subjectId && c.date === date,
       );
       if (remaining.length === 0) {
         await deleteFeedGroupById(`${subjectId}_${date}`);
@@ -249,7 +300,6 @@ export function useMemoryDB(): MemoryDBHook {
     } catch (err) {
       console.error("[useMemoryDB] removeCard failed", err);
     }
-
     setAllFeedGroups(prev => {
       const feeds = prev[subjectId] ?? [];
       return {
@@ -261,16 +311,66 @@ export function useMemoryDB(): MemoryDBHook {
           .filter(g => g.cards.length > 0),
       };
     });
-
     setSubjects(prev => prev.map(s => {
       if (s.id !== subjectId) return s;
       const updated = { ...s, count: Math.max(0, s.count - 1) };
       putSubject(updated).catch(() => {});
       return updated;
     }));
+  }, []);
 
+  const removeCard = useCallback(async (
+    subjectId: string, date: string, cardId: string,
+  ) => {
+    await removeCardInternal(subjectId, date, cardId);
     showToast("已删除");
+  }, [removeCardInternal, showToast]);
+
+  const removeCardSilent = useCallback(async (
+    subjectId: string, date: string, cardId: string,
+  ) => {
+    await removeCardInternal(subjectId, date, cardId);
+  }, [removeCardInternal]);
+
+  const restoreMergedCards = useCallback(async (
+    snapshots: MergeUndoSnapshot[],
+  ) => {
+    try {
+      for (const snap of snapshots) {
+        for (const row of snap.removed) {
+          const { subjectId, date, ...cardData } = row;
+          await putCard({ ...cardData, subjectId, date } as StoredCard);
+          const fgs = await getAllFeedGroups();
+          const fgId = `${subjectId}_${date}`;
+          const existing = fgs.find(f => f.id === fgId);
+          await putFeedGroup({
+            id: fgId,
+            subjectId,
+            date,
+            label: existing?.label ?? "恢复了1个记忆",
+            summary: existing?.summary ?? "已恢复合并前的记忆卡片。",
+          });
+        }
+      }
+      const [cards, fgs] = await Promise.all([getAllCards(), getAllFeedGroups()]);
+      setAllFeedGroups(buildFeedGroups(cards, fgs));
+      setSubjects(prev => prev.map(s => {
+        const added = snapshots.reduce(
+          (n, snap) => n + snap.removed.filter(c => c.subjectId === s.id).length,
+          0,
+        );
+        if (!added) return s;
+        const updated = { ...s, count: s.count + added };
+        putSubject(updated).catch(() => {});
+        return updated;
+      }));
+      showToast("已撤销合并");
+    } catch (err) {
+      console.error("[useMemoryDB] restoreMergedCards failed", err);
+      showToast("撤销失败，请刷新后重试");
+    }
   }, [showToast]);
+
 
   // ─── Update daily summary ──────────────────────────────────────────────────
 
@@ -451,6 +551,8 @@ export function useMemoryDB(): MemoryDBHook {
     addExerciseSet,
     updateExerciseSet,
     removeCard,
+    removeCardSilent,
+    restoreMergedCards,
     updateSummary,
     updateCard,
     updateSubject,

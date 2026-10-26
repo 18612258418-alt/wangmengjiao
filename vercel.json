@@ -9,5 +9,9 @@
         { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
       ]
     }
-  ]
+  ],
+  "functions": {
+    "api/audio.ts": { "maxDuration": 60 },
+    "api/import.ts": { "maxDuration": 60 }
+  }
 }

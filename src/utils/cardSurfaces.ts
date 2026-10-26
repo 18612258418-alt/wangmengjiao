@@ -14,15 +14,14 @@ export function isUserOriginatedCard(card: CardData): boolean {
  * 规则：用户上传/批注必出现；内置仅 homework 的演示种子不在笔记重复展示。
  */
 export function appearsInNotesTab(card: CardData): boolean {
-  if (isUserOriginatedCard(card)) return true;
   if (card.contentType === "homework") return false;
+  if (isUserOriginatedCard(card)) return true;
   return true;
 }
 
 /** 是否在「作业」Tab 生成待办条目 */
 export function hasHomeworkIntent(card: CardData): boolean {
   if (card.contentType === "homework") return true;
-  if (Array.isArray(card.homeworkTasks) && card.homeworkTasks.length > 0) return true;
   return getHomeworkTasks(card).length > 0;
 }
 
@@ -34,7 +33,7 @@ export type ParsedImportPayload = {
 };
 
 export type ClassifiedCardSurfaces = {
-  /** 存储层统一为 note，保证笔记 Tab 有卡片 */
+  /** 解析后的主要业务类型；作业不再被强制降级为笔记 */
   contentType: CardContentType;
   homeworkTasks?: string[];
   taskDueDate?: string;
@@ -56,7 +55,7 @@ function parseTaskDueDate(raw: unknown): string | undefined {
 }
 
 /**
- * 将 AI 识别的单一 contentType 转为「笔记必存 + 作业按需露出」。
+ * 保留 AI 识别出的主要业务类型；只有明确作业意图时才进入作业。
  */
 export function classifyCardSurfaces(parsed: ParsedImportPayload): ClassifiedCardSurfaces {
   const rawType = parsed.contentType;
@@ -77,7 +76,7 @@ export function classifyCardSurfaces(parsed: ParsedImportPayload): ClassifiedCar
   const showHomework = homeworkFromAi && homeworkTasks.length > 0;
 
   return {
-    contentType: "note",
+    contentType: showHomework ? "homework" : "note",
     homeworkTasks: showHomework ? homeworkTasks : undefined,
     taskDueDate: showHomework ? taskDueDate : undefined,
     openTab: showHomework ? "homework" : null,

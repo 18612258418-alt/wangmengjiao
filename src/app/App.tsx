@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 
-import type { CardContentType, DetailSection, ExpandedKnowledge, KnowledgeNode, CardData, FeedGroup as FeedGroupType } from "../types";
+import type { CardContentType, DetailSection, ExpandedKnowledge, KnowledgeNode, CardData, FeedGroup as FeedGroupType, SourceDocument } from "../types";
 import {
   INITIAL_SUBJECTS,
   TYPE_SOURCE, TYPE_BG,
@@ -14,20 +14,51 @@ import { extractHomeworkFromNote } from "../utils/homeworkExtract";
 import { cardsForSyllabusEntry } from "../utils/syllabusNotes";
 import { linkOrProposeExamPoints } from "../modules/exam-prep";
 import { useMemoryDB } from "../hooks/useMemoryDB";
+import { useAutoMergeDuplicates } from "../hooks/useAutoMergeDuplicates";
 import { buildDetailPagePrompt } from "../prompts";
 import { ApiConfigProvider } from "../context/ApiConfigContext";
 import { AnnotationModal } from "../features/annotation/AnnotationModal";
 import { SyllabusNotesView } from "../features/feed/SyllabusNotesView";
 import { TopTabs, type TopTabId } from "../features/feed/TopTabs";
 import { AnnotationMenu } from "../features/feed/AnnotationMenu";
+import { PdfReaderModal } from "../features/pdf-reader/PdfReaderModal";
+import { WritableReviewModal } from "../features/review/WritableReviewModal";
+import { ReviewPlanView } from "../features/review-plan/ReviewPlanView";
+import { StudyTaskModal, type StudyTaskKind } from "../features/today/StudyTaskModal";
+import { CameraModal } from "../features/camera/CameraModal";
+import { CameraAgentModal } from "../features/camera/cameraAgent/CameraAgentModal";
+import { isCameraAgentEnabled } from "../features/camera/cameraAgent/config";
+import { DEMO_CAMERA_IMAGE } from "../features/camera/cameraAgent/demoCamera";
+import {
+  fakeDoubaoDelay,
+  fakeStreamUnifiedDetail,
+  getDemoDoubaoResult,
+} from "../features/camera/cameraAgent/demoCameraPipeline";
+import type { SourceAnchor } from "../types";
+import { recallSimilarMemories, findCardBySourceAnchor, findCardById, iterateAllCards, type RecalledMemory } from "../utils/memoryRecall";
+import { cardDedupeKey } from "../utils/cardDedupe";
+import { findCardByDedupeKey, purgeDuplicatesExcept } from "../utils/memoryMerge";
+import { ScreenshotModeModal } from "../features/screenshot/ScreenshotModeModal";
+import { DEMO_SCREENSHOT_ANCHOR, DEMO_SCREENSHOT_CARD_ID, sourceAnchorKey } from "../features/screenshot/constants";
+import { VoiceModal } from "../features/voice/VoiceModal";
+import { isDemoTranscript } from "../features/voice/demoTranscript";
+import { OnboardingScreen } from "../features/onboarding/OnboardingScreen";
+import { FormFillModal } from "../features/form-fill/FormFillModal";
+import { PenContextProvider, PenSceneSync } from "../features/pen-context";
 import { HomeworkView } from "../features/feed/HomeworkView";
 import { ExamPrepView } from "../modules/exam-prep";
+import { PaperView } from "../features/feed/PaperView";
 import { filterNoteFeedGroups } from "../utils/feedFilters";
+import { recordingPlaceholderFor } from "../data/recordingSeedCards";
 import { EditableSubjectName } from "../features/feed/EditableSubjectName";
 import { RightDrawer } from "../features/drawer/RightDrawer";
 import { SearchOverlay } from "../features/search/SearchOverlay";
-import { Sidebar } from "../features/sidebar/Sidebar";
-import { AddSourceModal, type SourceDraft } from "../features/source/AddSourceModal";
+import { Sidebar, type WorkspaceId } from "../features/sidebar/Sidebar";
+import { ClassSessionPanel, GoalsView, KnowledgeView, TodayView } from "../features/workspace/WorkspaceViews";
+import { ResearchHome, ResearchWorkspace } from "../features/workspace/ResearchWorkspace";
+import { AddSourceModal, type SourceDraft, isAudioFile } from "../features/source/AddSourceModal";
+import { ConnectionModal } from "../features/source/ConnectionModal";
+import { SourceLibraryView, type LibrarySource } from "../features/source/SourceLibraryView";
 import { FlyThumbnail } from "../shared/FlyThumbnail";
 
 /** 选出最近更新的学科：扫描 allFeedGroups 取出最大日期对应的 subjectId */
@@ -47,17 +78,85 @@ function pickMostRecentSubject(allFeedGroups: Record<string, FeedGroupType[]>): 
 export default function App() {
   const {
     allFeedGroups, subjects, isLoading: dbLoading,
-    toast, addCard, removeCard, updateCard, addSubject, updateSubject, moveCardToSubject, showToast,
+    toast, addCard, removeCard, removeCardSilent, restoreMergedCards,
+    updateCard, addSubject, updateSubject, moveCardToSubject, showToast,
   } = useMemoryDB();
 
+  const [mergeTick, setMergeTick] = useState(0);
+
+  useAutoMergeDuplicates({
+    allFeedGroups,
+    dbLoading,
+    mergeTick,
+    removeCardSilent,
+    restoreMergedCards,
+    showToast,
+  });
+
   const [activeSubject, setActiveSubject] = useState<string>("__pending__");
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceId>("today");
+  const [researchDetailOpen, setResearchDetailOpen] = useState(false);
+  const [activeResearchTitle, setActiveResearchTitle] = useState("短视频平台与大学生冲动消费研究");
+  const [activeClassSession, setActiveClassSession] = useState<string | null>(null);
+  const [todayTaskFocus, setTodayTaskFocus] = useState<string | null>(null);
+  const [memorySuggestedTask, setMemorySuggestedTask] = useState<string | null>(null);
   const [activeTopTab, setActiveTopTab] = useState<TopTabId>("notes");
   const [annotationType, setAnnotationType] = useState<string | null>(null);
   const [drawerCard, setDrawerCard] = useState<CardData | null>(null);
   const [drawerCardDate, setDrawerCardDate] = useState<string>("");
   const [drawerCardSubject, setDrawerCardSubject] = useState<string>("");
   const [showSearch, setShowSearch] = useState(false);
+  const [searchStartsWithVoice, setSearchStartsWithVoice] = useState(false);
+  const [searchInitialQuery, setSearchInitialQuery] = useState("");
+  const [sourceSearchTarget, setSourceSearchTarget] = useState<string | null>(null);
   const [showAddSource, setShowAddSource] = useState(false);
+  const [showConnections, setShowConnections] = useState(false);
+  const [pdfReaderFile, setPdfReaderFile] = useState<File | null>(null);
+  const [showWritableReview, setShowWritableReview] = useState(false);
+  const [activeTodayTask, setActiveTodayTask] = useState<StudyTaskKind | null>(null);
+  const [showCamera, setShowCamera] = useState(false);
+  const [showCameraPicker, setShowCameraPicker] = useState(false);
+  const [showScreenshot, setShowScreenshot] = useState(false);
+  const [screenshotMergeNotice, setScreenshotMergeNotice] = useState<{
+    message: string;
+    onUndo: () => void;
+  } | null>(null);
+  const [showVoice, setShowVoice] = useState(false);
+  const [voiceSourceCard, setVoiceSourceCard] = useState<CardData | null>(null);
+  const [showFormFill, setShowFormFill] = useState(false);
+  const [onboardingMode, setOnboardingMode] = useState<"first" | "demo" | null>(null);
+  const [padScale, setPadScale] = useState(1);
+  const [showOpeningSplash, setShowOpeningSplash] = useState(true);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setShowOpeningSplash(false), 2350);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const updatePadScale = () => {
+      const availableWidth = Math.max(window.innerWidth - 48, 320);
+      const availableHeight = Math.max(window.innerHeight - 48, 240);
+      setPadScale(Math.min(availableWidth / 1396, availableHeight / 1052, 1));
+    };
+
+    updatePadScale();
+    window.addEventListener("resize", updatePadScale);
+    return () => window.removeEventListener("resize", updatePadScale);
+  }, []);
+
+
+  useEffect(() => {
+    const openMemoDialog = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k") return;
+      event.preventDefault();
+      setSearchStartsWithVoice(false);
+      setSearchInitialQuery("");
+      setShowSearch(true);
+    };
+    window.addEventListener("keydown", openMemoDialog);
+    return () => window.removeEventListener("keydown", openMemoDialog);
+  }, []);
   const [flyPhase, setFlyPhase] = useState<"idle" | "center" | "corner" | "fading">("idle");
   const [flyImg, setFlyImg] = useState<string>("");
   const [sidebarLoading, setSidebarLoading] = useState(false);
@@ -66,6 +165,22 @@ export default function App() {
   const [newSubjectName, setNewSubjectName] = useState("");
   const flyTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const didInitSubjectRef = useRef(false);
+  const allFeedGroupsRef = useRef(allFeedGroups);
+  const savedByAnchorRef = useRef(new Map<string, { subjectId: string; date: string; card: CardData }>());
+  const screenshotSaveCountRef = useRef(0);
+  allFeedGroupsRef.current = allFeedGroups;
+
+  useEffect(() => {
+    if (dbLoading) return;
+    iterateAllCards(allFeedGroups, (card, subjectId, date) => {
+      if (card.sourceAnchor?.fileId) {
+        savedByAnchorRef.current.set(sourceAnchorKey(card.sourceAnchor), { subjectId, date, card });
+      }
+    });
+    const demoHit = findCardById(allFeedGroups, DEMO_SCREENSHOT_CARD_ID)
+      ?? findCardBySourceAnchor(allFeedGroups, DEMO_SCREENSHOT_ANCHOR);
+    screenshotSaveCountRef.current = demoHit ? 1 : 0;
+  }, [dbLoading, allFeedGroups]);
 
   const sortedSubjects = useMemo(() => {
     return [...subjects].sort((a, b) => {
@@ -74,6 +189,12 @@ export default function App() {
       return latestDate(b.id) - latestDate(a.id);
     });
   }, [subjects, allFeedGroups]);
+
+  const unreadSubjectIds = useMemo(() => new Set(
+    Object.entries(allFeedGroups)
+      .filter(([, groups]) => groups.some(group => group.cards.some(card => card.unread)))
+      .map(([subjectId]) => subjectId),
+  ), [allFeedGroups]);
 
   // 首次有数据时锚定默认学科为「最近有更新的学科」
   useEffect(() => {
@@ -89,8 +210,9 @@ export default function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get("tab");
-    if (tab === "notes" || tab === "homework" || tab === "exam") {
+    if (tab === "notes" || tab === "homework" || tab === "exam" || tab === "paper") {
       setActiveTopTab(tab);
+      setActiveWorkspace(tab === "paper" ? "project" : "course");
     }
     const subject = params.get("subject");
     if (subject && subjects.some(s => s.id === subject)) {
@@ -111,9 +233,15 @@ export default function App() {
   const handleCloseAnnotation = () => setAnnotationType(null);
 
   const handleOpenCard = (card: CardData, date: string, subjectId?: string) => {
-    setDrawerCard(card);
+    const resolvedSubjectId = subjectId ?? activeSubject;
+    if (card.unread) updateCard(resolvedSubjectId, date, card.id, { unread: false });
+    setDrawerCard(card.unread ? { ...card, unread: false } : card);
     setDrawerCardDate(date);
-    setDrawerCardSubject(subjectId ?? activeSubject);
+    setDrawerCardSubject(resolvedSubjectId);
+  };
+
+  const handleOpenRecalledCard = (item: RecalledMemory) => {
+    handleOpenCard(item.card, item.date, item.subjectId);
   };
 
   /** 用户点击某个大纲条目：清除该条目下所有笔记的"新增未读"红点 */
@@ -128,7 +256,7 @@ export default function App() {
   const buildFallbackCardPayload = (aType: string) => {
     const targetSubjectId = FALLBACK_CLASSIFY[aType] ?? "other";
     const titles = FALLBACK_TITLES[aType] ?? FALLBACK_TITLES.notes;
-    const title = titles[Math.floor(Math.random() * titles.length)] ?? "记忆：学习内容整理";
+    const title = titles[0] ?? "记忆：学习内容整理";
     const details = FALLBACK_DETAILS[aType] ?? FALLBACK_DETAILS.notes;
     return {
       targetSubjectId,
@@ -147,6 +275,35 @@ export default function App() {
     setDrawerCard(null);
   };
 
+  const rememberSavedCard = (
+    anchor: SourceAnchor | undefined,
+    subjectId: string,
+    date: string,
+    card: CardData,
+  ) => {
+    if (anchor?.fileId) {
+      savedByAnchorRef.current.set(sourceAnchorKey(anchor), { subjectId, date, card });
+    }
+  };
+
+  const lookupExistingCard = (
+    sourceAnchor?: SourceAnchor,
+    cardId?: string,
+  ): { card: CardData; subjectId: string; date: string } | null => {
+    const feeds = allFeedGroupsRef.current;
+    if (sourceAnchor?.fileId) {
+      const reg = savedByAnchorRef.current.get(sourceAnchorKey(sourceAnchor));
+      if (reg) return reg;
+      const hit = findCardBySourceAnchor(feeds, sourceAnchor);
+      if (hit) return hit;
+    }
+    if (cardId) {
+      const hit = findCardById(feeds, cardId);
+      if (hit) return hit;
+    }
+    return null;
+  };
+
   const applyNewCard = (
     targetSubjectId: string, newTitle: string, aiSummary: string,
     aType: string, capturedImg: string,
@@ -161,11 +318,11 @@ export default function App() {
     contentType?: CardContentType,
     homeworkTasks?: string[],
     taskDueDate?: string,
-  ) => {
+    sourceAnchor?: SourceAnchor,
+    sourceDocument?: SourceDocument,
+  ): "created" | "updated" => {
     const now = new Date();
     const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
-    const todayKey = `${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2,"0")}${now.getDate().toString().padStart(2,"0")}`;
-    const newId = preassignedId ?? `new_${Date.now()}`;
 
     const surfaces = classifyCardSurfaces({
       contentType: contentType ?? "note",
@@ -174,27 +331,190 @@ export default function App() {
       nextAction,
     });
 
+    const upsertCardFields = {
+      img: capturedImg || (TYPE_BG[aType] ?? imgNotesBg),
+      overview,
+      detailIntro,
+      detailSections,
+      aiKeyPoints,
+      expandedKnowledge,
+      knowledgeTree,
+      nextAction,
+      skill: (skill as CardData["skill"]) ?? "theory_concept",
+      ...(skillRawSections ? { skillRawSections } : {}),
+      ...(unifiedDetail ? { unifiedDetail } : {}),
+      hasAnnotations,
+      ...(sourceAnchor ? { sourceAnchor } : {}),
+      ...(sourceDocument ? { sourceDocument } : {}),
+      time: timeStr,
+      unread: true as const,
+    };
+
+    const finishUpsert = (
+      card: CardData,
+      subjectId: string,
+      date: string,
+      toastMsg: string,
+    ) => {
+      const snapshot = structuredClone(card);
+      updateCard(subjectId, date, card.id, {
+        title: newTitle,
+        ...upsertCardFields,
+        sourceAnchor: sourceAnchor
+          ? { ...card.sourceAnchor, ...sourceAnchor }
+          : card.sourceAnchor,
+      });
+      setNewCardId(card.id);
+      setTimeout(() => setNewCardId(null), 3500);
+      if (activeSubject !== "all") {
+        setActiveSubject(subjectId);
+      }
+      setSidebarLoading(false);
+      const runUndo = () => {
+        updateCard(subjectId, date, card.id, {
+          title: snapshot.title,
+          img: snapshot.img,
+          overview: snapshot.overview,
+          detailIntro: snapshot.detailIntro,
+          detailSections: snapshot.detailSections,
+          aiKeyPoints: snapshot.aiKeyPoints,
+          expandedKnowledge: snapshot.expandedKnowledge,
+          knowledgeTree: snapshot.knowledgeTree,
+          nextAction: snapshot.nextAction,
+          skill: snapshot.skill,
+          unifiedDetail: snapshot.unifiedDetail,
+          hasAnnotations: snapshot.hasAnnotations,
+          sourceAnchor: snapshot.sourceAnchor,
+          time: snapshot.time,
+          unread: snapshot.unread,
+        });
+        rememberSavedCard(sourceAnchor, subjectId, date, snapshot);
+        setScreenshotMergeNotice(null);
+        showToast("已撤销合并");
+      };
+      if (sourceAnchor?.kind === "screenshot") {
+        setScreenshotMergeNotice({ message: toastMsg, onUndo: runUndo });
+      }
+      showToast(toastMsg, {
+        actionLabel: "撤销",
+        durationMs: 8000,
+        onAction: runUndo,
+      });
+      rememberSavedCard(sourceAnchor, subjectId, date, {
+        ...card,
+        title: newTitle,
+        ...upsertCardFields,
+        sourceAnchor: sourceAnchor
+          ? { ...card.sourceAnchor, ...sourceAnchor }
+          : card.sourceAnchor,
+      });
+      const mergedKey = cardDedupeKey({
+        ...card,
+        title: newTitle,
+        ...upsertCardFields,
+        sourceAnchor: sourceAnchor
+          ? { ...card.sourceAnchor, ...sourceAnchor }
+          : card.sourceAnchor,
+      });
+      if (mergedKey) {
+        void purgeDuplicatesExcept(allFeedGroupsRef.current, mergedKey, card.id, removeCardSilent)
+          .then(n => { if (n > 0) setMergeTick(t => t + 1); });
+      }
+    };
+
+    const isDemoScreenshot = sourceAnchor?.fileId === DEMO_SCREENSHOT_ANCHOR.fileId;
+
+    if (isDemoScreenshot && screenshotSaveCountRef.current >= 1) {
+      const forced = lookupExistingCard(sourceAnchor, preassignedId ?? DEMO_SCREENSHOT_CARD_ID);
+      if (forced) {
+        finishUpsert(forced.card, forced.subjectId, forced.date, "已合并重复记忆");
+        return "updated";
+      }
+    }
+
+    const existingHit = lookupExistingCard(sourceAnchor, preassignedId);
+    if (existingHit) {
+      finishUpsert(
+        existingHit.card,
+        existingHit.subjectId,
+        existingHit.date,
+        sourceAnchor?.kind === "pdf" ? "已更新本页记忆" : "已合并重复记忆",
+      );
+      return "updated";
+    }
+
+    if (!sourceAnchor) {
+      const dedupePreview: CardData = {
+        id: preassignedId ?? "preview",
+        title: newTitle,
+        img: upsertCardFields.img,
+        source: TYPE_SOURCE[aType] ?? "evernote",
+        time: timeStr,
+        skill: upsertCardFields.skill,
+        contentType: surfaces.contentType,
+        overview,
+        detailIntro,
+        detailSections,
+        aiKeyPoints,
+        expandedKnowledge,
+        knowledgeTree,
+        nextAction,
+        hasAnnotations,
+      };
+      const dedupeKey = cardDedupeKey(dedupePreview);
+      if (dedupeKey) {
+        const existing = findCardByDedupeKey(allFeedGroupsRef.current, dedupeKey);
+        if (existing) {
+          finishUpsert(existing.card, existing.subjectId, existing.date, "已合并重复记忆");
+          return "updated";
+        }
+      }
+    }
+
+    const todayKey = `${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2,"0")}${now.getDate().toString().padStart(2,"0")}`;
+    const newId = preassignedId ?? `new_${Date.now()}`;
+
     const newCard: CardData = {
       id: newId,
       title: newTitle,
-      img: capturedImg || (TYPE_BG[aType] ?? imgNotesBg),
+      img: upsertCardFields.img,
       source: TYPE_SOURCE[aType] ?? "evernote",
       time: timeStr,
-      skill: (skill as CardData["skill"]) ?? "theory_concept",
+      skill: upsertCardFields.skill,
       contentType: surfaces.contentType,
+      unread: true,
       ...(surfaces.homeworkTasks?.length ? { homeworkTasks: surfaces.homeworkTasks } : {}),
       ...(surfaces.taskDueDate ? { taskDueDate: surfaces.taskDueDate } : {}),
       overview, detailIntro, detailSections, aiKeyPoints, expandedKnowledge, knowledgeTree, nextAction,
       hasAnnotations,
       ...(skillRawSections ? { skillRawSections } as Partial<CardData> : {}),
       ...(unifiedDetail ? { unifiedDetail } : {}),
+      ...(sourceAnchor ? { sourceAnchor } : {}),
+      ...(sourceDocument ? { sourceDocument } : {}),
     };
 
     setNewCardId(newId);
     setTimeout(() => setNewCardId(null), 3500);
 
     const subjectShort = INITIAL_SUBJECTS.find(s => s.id === targetSubjectId)?.short ?? "社会科学";
-    addCard({ targetSubjectId, card: newCard, date: todayKey, aiSummary, subjectShort });
+    rememberSavedCard(sourceAnchor, targetSubjectId, todayKey, newCard);
+    addCard({
+      targetSubjectId,
+      card: newCard,
+      date: todayKey,
+      aiSummary,
+      subjectShort,
+      silent: isDemoScreenshot,
+    });
+    if (isDemoScreenshot) {
+      screenshotSaveCountRef.current = Math.max(1, screenshotSaveCountRef.current + 1);
+      const key = cardDedupeKey(newCard);
+      if (key) {
+        void purgeDuplicatesExcept(allFeedGroupsRef.current, key, newCard.id, removeCardSilent)
+          .then(n => { if (n > 0) setMergeTick(t => t + 1); });
+      }
+    }
+    setMergeTick(t => t + 1);
 
     // 后台静默：把新笔记自动归类到教学大纲条目，让它进入对应目录并打"新增"红点。
     // 失败/无把握时保持 syllabusEntryId 为空 → 仍留在「最近上传与批注」兜底。
@@ -281,19 +601,30 @@ export default function App() {
       setActiveSubject(targetSubjectId);
     }
     setSidebarLoading(false);
+    return "created";
   };
 
-  /** Core image processing pipeline — calls server-side proxies, no keys in browser */
-  const processImage = (imageDataUrl: string, hasAnnotations: boolean, aType: string) => {
-    setSidebarLoading(true);
+  const startFlyAnimation = useCallback((imageDataUrl: string) => {
     setFlyImg(imageDataUrl);
     setFlyPhase("center");
-
     const t1 = setTimeout(() => setFlyPhase("corner"), 80);
     const t2 = setTimeout(() => setFlyPhase("fading"), 5200);
     const t3 = setTimeout(() => setFlyPhase("idle"), 5800);
     flyTimers.current.forEach(clearTimeout);
     flyTimers.current = [t1, t2, t3];
+  }, []);
+
+  /** Core image processing pipeline — calls server-side proxies, no keys in browser */
+  const processImage = (
+    imageDataUrl: string,
+    hasAnnotations: boolean,
+    aType: string,
+    options?: { skipFly?: boolean; sourceAnchor?: SourceAnchor; fixedCardId?: string },
+  ) => {
+    setSidebarLoading(true);
+    if (!options?.skipFly) {
+      startFlyAnimation(imageDataUrl);
+    }
 
     const loadStart = Date.now();
     const applyWithMinDelay = (fn: () => void) => {
@@ -301,7 +632,7 @@ export default function App() {
       setTimeout(fn, Math.max(0, 2500 - elapsed));
     };
 
-    const preassignedId = `new_${Date.now()}`;
+    const preassignedId = options?.fixedCardId ?? `new_${Date.now()}`;
 
     callDoubao(imageDataUrl, hasAnnotations)
       .then(r => {
@@ -322,6 +653,7 @@ export default function App() {
               r.contentType,
               r.homeworkTasks,
               r.taskDueDate || undefined,
+              options?.sourceAnchor,
             );
             if (r.openTab === "homework") {
               setActiveTopTab("homework");
@@ -360,7 +692,7 @@ export default function App() {
         console.error("[processImage] Doubao failed:", err);
         const fallback = buildFallbackCardPayload(aType);
         applyWithMinDelay(() => {
-          applyNewCard(
+          const saved = applyNewCard(
             fallback.targetSubjectId,
             fallback.title,
             fallback.summary,
@@ -379,14 +711,73 @@ export default function App() {
             preassignedId,
             undefined,
             "note",
+            undefined,
+            undefined,
+            options?.sourceAnchor,
           );
           setSidebarLoading(false);
-          setFlyPhase("fading");
-          setTimeout(() => setFlyPhase("idle"), 600);
-          flyTimers.current.forEach(clearTimeout);
-          showToast("AI 接口暂不可用，已用演示内容保存");
+          if (!options?.skipFly) {
+            setFlyPhase("fading");
+            setTimeout(() => setFlyPhase("idle"), 600);
+            flyTimers.current.forEach(clearTimeout);
+          }
+          if (saved === "created") {
+            showToast("AI 接口暂不可用，已用演示内容保存");
+          }
         });
       });
+  };
+
+  /** 演示相机：假 Doubao + 假流式详情，流程与 processImage 一致 */
+  const processDemoCameraImage = (
+    imageDataUrl: string,
+    options?: { skipFly?: boolean; sourceAnchor?: SourceAnchor },
+  ) => {
+    setSidebarLoading(true);
+    if (!options?.skipFly) {
+      startFlyAnimation(imageDataUrl);
+    }
+
+    const loadStart = Date.now();
+    const applyWithMinDelay = (fn: () => void) => {
+      const elapsed = Date.now() - loadStart;
+      setTimeout(fn, Math.max(0, 2500 - elapsed));
+    };
+    const preassignedId = `new_${Date.now()}`;
+
+    void (async () => {
+      await fakeDoubaoDelay();
+      const r = getDemoDoubaoResult(activeSubject);
+      const unifiedDetail = await fakeStreamUnifiedDetail(() => {});
+      applyWithMinDelay(() => {
+        applyNewCard(
+          r.subjectId,
+          r.title,
+          r.summary,
+          "notes",
+          DEMO_CAMERA_IMAGE,
+          r.overview,
+          r.detailIntro,
+          r.detailSections,
+          r.aiKeyPoints,
+          r.expandedKnowledge,
+          r.knowledgeTree,
+          r.nextAction,
+          r.skill,
+          undefined,
+          false,
+          preassignedId,
+          unifiedDetail,
+          r.contentType,
+          undefined,
+          undefined,
+          { kind: "camera", fileId: "demo_calculus_limit_board" },
+        );
+        setActiveTopTab("notes");
+        setSidebarLoading(false);
+        showToast("资料已整理并存入记忆");
+      });
+    })();
   };
 
   const handleSave = (imageDataUrl: string, hasAnnotations: boolean) => {
@@ -416,11 +807,49 @@ export default function App() {
     reader.readAsArrayBuffer(file);
   });
 
+  /** 读取文件为纯 Base64 字符串（不含 data URI 前缀） */
+  const readFileAsBase64 = async (file: File): Promise<string> => {
+    const dataUrl = await readFileAsDataUrl(file);
+    return dataUrl.split(",")[1] ?? "";
+  };
+
+  /**
+   * 调用 /api/audio 进行火山引擎 ASR 转录，返回转录文本。
+   * onProgress 用于在转录完成后、分析开始前更新 UI 提示。
+   */
+  const transcribeAudio = async (
+    file: File,
+    onProgress: (update: Partial<SourceDraft>) => void,
+  ): Promise<string> => {
+    const audioBase64 = await readFileAsBase64(file);
+    const format = file.name.split(".").pop()?.toLowerCase() ?? "mp3";
+
+    onProgress({ summary: "🎙 正在识别语音（约 20–60 秒），请稍候..." });
+
+    const res = await fetch("/api/audio", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ audioBase64, format, fileName: file.name }),
+    });
+
+    if (!res.ok) {
+      let errMsg = `语音转录失败 (${res.status})`;
+      try {
+        const errData = await res.json() as { error?: string };
+        if (errData.error) errMsg = errData.error;
+      } catch { /* ignore */ }
+      throw new Error(errMsg);
+    }
+
+    const data = await res.json() as { transcript?: string; error?: string };
+    if (data.error) throw new Error(data.error);
+    if (!data.transcript) throw new Error("语音转录返回空内容，请检查音频文件。");
+    return data.transcript;
+  };
+
   const extractPdfText = async (file: File) => {
-    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.mjs", import.meta.url).toString();
-    const data = await readFileAsArrayBuffer(file);
-    const pdf = await pdfjs.getDocument({ data }).promise;
+    const { openPdfDocument } = await import("../utils/pdfjs");
+    const pdf = await openPdfDocument(file);
     const pageTexts: string[] = [];
     const maxPages = Math.min(pdf.numPages, 20);
     for (let pageNo = 1; pageNo <= maxPages; pageNo += 1) {
@@ -439,10 +868,8 @@ export default function App() {
   };
 
   const renderPdfFirstPageImage = async (file: File) => {
-    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.mjs", import.meta.url).toString();
-    const data = await readFileAsArrayBuffer(file);
-    const pdf = await pdfjs.getDocument({ data }).promise;
+    const { openPdfDocument } = await import("../utils/pdfjs");
+    const pdf = await openPdfDocument(file);
     const page = await pdf.getPage(1);
     const baseViewport = page.getViewport({ scale: 1 });
     const scale = Math.min(1.5, 1200 / Math.max(baseViewport.width, 1));
@@ -457,6 +884,49 @@ export default function App() {
   };
 
   const normalizeSubjectId = (id?: string) => subjects.some(s => s.id === id) ? id! : (activeSubject !== "all" && activeSubject !== "__pending__" ? activeSubject : "other");
+
+  const buildLocalDemoDraft = (
+    sourceKind: SourceDraft["sourceKind"],
+    originalName: string,
+    rawText = "",
+  ): SourceDraft => {
+    const cleanName = originalName.replace(/\.[^.]+$/, "") || "导入资料";
+    const compact = rawText.replace(/\s+/g, " ").trim();
+    const isResearch = /研究|报告|论文|样本|调查|访谈|社会比较|消费/.test(`${cleanName} ${compact}`);
+    const isPhysics = /物理|力学|电磁|振动|波/.test(`${cleanName} ${compact}`);
+    const isMath = /数学|积分|导数|函数|概率/.test(`${cleanName} ${compact}`);
+    const targetSubjectId = isPhysics ? "physics" : isMath ? "math" : "other";
+    const excerpt = compact.slice(0, 88);
+    const memoryCandidates = isResearch
+      ? ["资料中的核心结论需要与样本和方法一起理解", "发现一条可用于当前研究的证据", "研究限制可能影响结论的适用范围"]
+      : ["识别出资料的核心主题与关键概念", "形成一条可继续补充的知识理解", "发现一个值得后续验证或练习的重点"];
+    return {
+      id: `draft_${Date.now()}`,
+      status: "ready",
+      sourceKind,
+      originalName,
+      title: cleanName.slice(0, 28),
+      summary: excerpt ? `本地演示解析：${excerpt}${compact.length > 88 ? "…" : ""}` : "已保存原始资料，并生成可确认的记忆候选。",
+      targetSubjectId,
+      processingMode: "local-demo",
+      fragmentSummary: sourceKind === "audio" ? "按时间段形成语音片段（演示）" : sourceKind === "image" ? "识别为 1 个可定位图像区域（演示）" : "按标题与段落形成可定位片段（演示）",
+      memoryCandidates,
+      autoRelations: isResearch
+        ? ["研究：短视频与大学生冲动消费", "知识：社会比较与研究方法", "来源：当前上传资料"]
+        : [`学习：${isPhysics ? "大学物理" : isMath ? "高等数学" : "待识别专题"}`, "知识：核心概念", "来源：当前上传资料"],
+      overview: "原始资料已经保留。当前展示的是从资料片段中形成的理解候选，确认后才会写入长期记忆。",
+      detailIntro: "本地演示模式不会调用远端模型，适合验证资料进入记忆系统后的产品流程。",
+      detailSections: [{ title: "资料处理结果", items: memoryCandidates }],
+      aiKeyPoints: memoryCandidates,
+      expandedKnowledge: [],
+      knowledgeTree: [],
+      nextAction: "确认值得长期保存的记忆候选，并检查自动关联是否准确。",
+      skill: isResearch ? "literature_essay" : "theory_concept",
+      contentType: "note",
+      homeworkTasks: [],
+      openTab: null,
+    };
+  };
 
   const callImportApi = async (payload: Record<string, unknown>) => {
     let res: Response;
@@ -511,7 +981,7 @@ export default function App() {
       status: "ready",
       sourceKind,
       originalName,
-      title: data.title || "记忆：导入资料整理",
+      title: (data.title || originalName.replace(/\.[^.]+$/, "") || "导入资料整理").replace(/^记忆[:：]\s*/, ""),
       summary: data.summary || "资料已解析完成，可确认保存为记忆卡。",
       targetSubjectId: normalizeSubjectId(data.targetSubjectId),
       img: data.img || (sourceKind === "text" || sourceKind === "link" ? TYPE_BG.notes ?? imgNotesBg : undefined),
@@ -523,6 +993,14 @@ export default function App() {
       knowledgeTree: Array.isArray(data.knowledgeTree) ? data.knowledgeTree : [],
       nextAction: data.nextAction,
       skill: data.skill,
+      processingMode: "ai",
+      fragmentSummary: sourceKind === "audio" ? "已按时间段转录并定位" : "已按页面与段落建立证据片段",
+      memoryCandidates: Array.isArray(data.aiKeyPoints) ? data.aiKeyPoints.slice(0, 3) : [],
+      autoRelations: [
+        `学习：${subjects.find(s => s.id === normalizeSubjectId(data.targetSubjectId))?.short ?? "待识别专题"}`,
+        "知识：AI 识别的核心主题",
+        "来源：当前上传资料",
+      ],
       ...(() => {
         const surfaces = classifyCardSurfaces({
           contentType: data.contentType,
@@ -540,47 +1018,112 @@ export default function App() {
     };
   };
 
-  const analyzeTextSource = async (kind: "link" | "text", value: string): Promise<SourceDraft> => {
-    const data = await callImportApi({ kind, value, fileName: kind === "link" ? value : undefined });
-    return sourceDraftFromImport(data, kind, kind === "link" ? value : "粘贴文本");
+  const analyzeTextSource = async (kind: "link" | "text", value: string, sourceName?: string): Promise<SourceDraft> => {
+    const originalName = sourceName ?? (kind === "link" ? value : "粘贴文本");
+    try {
+      const data = await callImportApi({ kind, value, fileName: kind === "link" ? value : undefined });
+      return sourceDraftFromImport(data, kind, originalName);
+    } catch (error) {
+      console.warn("[import] AI service unavailable, using local demo parser", error);
+      return buildLocalDemoDraft(kind, originalName, value);
+    }
   };
 
-  const analyzeSourceFile = async (file: File): Promise<SourceDraft> => {
+  const analyzeSourceFile = async (
+    file: File,
+    onProgress: (update: Partial<SourceDraft>) => void = () => undefined,
+  ): Promise<SourceDraft> => {
+    // 音频：先转录，再分析
+    if (isAudioFile(file)) {
+      let transcript: string;
+      try {
+        transcript = await transcribeAudio(file, onProgress);
+      } catch (error) {
+        console.warn("[audio] ASR unavailable, using local demo transcript", error);
+        transcript = `【本地演示转录】${file.name}：当前未配置语音识别服务。系统已保留音频原件；配置 ASR 后会按时间点生成真实转录与证据片段。`;
+      }
+      onProgress({ summary: "🔍 转录完成，正在分析内容..." });
+      const prefix = `[来源：语音录音]\n文件名：${file.name}\n\n`;
+      const draft = await analyzeTextSource("text", `${prefix}${transcript}`, file.name);
+      return { ...draft, sourceKind: "audio", originalName: file.name, transcript, fragmentSummary: "按时间段形成语音证据片段" };
+    }
+
     if (file.type.startsWith("image/")) {
       const imageDataUrl = await readFileAsDataUrl(file);
       const compressedImage = await compressImageForApi(imageDataUrl);
-      const data = await callImportApi({ kind: "image", imageDataUrl: compressedImage, fileName: file.name });
-      return sourceDraftFromImport(data, "image", file.name);
+      try {
+        const data = await callImportApi({ kind: "image", imageDataUrl: compressedImage, fileName: file.name });
+        return sourceDraftFromImport(data, "image", file.name);
+      } catch (error) {
+        console.warn("[image] vision service unavailable, using local demo parser", error);
+        return { ...buildLocalDemoDraft("image", file.name), img: compressedImage };
+      }
     }
 
     if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
       try {
         const text = await extractPdfText(file);
-        return analyzeTextSource("text", `文件名：${file.name}\n\n${text}`);
+        return analyzeTextSource("text", `文件名：${file.name}\n\n${text}`, file.name);
       } catch (textErr) {
         console.warn("[pdf] text extraction failed, fallback to vision", textErr);
         const imageDataUrl = await compressImageForApi(await renderPdfFirstPageImage(file));
-        const data = await callImportApi({ kind: "image", imageDataUrl, fileName: file.name });
-        return sourceDraftFromImport(data, "file", file.name);
+        try {
+          const data = await callImportApi({ kind: "image", imageDataUrl, fileName: file.name });
+          return sourceDraftFromImport(data, "file", file.name);
+        } catch (error) {
+          console.warn("[pdf] vision service unavailable, using local demo parser", error);
+          return { ...buildLocalDemoDraft("file", file.name), img: imageDataUrl, fragmentSummary: "扫描 PDF：当前以首页建立演示证据片段" };
+        }
       }
     }
 
     if (file.type.startsWith("text/") || file.name.endsWith(".md") || file.name.endsWith(".txt")) {
       const text = await readFileAsText(file);
-      return analyzeTextSource("text", text);
+      return analyzeTextSource("text", text, file.name);
     }
 
-    throw new Error("当前演示版先支持图片、PDF、txt、md；Word 下一步接服务端解析。");
+    throw new Error("当前演示版先支持图片、PDF、txt、md 及音频；Word 下一步接服务端解析。");
   };
 
   const confirmSourceDraft = (draft: SourceDraft) => {
     const preassignedId = `new_${Date.now()}`;
     const now = new Date();
     const todayKey = `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, "0")}${now.getDate().toString().padStart(2, "0")}`;
+    const cleanTitle = draft.title.replace(/^记忆[:：]\s*/, "");
+    const targetName = subjects.find(item => item.id === draft.targetSubjectId)?.short ?? "未归类课程";
+
+    const sourceType: LibrarySource["type"] = draft.sourceKind === "audio"
+      ? "音频"
+      : draft.sourceKind === "link"
+        ? "网页"
+        : draft.sourceKind === "image"
+          ? "图片"
+          : draft.originalName.toLowerCase().endsWith(".pdf") ? "PDF" : "课件";
+    const importedSource: LibrarySource = {
+      id: `imported_${Date.now()}`,
+      type: sourceType,
+      title: draft.originalName.replace(/\.[^.]+$/, "") || cleanTitle,
+      creator: "你上传的",
+      detail: `${sourceType} · 刚刚添加`,
+      progress: 0,
+      lastPosition: "尚未开始",
+      subjectIds: [draft.targetSubjectId],
+      contexts: [targetName],
+      tone: sourceType === "音频" ? "blue" : sourceType === "图片" ? "green" : "indigo",
+      notes: (draft.memoryCandidates ?? []).slice(0, 3).map(title => ({ title, anchor: "由这份资料整理" })),
+    };
+    try {
+      const stored = JSON.parse(localStorage.getItem("memo_imported_sources") || "[]") as LibrarySource[];
+      const next = [importedSource, ...stored.filter(item => item.title !== importedSource.title)].slice(0, 30);
+      localStorage.setItem("memo_imported_sources", JSON.stringify(next));
+      window.dispatchEvent(new Event("memo:sources-updated"));
+    } catch (error) {
+      console.warn("[source] 无法保存资料索引", error);
+    }
 
     applyNewCard(
       draft.targetSubjectId,
-      draft.title,
+      cleanTitle,
       draft.summary,
       "notes",
       draft.img || imgNotesBg,
@@ -599,14 +1142,14 @@ export default function App() {
       draft.contentType,
       draft.homeworkTasks,
       draft.taskDueDate,
+      draft.sourceAnchor,
+      draft.sourceDocument,
     );
     if (draft.openTab === "homework") setActiveTopTab("homework");
     else setActiveTopTab("notes");
-    const tabHint =
-      draft.openTab === "homework"
-        ? "已保存至笔记，并在作业中生成待办"
-        : "已保存至笔记";
-    showToast(`${tabHint}，AI 正在后台生成详情`);
+    const noteCount = Math.max(draft.memoryCandidates?.length ?? 0, 1);
+    const tabHint = draft.openTab === "homework" ? `，并在“作业”生成待办` : "";
+    showToast(`《${importedSource.title}》已放入${targetName}“资料”，并整理出 ${noteCount} 条笔记${tabHint}`);
 
     // 后台静默预生成详情页内容（DeepSeek），完成后回写卡片，用户下次打开即可直接查看
     const prompt = buildDetailPagePrompt({
@@ -641,7 +1184,7 @@ export default function App() {
     const id = `custom_${idBase || Date.now()}_${Date.now().toString(36)}`;
     addSubject({
       id,
-      name: `${name}笔记`,
+      name,
       short: name.slice(0, 6),
       count: 0,
       unit: "条记忆",
@@ -664,7 +1207,43 @@ export default function App() {
 
   return (
     <ApiConfigProvider>
+      <PenContextProvider>
+      <div className="fixed inset-0 flex items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_top,#F5F7FC_0%,#E7EAF1_55%,#DDE1E9_100%)] p-6">
+        <div
+          className="relative shrink-0 overflow-hidden bg-[#171A20] shadow-[0_34px_90px_rgba(24,30,45,.32),0_8px_24px_rgba(24,30,45,.18)] ring-1 ring-black/40"
+          style={{
+            width: 1396 * padScale,
+            height: 1052 * padScale,
+            borderRadius: 34 * padScale,
+          }}
+        >
+          <span
+            className="pointer-events-none absolute left-1/2 z-[10000] -translate-x-1/2 rounded-full bg-[#343945] ring-1 ring-black/70"
+            style={{ top: 3 * padScale, width: 5 * padScale, height: 5 * padScale }}
+            aria-hidden="true"
+          />
+          <div
+            className="absolute h-[1032px] w-[1376px] origin-top-left transform-gpu overflow-hidden rounded-[25px] bg-[#F5F6FA]"
+            style={{ left: 10 * padScale, top: 10 * padScale, transform: `scale(${padScale})` }}
+          >
+      <PenSceneSync
+        annotationType={annotationType}
+        pdfReaderFile={pdfReaderFile}
+        showVoice={showVoice}
+        showFormFill={showFormFill}
+      />
       <div className="fixed inset-0 flex overflow-hidden bg-[#F5F6FA]">
+        {showOpeningSplash && (
+          <div className="memo-opening-splash fixed inset-0 z-[20000] grid place-items-center overflow-hidden bg-[#F4F4F5]" aria-label="MEMO 启动画面">
+            <div className="relative grid h-[320px] w-[320px] place-items-center">
+              <span className="memo-opening-wave memo-opening-wave-one" aria-hidden="true" />
+              <span className="memo-opening-wave memo-opening-wave-two" aria-hidden="true" />
+              <span className="memo-opening-ring" aria-hidden="true" />
+              <span className="memo-opening-core" aria-hidden="true" />
+              <strong className="memo-opening-word">MEMO</strong>
+            </div>
+          </div>
+        )}
         {dbLoading && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#F5F6FA]">
             <div className="flex flex-col items-center gap-3">
@@ -676,36 +1255,120 @@ export default function App() {
         )}
 
         <Sidebar
+          activeWorkspace={activeWorkspace}
           activeSubject={activeSubject}
-          onSelectSubject={(id) => { didInitSubjectRef.current = true; setActiveSubject(id); }}
+          onSelectWorkspace={(id) => {
+            setActiveWorkspace(id);
+            setActiveClassSession(null);
+            if (id === "course") setActiveTopTab("notes");
+            if (id === "project") setResearchDetailOpen(false);
+          }}
+          onSelectSubject={(id) => {
+            didInitSubjectRef.current = true;
+            setActiveSubject(id);
+            setActiveWorkspace("course");
+            setActiveTopTab("notes");
+            setActiveClassSession(null);
+          }}
           isLoading={sidebarLoading}
           subjects={sortedSubjects}
-          onOpenSearch={() => setShowSearch(true)}
+          unreadSubjectIds={unreadSubjectIds}
+          onOpenSearch={() => {
+            setSearchStartsWithVoice(false);
+            setShowSearch(true);
+          }}
+          onOpenRecorder={() => setShowVoice(true)}
           onUploadFile={() => setShowAddSource(true)}
           onCreateSubject={() => setShowCreateSubject(true)}
+          onOpenGuide={() => setOnboardingMode("demo")}
+          todayCount={memorySuggestedTask ? 3 : 2}
         />
 
         <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#F5F6FA]">
-          {subject ? (
+          {activeWorkspace === "today" && (
+            <TodayView
+              onTask={setActiveTodayTask}
+              onClassSession={(subjectId,title) => {
+                didInitSubjectRef.current = true;
+                setActiveSubject(subjectId);
+                setActiveWorkspace("activity");
+                setActiveTopTab("notes");
+                setTodayTaskFocus(null);
+                setActiveClassSession(title);
+              }}
+              onPractice={() => {
+                didInitSubjectRef.current = true;
+                setActiveSubject("math");
+                setActiveClassSession(null);
+                setShowWritableReview(true);
+              }}
+              onProject={() => { setActiveWorkspace("project"); setActiveResearchTitle("短视频平台与大学生冲动消费研究"); setResearchDetailOpen(true); }}
+              onGoals={() => setActiveWorkspace("goals")}
+              onSearch={(query) => {
+                setSearchInitialQuery(query);
+                setSearchStartsWithVoice(false);
+                setShowSearch(true);
+              }}
+              onAddSource={() => setShowAddSource(true)}
+              onOpenRecorder={() => setShowVoice(true)}
+              memorySuggestion={memorySuggestedTask}
+              assistantHeaderVisible={!showVoice}
+            />
+          )}
+          {activeWorkspace === "knowledge" && <KnowledgeView />}
+          {activeWorkspace === "sources" && <SourceLibraryView openSourceId={sourceSearchTarget} onOpened={() => setSourceSearchTarget(null)} />}
+          {activeWorkspace === "goals" && <GoalsView onAddToday={setMemorySuggestedTask} />}
+          {activeWorkspace === "project" && subject && (
+            researchDetailOpen ? <>
+              <div className="flex items-start justify-between gap-3 px-7 pt-6 pb-2 flex-shrink-0">
+                <div><button onClick={() => setResearchDetailOpen(false)} className="text-[11px] font-semibold text-[#4D5CFF]">← 返回研究列表</button><h1 className="mt-2 text-[23px] font-bold text-[#171A24]">{activeResearchTitle}</h1></div>
+                <AnnotationMenu onOpenAnnotation={handleOpenAnnotation} onOpenPdfReader={(file) => setPdfReaderFile(file)} onOpenCamera={() => setShowCamera(true)} onOpenScreenshot={() => setShowScreenshot(true)} onOpenVoice={() => setShowVoice(true)} onOpenDemo={() => setOnboardingMode("demo")} />
+              </div>
+              <ResearchWorkspace onAddSource={() => setShowAddSource(true)}>
+                <PaperView subject={subjects.find(s => s.id === "other") ?? subject} feedGroups={allFeedGroups.other ?? []} onOpenNote={(card,date) => handleOpenCard(card,date,"other")} />
+              </ResearchWorkspace>
+            </> : <ResearchHome onOpen={(title) => { setActiveResearchTitle(title); setResearchDetailOpen(true); }} />
+          )}
+          {activeWorkspace === "activity" && subject && activeClassSession && (
+            <ClassSessionPanel
+              courseTitle={activeClassSession}
+              onAddSource={() => setShowAddSource(true)}
+              onClose={() => { setActiveClassSession(null); setActiveWorkspace("today"); }}
+              onOpenArea={(area) => {
+                setActiveClassSession(null);
+                setActiveWorkspace("course");
+                setActiveTopTab(area);
+              }}
+            />
+          )}
+          {activeWorkspace === "course" && subject ? (
             <>
-              {/* 学科头部 */}
+              {!activeClassSession && <>{/* 学科头部 */}
               <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-2 flex-shrink-0">
                 <div className="min-w-0">
                   <EditableSubjectName
-                    name={subject?.name ?? ""}
-                    onRename={(next) => { if (subject) updateSubject({ ...subject, name: next }); }}
+                    name={subject?.short ?? ""}
+                    onRename={(next) => {
+                      if (subject) updateSubject({ ...subject, name: next, short: next.slice(0, 6) });
+                    }}
                   />
-                  <p className="text-[13px] text-[#7B8291] mt-1">{subject?.extra ?? ""}</p>
                 </div>
-                <AnnotationMenu onOpenAnnotation={handleOpenAnnotation} />
+                <AnnotationMenu
+                  onOpenAnnotation={handleOpenAnnotation}
+                  onOpenPdfReader={(file) => setPdfReaderFile(file)}
+                  onOpenCamera={() => setShowCamera(true)}
+                  onOpenScreenshot={() => setShowScreenshot(true)}
+                  onOpenVoice={() => setShowVoice(true)}
+                  onOpenDemo={() => setOnboardingMode("demo")}
+                />
               </div>
 
               <TopTabs
                 activeTab={activeTopTab}
                 onChangeTab={setActiveTopTab}
-              />
+              /></>}
 
-              {activeTopTab === "notes" && (
+              {!activeClassSession && activeTopTab === "notes" && (
                 <SyllabusNotesView
                   subject={subject}
                   feedGroups={feedGroups}
@@ -715,7 +1378,14 @@ export default function App() {
                 />
               )}
 
-              {activeTopTab === "homework" && (
+              {!activeClassSession && activeTopTab === "reviewPlan" && (
+                <ReviewPlanView
+                  subject={subject}
+                  feedGroups={feedGroups}
+                />
+              )}
+
+              {!activeClassSession && activeTopTab === "homework" && (
                 <HomeworkView
                   subject={subject}
                   feedGroups={feedGroups}
@@ -723,10 +1393,11 @@ export default function App() {
                     updateCard(activeSubject, date, cardId, updates)
                   }
                   onUploadCheck={() => setShowAddSource(true)}
+                  initialTaskQuery={todayTaskFocus}
                 />
               )}
 
-              {activeTopTab === "exam" && (
+              {!activeClassSession && activeTopTab === "exam" && (
                 <ExamPrepView
                   subject={subject}
                   feedGroups={examNoteFeedGroups}
@@ -734,17 +1405,17 @@ export default function App() {
                   onAskLlm={(prompt) => callTextStreamed(prompt, { maxTokens: 4000 })}
                 />
               )}
+
+              {!activeClassSession && activeTopTab === "sources" && (
+                <SourceLibraryView
+                  subjectId={activeSubject}
+                  embedded
+                />
+              )}
+
             </>
           ) : null}
         </main>
-
-        {annotationType && (
-          <AnnotationModal
-            type={annotationType}
-            onClose={handleCloseAnnotation}
-            onSave={handleSave}
-          />
-        )}
 
         <RightDrawer
           card={drawerCard}
@@ -758,36 +1429,63 @@ export default function App() {
           subjects={subjects}
           currentSubjectId={drawerCardSubject}
           onMoveSubject={handleMoveDrawerCard}
+          onOpenVoiceSource={(card) => {
+            setDrawerCard(null);
+            setVoiceSourceCard(card);
+            setShowVoice(true);
+          }}
         />
 
-        <SearchOverlay
+        {!showVoice && (activeWorkspace === "today" || showSearch) && <SearchOverlay
           isOpen={showSearch}
-          onClose={() => setShowSearch(false)}
+          startWithVoice={searchStartsWithVoice}
+          initialQuery={searchInitialQuery}
+          onOpen={() => {
+            setSearchStartsWithVoice(false);
+            setSearchInitialQuery("");
+            setShowSearch(true);
+          }}
+          onClose={() => {
+            setShowSearch(false);
+            setSearchStartsWithVoice(false);
+            setSearchInitialQuery("");
+          }}
           allFeedGroups={allFeedGroups}
           subjects={subjects}
           onUpdateCard={(subjectId, date, cardId, updates) => updateCard(subjectId, date, cardId, updates)}
-        />
+          onAddSource={() => setShowAddSource(true)}
+          onOpenCamera={() => setShowCameraPicker(true)}
+          onOpenVoice={() => setShowVoice(true)}
+          onOpenConnections={() => setShowConnections(true)}
+          onOpenSource={(sourceId) => {
+            setShowSearch(false);
+            setSourceSearchTarget(sourceId);
+            setActiveWorkspace("sources");
+            setActiveClassSession(null);
+          }}
+        />}
+
+        <ConnectionModal isOpen={showConnections} onClose={() => setShowConnections(false)} />
 
         <AddSourceModal
           isOpen={showAddSource}
           subjects={sortedSubjects}
+          activeContext={activeClassSession}
           onClose={() => setShowAddSource(false)}
           onAnalyzeFile={analyzeSourceFile}
           onConfirmDraft={confirmSourceDraft}
         />
 
-        <FlyThumbnail phase={flyPhase} imgSrc={flyImg} />
-
         {showCreateSubject && (
           <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/35" onClick={() => setShowCreateSubject(false)}>
             <div className="w-[360px] rounded-3xl bg-white p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
-              <p className="text-[16px] text-[#020418]" style={{ fontWeight: 700 }}>新建学科</p>
-              <p className="text-[12px] text-[#7B8291] mt-1">用于整理 AI 识别不准或你自定义的学习分类。</p>
+              <p className="text-[16px] text-[#020418]" style={{ fontWeight: 700 }}>新建文件夹</p>
+              <p className="text-[12px] text-[#7B8291] mt-1">创建一个新的学科或学习分类。</p>
               <input
                 value={newSubjectName}
                 onChange={e => setNewSubjectName(e.target.value)}
                 autoFocus
-                placeholder="例如：电路、考研政治、数据结构"
+                placeholder="例如：数据结构、考研政治"
                 className="mt-4 w-full rounded-2xl border border-[#EAEDF2] px-4 py-3 text-[14px] outline-none focus:border-[#4D5CFF]"
                 onKeyDown={e => { if (e.key === "Enter") handleCreateSubject(); }}
               />
@@ -803,7 +1501,7 @@ export default function App() {
                   className="rounded-xl bg-[#4D5CFF] px-4 py-2 text-[13px] text-white"
                   style={{ fontWeight: 700 }}
                 >
-                  创建
+                  新建
                 </button>
               </div>
             </div>
@@ -811,14 +1509,246 @@ export default function App() {
         )}
 
         <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] pointer-events-none transition-all duration-300"
-          style={{ opacity: toast ? 1 : 0, transform: `translateX(-50%) translateY(${toast ? "0px" : "12px"})` }}
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] transition-all duration-300"
+          style={{
+            opacity: toast ? 1 : 0,
+            transform: `translateX(-50%) translateY(${toast ? "0px" : "12px"})`,
+            pointerEvents: toast ? "auto" : "none",
+          }}
         >
-          <div className="bg-[#1C1C1E] text-white text-[13px] px-4 py-2.5 rounded-2xl shadow-lg" style={{ fontWeight: 500 }}>
-            {toast}
+          <div
+            className="bg-[#1C1C1E] text-white text-[13px] px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-3"
+            style={{ fontWeight: 500 }}
+          >
+            <span>{toast?.message}</span>
+            {toast?.actionLabel && toast.onAction && (
+              <button
+                type="button"
+                onClick={() => toast.onAction?.()}
+                className="text-[#618AFF] text-[13px] flex-shrink-0 hover:underline"
+                style={{ fontWeight: 600 }}
+              >
+                {toast.actionLabel}
+              </button>
+            )}
           </div>
         </div>
       </div>
+
+      {/* 引导页：首次加载（first）或点"场景 Demo"（demo）时出现 */}
+      {onboardingMode && (
+        <OnboardingScreen
+          mode={onboardingMode}
+          onEnter={() => {
+            if (onboardingMode === "first") {
+              localStorage.setItem("imemo_onboarded", "1");
+            }
+            setOnboardingMode(null);
+          }}
+          onPdfSelected={(file) => {
+            setOnboardingMode(null);
+            setPdfReaderFile(file);
+          }}
+          onOpenScreenshot={() => setShowScreenshot(true)}
+          onOpenCamera={() => setShowCamera(true)}
+          onOpenVoice={() => setShowVoice(true)}
+          onOpenFormFill={() => setShowFormFill(true)}
+        />
+      )}
+
+      {/* ── 功能 Modal：放在 OnboardingScreen 之后，确保在引导页之上 ── */}
+      {annotationType && (
+        <AnnotationModal
+          type={annotationType}
+          onClose={handleCloseAnnotation}
+          onSave={handleSave}
+        />
+      )}
+
+      {pdfReaderFile && (
+        <PdfReaderModal
+          file={pdfReaderFile}
+          allFeedGroups={allFeedGroups}
+          activeSubject={activeSubject}
+          onOpenRecalledCard={handleOpenRecalledCard}
+          onClose={() => setPdfReaderFile(null)}
+          onSavePage={(imageDataUrl, hasAnnotations, meta) => {
+            processImage(imageDataUrl, hasAnnotations, "notes", {
+              skipFly: true,
+              sourceAnchor: meta?.sourceAnchor,
+            });
+          }}
+        />
+      )}
+
+      {showWritableReview && (
+        <WritableReviewModal onClose={() => setShowWritableReview(false)} />
+      )}
+
+      {activeTodayTask && (
+        <StudyTaskModal kind={activeTodayTask} onClose={() => setActiveTodayTask(null)} />
+      )}
+
+
+      {showCamera && (
+        isCameraAgentEnabled ? (
+          <CameraAgentModal
+            onClose={() => setShowCamera(false)}
+            allFeedGroups={allFeedGroups}
+            activeSubject={activeSubject}
+            onOpenRecalledCard={handleOpenRecalledCard}
+            onSave={(imageDataUrl, meta) => {
+              if (meta?.demo) {
+                if (meta.flyOnly) {
+                  startFlyAnimation(imageDataUrl);
+                  return;
+                }
+                processDemoCameraImage(imageDataUrl, { skipFly: true });
+                return;
+              }
+              processImage(imageDataUrl, false, "notes", { skipFly: meta?.autoCapture });
+            }}
+          />
+        ) : (
+          <CameraModal
+            onClose={() => setShowCamera(false)}
+            onSave={(imageDataUrl) => {
+              processImage(imageDataUrl, false, "notes");
+            }}
+          />
+        )
+      )}
+
+      {showCameraPicker && (
+        <CameraModal
+          onClose={() => setShowCameraPicker(false)}
+          onSave={(imageDataUrl) => {
+            processImage(imageDataUrl, false, "notes");
+          }}
+        />
+      )}
+
+      {showScreenshot && (
+        <ScreenshotModeModal
+          mergeNotice={screenshotMergeNotice}
+          onMergeNoticeDismiss={() => setScreenshotMergeNotice(null)}
+          onClose={() => {
+            setScreenshotMergeNotice(null);
+            setShowScreenshot(false);
+          }}
+          onSave={(imageDataUrl) => {
+            processImage(imageDataUrl, false, "notes", {
+              sourceAnchor: DEMO_SCREENSHOT_ANCHOR,
+              fixedCardId: DEMO_SCREENSHOT_CARD_ID,
+              skipFly: true,
+            });
+          }}
+        />
+      )}
+
+      {showVoice && (
+        <VoiceModal
+          onClose={() => { setShowVoice(false); setVoiceSourceCard(null); }}
+          initialRecording={voiceSourceCard?.sourceDocument?.type === "voice" ? {
+            id: voiceSourceCard.sourceAnchor?.fileId ?? voiceSourceCard.id,
+            title: voiceSourceCard.sourceDocument.title || voiceSourceCard.title.replace(/^记忆[:：]\s*/, ""),
+            durationSeconds: voiceSourceCard.sourceDocument.durationSeconds ?? 0,
+            transcript: voiceSourceCard.sourceDocument.paragraphs?.join("\n\n") ?? voiceSourceCard.overview ?? "",
+            audioUrl: voiceSourceCard.sourceDocument.url,
+          } : undefined}
+          saveLocation={`${INITIAL_SUBJECTS.find(s => s.id === (activeSubject !== "all" && activeSubject !== "__pending__" ? activeSubject : "physics"))?.short ?? "大学物理"} / 笔记`}
+          onSave={(transcript, recording) => {
+            const now = new Date();
+            const dateStr = `${now.getFullYear()}/${(now.getMonth()+1).toString().padStart(2,"0")}/${now.getDate().toString().padStart(2,"0")}`;
+            const subjectId = activeSubject !== "all" && activeSubject !== "__pending__" ? activeSubject : "physics";
+            const recordingId = `voice_${Date.now()}`;
+            const sourceAnchor: SourceAnchor = {
+              kind: "voice",
+              fileId: recordingId,
+              fileName: recording.title,
+            };
+            const sourceDocument: SourceDocument = {
+              type: "voice",
+              title: recording.title,
+              url: recording.audioUrl,
+              durationSeconds: recording.durationSeconds,
+              excerpt: "课堂录音的原始音频与完整实时转写",
+              paragraphs: [transcript],
+            };
+
+            // 保存完成后把用户带回实际入库位置，NEW 标识在目标学科的笔记列表中立即可见。
+            setActiveWorkspace("course");
+            setActiveSubject(subjectId);
+            setActiveTopTab("notes");
+
+            // 演示文稿：跳过 import API，直接落卡，避免二次长时间 loading
+            if (isDemoTranscript(transcript)) {
+              applyNewCard(
+                subjectId,
+                "记忆：机械振动课堂录音",
+                "简谐振动、旋转矢量法与同频振动叠加。",
+                "voice", recordingPlaceholderFor(subjectId, "机械振动"),
+                "本节围绕简谐振动方程、旋转矢量法与多振动叠加展开，重点讲解相位关系和合振幅公式。",
+                `来源：实时录音 ${dateStr}`,
+                [
+                  { title: "简谐振动方程", items: ["位移满足 x(t) = A·cos(ωt + φ₀)，振幅 A、角频率 ω、初相 φ₀ 决定运动形态。"] },
+                  { title: "旋转矢量法", items: ["用匀速旋转矢量在 x 轴上的投影描述简谐振动，矢量长度等于振幅。"] },
+                  { title: "同频振动叠加", items: ["N 个等幅同频振动叠加时，合振幅 R = A·sin(Nδ/2) / sin(δ/2)，δ 为相邻相位差。"] },
+                ],
+                ["旋转矢量法把圆周运动投影到直线", "同频叠加可用相位差求合振幅", "课后题：π/3 相位差的两列振动求合成"],
+                [], [],
+                "可继续圈注课件或生成练习题巩固叠加公式。",
+                "theory_concept", undefined, false, undefined,
+                `【内容摘要】\n本节围绕简谐振动、旋转矢量法和同频振动叠加展开，重点讲解相位关系与合振幅计算。\n\n【核心知识点】\n1. 简谐振动可写为 x(t) = A·cos(ωt + φ₀)，振幅、角频率和初相共同决定运动。\n2. 旋转矢量法用圆周运动在坐标轴上的投影解释简谐振动。\n3. 同频振动叠加的合振幅由各振动的振幅与相位差共同决定。\n\n【知识框架】\n简谐振动方程 → 旋转矢量表示 → 相位差分析 → 同频振动叠加 → 合振幅计算。\n\n【接下来可以做】\n回听关键片段，完成相位差为 π/3 的合成振动练习，并生成一道变式题检验掌握情况。`,
+                "note", undefined, undefined,
+                sourceAnchor, sourceDocument,
+              );
+              showToast("演示录音已保存至笔记");
+              return;
+            }
+
+            analyzeTextSource("text", `[来源：实时录音 ${dateStr}]\n\n${transcript}`)
+              .then(draft => {
+                const enrichedDraft = {
+                  ...draft,
+                  targetSubjectId: subjectId,
+                  originalName: recording.title,
+                  sourceAnchor,
+                  sourceDocument,
+                };
+                confirmSourceDraft(enrichedDraft);
+              })
+              .catch(err => {
+                console.warn("[voice] import failed, saving as plain note", err);
+                applyNewCard(
+                  subjectId,
+                  "语音记录：" + transcript.slice(0, 20) + "…",
+                  transcript.slice(0, 80),
+                  "voice", recordingPlaceholderFor(subjectId, transcript),
+                  transcript, undefined, [], [], [], [], undefined,
+                  "theory_concept", undefined, false, undefined,
+                  `【内容摘要】\n${transcript.slice(0, 220)}\n\n【完整内容】\n录音原文与音频已保留，可随时返回查看。\n\n【接下来可以做】\n补充重点、生成复习题，或继续录制新的课堂内容。`,
+                  "note", undefined, undefined,
+                  sourceAnchor, sourceDocument,
+                );
+                showToast("已保存语音文字，AI 分析暂不可用");
+              });
+          }}
+        />
+      )}
+
+      {showFormFill && (
+        <FormFillModal onClose={() => setShowFormFill(false)} />
+      )}
+
+      {/* FlyThumbnail 必须放在所有 Modal 之后才能浮在最顶层 */}
+      <FlyThumbnail phase={flyPhase} imgSrc={flyImg} />
+
+          </div>
+        </div>
+      </div>
+
+      </PenContextProvider>
     </ApiConfigProvider>
   );
 }

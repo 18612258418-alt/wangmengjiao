@@ -1,0 +1,14 @@
+@import url("https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&display=swap");
+
+@font-face {
+  font-family: "Ma Shan Zheng";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: local("Ma Shan Zheng"), local("STKaiti"), local("KaiTi"), local("楷体");
+}
+
+.handwriting-signature {
+  font-family: "Ma Shan Zheng", "Zhi Mang Xing", KaiTi, STKaiti, "楷体", serif;
+  letter-spacing: 0.06em;
+}

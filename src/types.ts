@@ -14,6 +14,51 @@ export type SkillType =
 /** 卡片内容类型 — 由豆包视觉模型自动判断 */
 export type CardContentType = "note" | "homework";
 
+/** 卡片来源锚点 —— 用于「识别后自动调取记忆」 */
+export type SourceKind = "pdf" | "camera" | "upload" | "annotation" | "screenshot" | "voice";
+
+export interface SourceAnchor {
+  kind: SourceKind;
+  /** PDF 等文件的稳定 id（文件名+大小等） */
+  fileId?: string;
+  fileName?: string;
+  page?: number;
+}
+
+export interface SourceDocument {
+  type: "pdf" | "web" | "voice";
+  title: string;
+  url?: string;
+  page?: number;
+  author?: string;
+  publishedAt?: string;
+  excerpt?: string;
+  paragraphs?: string[];
+  durationSeconds?: number;
+  /** 录音转写片段：用于文字与原声的时间对位 */
+  transcriptSegments?: Array<{
+    id: string;
+    startTime: number;
+    endTime: number;
+    text: string;
+    /** 说话人分离结果；身份未确认时可使用“学生 1”等临时名称 */
+    speakerId?: string;
+    speakerName?: string;
+    speakerRole?: "teacher" | "student" | "unknown";
+    label?: string;
+  }>;
+  /** 录音知识点：总结、知识脉络与原声共用同一组时间锚点 */
+  audioKnowledgePoints?: Array<{
+    id: string;
+    title: string;
+    summary: string;
+    startTime: number;
+    endTime: number;
+    transcriptSegmentIds?: string[];
+    kind?: "concept" | "emphasis" | "task";
+  }>;
+}
+
 export interface CardData {
   id: string;
   title: string;
@@ -50,6 +95,10 @@ export interface CardData {
   unifiedDetail?: string;
   /** Optional dynamic interactive experience for this memory card */
   interactiveSpec?: InteractiveSpec;
+  /** 入库时的来源锚点，供同页/同文件记忆召回 */
+  sourceAnchor?: SourceAnchor;
+  /** PDF 或网页来源信息，用于从笔记详情返回查看原文 */
+  sourceDocument?: SourceDocument;
 }
 
 export interface FeedGroup {

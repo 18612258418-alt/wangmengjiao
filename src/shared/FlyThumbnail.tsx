@@ -4,7 +4,7 @@ export function FlyThumbnail({ phase, imgSrc }: { phase: "idle" | "center" | "co
   const isCorner = phase === "corner" || phase === "fading";
 
   return (
-    <div className="fixed inset-0 pointer-events-none" style={{ zIndex: 60 }}>
+    <div className="fixed inset-0 pointer-events-none" style={{ zIndex: 800 }}>
       <div
         style={{
           position: "fixed",
@@ -51,8 +51,8 @@ export function FlyThumbnail({ phase, imgSrc }: { phase: "idle" | "center" | "co
                 </linearGradient>
               </defs>
             </svg>
-            <span style={{ fontSize: 12, fontWeight: 500, letterSpacing: "0.01em" }}>已同步至AI记忆</span>
-            <span style={{ fontSize: 13, fontWeight: 500, color: "#618AFF", marginLeft: 4 }}>查看</span>
+            <span style={{ fontSize: 12, fontWeight: 500, letterSpacing: "0.01em" }}>已保存到记忆，</span>
+            <span style={{ fontSize: 12, fontWeight: 500, color: "#618AFF" }}>可查看</span>
           </div>
         )}
       </div>

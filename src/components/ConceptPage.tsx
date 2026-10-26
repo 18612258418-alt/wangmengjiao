@@ -507,7 +507,7 @@ export function ConceptPage({
       {/* Back header */}
       <div style={{
         display: "flex", alignItems: "center", gap: 8,
-        padding: "14px 20px 12px", flexShrink: 0,
+        padding: "10px 20px", flexShrink: 0,
         borderBottom: "1px solid #F0F2F5",
       }}>
         {(history.length > 0 || onBack) && (
@@ -517,13 +517,14 @@ export function ConceptPage({
               style={{
                 display: "flex", alignItems: "center", gap: 4,
                 color: "#4D5CFF", fontSize: 13, fontWeight: 600,
-                background: "none", border: "none", cursor: "pointer", padding: "4px 8px 4px 0",
+                minHeight: 44, background: "#EEF0FF", border: "none", borderRadius: 999,
+                cursor: "pointer", padding: "0 15px 0 11px",
               }}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="15 18 9 12 15 6" />
               </svg>
-              {history.length > 0 ? "上一步" : "返回"}
+              {history.length > 0 ? "返回上一个知识点" : "返回笔记内容"}
             </button>
             <span style={{ width: 1, height: 14, background: "#E0E0E0" }} />
           </>

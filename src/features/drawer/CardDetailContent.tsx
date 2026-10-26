@@ -15,16 +15,19 @@ import {
 } from "../../utils/cardDetailParsing";
 import { parseSections } from "../../utils/parseSections";
 import { OriginalImageOverlay, ViewOriginalImageButton } from "../../shared/OriginalImageViewer";
+import { OriginalSourceOverlay, ViewOriginalSourceButton } from "../../shared/OriginalSourceViewer";
+import { VoiceRecordingDetail } from "./VoiceRecordingDetail";
 
 type InteractivePhase = "idle" | "planning" | "coding" | "ready" | "skipped" | "failed";
 
-export function CardDetailContent({
-  card, unifiedContent, onUpdateCard, exportRef,
+function StandardCardDetailContent({
+  card, unifiedContent, onUpdateCard, exportRef, onOpenVoiceSource,
 }: {
   card: CardData;
   unifiedContent?: string;
   onUpdateCard?: (cardId: string, updates: Partial<CardData>) => void;
   exportRef?: React.RefObject<HTMLDivElement | null>;
+  onOpenVoiceSource?: (card: CardData) => void;
 }) {
   const skillMeta = getSkillMeta(card.skill);
   const [activeTab, setActiveTab] = useState<"analysis" | "mindmap" | "interactive">("analysis");
@@ -37,6 +40,7 @@ export function CardDetailContent({
   const [interactivePhase, setInteractivePhase] = useState<InteractivePhase>("idle");
   const [interactiveError, setInteractiveError] = useState<string>("");
   const [showOriginalImage, setShowOriginalImage] = useState(false);
+  const [showOriginalSource, setShowOriginalSource] = useState(false);
 
   const pushConcept = (keyword: string) =>
     setConceptStack(prev => [...prev, { keyword, cardTitle: card.title }]);
@@ -107,6 +111,7 @@ export function CardDetailContent({
     setLocalUnifiedContent("");
     setLocalInteractiveSpec(null);
     setShowOriginalImage(false);
+    setShowOriginalSource(false);
     setGeneratingUnified(false);
     setQuizRaw("");
     setQuizLoading(true);
@@ -143,7 +148,7 @@ export function CardDetailContent({
             {([
               { key: "analysis", label: "智能总结" },
               { key: "mindmap", label: "知识脉络" },
-              { key: "interactive", label: "交互演示" },
+              { key: "interactive", label: "互动演示" },
             ] as const).map(tab => {
               const isActive = activeTab === tab.key;
               const isInteractive = tab.key === "interactive";
@@ -189,7 +194,9 @@ export function CardDetailContent({
               );
             })}
           </div>
-          {card.img && (
+          {card.sourceDocument ? (
+            <ViewOriginalSourceButton onClick={() => card.sourceDocument?.type === "voice" && onOpenVoiceSource ? onOpenVoiceSource(card) : setShowOriginalSource(true)} sourceType={card.sourceDocument.type} />
+          ) : card.img && (
             <ViewOriginalImageButton onClick={() => setShowOriginalImage(true)} />
           )}
         </div>
@@ -248,7 +255,7 @@ export function CardDetailContent({
                             <div key={si}>
                               <p style={{ fontWeight: 700, fontSize: 13, color: "#BE123C", marginBottom: 8 }}>{si + 1}. {section.title}</p>
                               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                                {section.items.map((item, ii) => (
+                                {(section.items ?? ((section as typeof section & { content?: string }).content ? [(section as typeof section & { content?: string }).content!] : [])).map((item, ii) => (
                                   <div key={ii} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
                                     <span style={{ color: "#FB7185", fontSize: 12, marginTop: 2, flexShrink: 0 }}>▸</span>
                                     <DynamicRenderer text={item} onLinkClick={pushConcept} />
@@ -324,7 +331,7 @@ export function CardDetailContent({
                         <div key={si}>
                           <p style={{ fontWeight: 700, fontSize: 13, color: "#BE123C", marginBottom: 8 }}>{si + 1}. {section.title}</p>
                           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                            {section.items.map((item, ii) => (
+                            {(section.items ?? ((section as typeof section & { content?: string }).content ? [(section as typeof section & { content?: string }).content!] : [])).map((item, ii) => (
                               <div key={ii} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
                                 <span style={{ color: "#FB7185", fontSize: 12, marginTop: 2, flexShrink: 0 }}>▸</span>
                                 <DynamicRenderer text={item} onLinkClick={pushConcept} />
@@ -468,6 +475,15 @@ export function CardDetailContent({
         />
       )}
 
+      {card.sourceDocument && (
+        <OriginalSourceOverlay
+          open={showOriginalSource}
+          onClose={() => setShowOriginalSource(false)}
+          source={card.sourceDocument}
+          voiceContent={card.sourceDocument.type === "voice" ? <VoiceRecordingDetail card={card} /> : undefined}
+        />
+      )}
+
       <div style={{ position: "absolute", inset: 0, background: "#fff", borderRadius: "inherit", transform: conceptStack.length > 0 ? "translateX(0)" : "translateX(105%)", transition: "transform 0.28s cubic-bezier(0.4,0,0.2,1)", zIndex: 10 }}>
         {conceptStack.length > 0 && (
           <ConceptPage
@@ -479,4 +495,14 @@ export function CardDetailContent({
       </div>
     </div>
   );
+}
+
+export function CardDetailContent(props: {
+  card: CardData;
+  unifiedContent?: string;
+  onUpdateCard?: (cardId: string, updates: Partial<CardData>) => void;
+  exportRef?: React.RefObject<HTMLDivElement | null>;
+  onOpenVoiceSource?: (card: CardData) => void;
+}) {
+  return <StandardCardDetailContent {...props}/>;
 }

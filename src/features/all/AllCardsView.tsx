@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import type { CardData, FeedGroup } from "../../types";
+import { dedupeCardRefs } from "../../utils/cardDedupe";
 import { MemoryCard } from "../feed/MemoryCard";
 import { getSkillMeta } from "../../utils/cardDetailParsing";
 
@@ -37,13 +38,16 @@ export function AllCardsView({
         }
       }
     }
-    // Sort newest first (date desc, then time desc)
-    result.sort((a, b) => {
-      const d = b.date.localeCompare(a.date);
-      if (d !== 0) return d;
-      return (b.card.time ?? "").localeCompare(a.card.time ?? "");
-    });
-    return result;
+    const deduped = dedupeCardRefs(result.map(({ card, date }) => ({ card, date })));
+    const byId = new Map(result.map(item => [item.card.id, item]));
+    return deduped
+      .map(({ card, date }) => byId.get(card.id)!)
+      .filter(Boolean)
+      .sort((a, b) => {
+        const d = b.date.localeCompare(a.date);
+        if (d !== 0) return d;
+        return (b.card.time ?? "").localeCompare(a.card.time ?? "");
+      });
   }, [allFeedGroups]);
 
   // Content tags: aiKeyPoints with frequency >= 2, capped at 30

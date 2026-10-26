@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { CardData, FeedGroup, SubjectData } from "../../types";
 import { filterNoteFeedGroups } from "../../utils/feedFilters";
+import { dedupeCardRefs } from "../../utils/cardDedupe";
 import { FeedGroup as FeedGroupComponent } from "./FeedGroup";
 
 export function MainContent({
@@ -13,7 +14,14 @@ export function MainContent({
   newCardId: string | null;
   emptyHint?: string;
 }) {
-  const noteGroups = useMemo(() => filterNoteFeedGroups(feedGroups), [feedGroups]);
+  const noteGroups = useMemo(() => {
+    const groups = filterNoteFeedGroups(feedGroups);
+    const allItems = groups.flatMap(g => g.cards.map(card => ({ card, date: g.date })));
+    const winners = new Set(dedupeCardRefs(allItems).map(item => item.card.id));
+    return groups
+      .map(g => ({ ...g, cards: g.cards.filter(c => winners.has(c.id)) }))
+      .filter(g => g.cards.length > 0);
+  }, [feedGroups]);
 
   return (
     <div className="flex-1 overflow-y-auto px-6 pb-8 space-y-8">

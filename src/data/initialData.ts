@@ -45,6 +45,7 @@ import { mergeHomeworkSeedIntoFeeds } from "./homeworkSeedCards";
 import { BUILTIN_UNIFIED_DETAILS } from "./builtinUnifiedDetails";
 import { BUILTIN_CARD_META } from "./builtinCardMeta";
 import { BUILTIN_SYLLABUS_BY_CARD } from "./subjectSyllabi";
+import { RECORDING_SEED_PATCH } from "./recordingSeedCards";
 
 function injectBuiltinMeta(feeds: FeedGroup[]): FeedGroup[] {
   return feeds.map(group => ({
@@ -68,11 +69,12 @@ export const COLORS = ["#EF4444", "#3B82F6", "#10B981", "#F59E0B", "#8B5CF6", "#
 
 /** 内置学科展示名（侧栏 short + 顶栏 name） */
 export const BUILTIN_SUBJECT_LABELS: Record<string, Pick<SubjectData, "name" | "short">> = {
-  physics: { name: "大学物理笔记", short: "大学物理" },
-  math: { name: "高等数学笔记", short: "高等数学" },
-  chemistry: { name: "大学化学笔记", short: "大学化学" },
-  english: { name: "大学英语笔记", short: "大学英语" },
-  other: { name: "社会科学笔记", short: "社会科学" },
+  physics: { name: "大学物理", short: "大学物理" },
+  math: { name: "高等数学", short: "高等数学" },
+  chemistry: { name: "大学化学", short: "大学化学" },
+  english: { name: "大学英语", short: "大学英语" },
+  other: { name: "社会科学", short: "社会科学" },
+  misc: { name: "其他", short: "其他" },
 };
 
 export const INITIAL_SUBJECTS: SubjectData[] = [
@@ -100,6 +102,11 @@ export const INITIAL_SUBJECTS: SubjectData[] = [
     id: "other", ...BUILTIN_SUBJECT_LABELS.other, count: 4, unit: "条记忆",
     entries: ["5月22日 星期五  批注新增2个记忆", "4月22日 星期二  批注新增2个记忆"],
     extra: "刚刚 · 4个知识点"
+  },
+  {
+    id: "misc", ...BUILTIN_SUBJECT_LABELS.misc, count: 0, unit: "条记忆",
+    entries: [],
+    extra: "暂未归类"
   },
 ];
 
@@ -347,24 +354,24 @@ const OTHER_FEEDS: FeedGroup[] = [
 ];
 
 export const INITIAL_ALL_FEEDS: Record<string, FeedGroup[]> = {
-  physics: mergeHomeworkSeedIntoFeeds(injectBuiltinMeta(PHYSICS_FEEDS), "physics"),
+  physics: [...RECORDING_SEED_PATCH.physics, ...mergeHomeworkSeedIntoFeeds(injectBuiltinMeta(PHYSICS_FEEDS), "physics")],
   math: mergeHomeworkSeedIntoFeeds(
-    [...DEMO_SEED_PATCH.math, ...injectBuiltinMeta(MATH_FEEDS)],
+    [...RECORDING_SEED_PATCH.math, ...DEMO_SEED_PATCH.math, ...injectBuiltinMeta(MATH_FEEDS)],
     "math",
   ),
-  chemistry: mergeHomeworkSeedIntoFeeds(injectBuiltinMeta(CHEMISTRY_FEEDS), "chemistry"),
-  english: mergeHomeworkSeedIntoFeeds(injectBuiltinMeta(ENGLISH_FEEDS), "english"),
+  chemistry: [...RECORDING_SEED_PATCH.chemistry, ...mergeHomeworkSeedIntoFeeds(injectBuiltinMeta(CHEMISTRY_FEEDS), "chemistry")],
+  english: [...RECORDING_SEED_PATCH.english, ...mergeHomeworkSeedIntoFeeds(injectBuiltinMeta(ENGLISH_FEEDS), "english")],
   other: [...DEMO_SEED_PATCH.other, ...injectBuiltinMeta(OTHER_FEEDS)],
 };
 
 // ─── Type / source / fallback maps ───────────────────────────────────────────
 
 export const TYPE_SOURCE: Record<string, string> = {
-  notes: "evernote", courseware: "zhihu", exercises: "youdao", webpage: "browser",
+  notes: "evernote", courseware: "zhihu", exercises: "youdao", webpage: "browser", voice: "voice",
 };
 
 export const TYPE_BG: Record<string, string> = {
-  notes: imgNotesBg, courseware: imgCoursewareBg, exercises: imgWebcourseBg, webpage: imgWebBg,
+  notes: imgNotesBg, courseware: imgCoursewareBg, exercises: imgWebcourseBg, webpage: imgWebBg, voice: imgNotesBg,
 };
 
 export const FALLBACK_CLASSIFY: Record<string, string> = {
