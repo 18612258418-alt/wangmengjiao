@@ -6,8 +6,8 @@ const sources = [
   { id: "downloads", title: "Mac 下载", desc: "自动发现下载目录中的新资料", icon: Download, tone: "text-[#7E85D9] bg-[#F1F1FF]" },
   { id: "documents", title: "Mac 文稿", desc: "读取文稿，理解其中的内容", icon: FileText, tone: "text-[#2BA6E7] bg-[#ECF8FF]" },
   { id: "local", title: "Mac 本地文件", desc: "选择授权文件夹，持续整理内容", icon: FolderOpen, tone: "text-[#B57A2A] bg-[#FFF6E7]" },
-  { id: "notes", title: "Apple 备忘录", desc: "同步笔记，沉淀为可搜索的记忆", icon: StickyNote, tone: "text-[#D8A31D] bg-[#FFF9DC]" },
-  { id: "calendar", title: "Apple 日历", desc: "结合课程与截止时间安排学习", icon: CalendarDays, tone: "text-[#E56B75] bg-[#FFF0F2]" },
+  { id: "notes", title: "课程笔记", desc: "同步课堂笔记，加入个人知识库", icon: StickyNote, tone: "text-[#D8A31D] bg-[#FFF9DC]" },
+  { id: "calendar", title: "课程日历", desc: "结合课程与截止时间安排学习", icon: CalendarDays, tone: "text-[#E56B75] bg-[#FFF0F2]" },
 ];
 
 export function ConnectionModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {

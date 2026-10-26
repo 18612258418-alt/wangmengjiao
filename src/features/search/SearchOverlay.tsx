@@ -53,6 +53,8 @@ type EvidenceItem = {
   sourceId?: string;
 };
 
+const cleanResultTitle = (title: string) => title.replace(/^(记忆|备忘录)[:：]\s*/, "");
+
 const suggestions = [
   { icon: Brain, text: "我最近总在什么地方出错？", hint: "发现学习规律" },
   { icon: FileText, text: "找我做错过的积分题", hint: "调用个人记忆" },
@@ -132,7 +134,7 @@ function answerFor(query: string) {
 
   if (asksFind) {
     return {
-      title: "找到了与你描述最接近的 3 条记忆",
+      title: "找到了与你描述最接近的 3 条学习内容",
       body: "最相关的是《定积分与换元积分》第 6 次作业，其中第 3 题包含你圈画过的上下限修改步骤。下面同时保留了课堂笔记和教材位置，方便交叉查看。",
       personal: "我根据“积分、做错、最近”以及你的高数学习记录匹配，不要求文件名完全一致。",
       external: false,
@@ -259,8 +261,8 @@ export function SearchOverlay({
       kind: "memory" as const,
       category: card.contentType === "homework" ? "作业" as const : "笔记" as const,
       label: subject,
-      title: card.title,
-      meta: `${date} · ${card.time || "个人记忆"}`,
+      title: cleanResultTitle(card.title),
+      meta: `${date} · ${card.time || "学习记录"}`,
     }));
     const fallback: EvidenceItem[] = [
       { id: "memory-note", kind: "memory", category: "笔记", label: "课堂笔记", title: "定积分换元后的上下限处理", meta: "高等数学 · 9 月 12 日" },
@@ -554,7 +556,7 @@ export function SearchOverlay({
           <div className="mx-auto flex max-w-[820px] flex-col items-center px-6 py-24 text-center">
             <div className="grid h-14 w-14 place-items-center rounded-2xl bg-[#EAEDFF] text-[#4D5CFF]"><Sparkles size={25} /></div>
             <h2 className="mt-5 text-[18px] font-bold">正在理解你的问题</h2>
-            <p className="mt-2 text-[12px] text-[#878E9C]">{lumoEnabled?"正在结合 Memo 内容、联网信息与深度推理":"仅搜索 Memo 内的笔记、作业、错题和资料"}</p>
+            <p className="mt-2 text-[12px] text-[#878E9C]">{lumoEnabled?"正在结合个人知识库、联网信息与深度推理":"仅搜索个人知识库中的笔记、作业、错题和资料"}</p>
             <div className="mt-7 flex gap-2">{[0,1,2].map(i => <span key={i} className="h-2 w-2 rounded-full bg-[#6672F6]" style={{animation:`memoPulse 1s ${i * .18}s infinite`}} />)}</div>
           </div>
         )}
@@ -562,7 +564,7 @@ export function SearchOverlay({
         {mode === "answered" && (
           <div className="memo-search-enter px-7 pb-10">
             <section className="mx-auto mb-5 max-w-[920px] rounded-[26px] bg-white p-6 shadow-sm ring-1 ring-[#E4E7ED]">
-              <div className="flex items-center gap-2"><span className={`h-3 w-3 rounded-full ${lumoEnabled?'bg-[#77E0CC]':'bg-[#B8BFCA]'}`}/><span className="text-[12px] font-semibold">{lumoEnabled?'Lumo 联网总结':'Memo 内容总结'}</span><span className="rounded-full bg-[#DDF5F0] px-1.5 py-0.5 text-[8px] text-[#318878]">AI</span></div>
+              <div className="flex items-center gap-2"><span className={`h-3 w-3 rounded-full ${lumoEnabled?'bg-[#77E0CC]':'bg-[#B8BFCA]'}`}/><span className="text-[12px] font-semibold">{lumoEnabled?'联网综合回答':'知识库内容总结'}</span><span className="rounded-full bg-[#DDF5F0] px-1.5 py-0.5 text-[8px] text-[#318878]">AI</span></div>
               <h2 className="mt-4 text-[19px] font-bold leading-8">{answer.title}</h2>
               <p className="mt-3 min-h-[56px] text-[13px] leading-7 text-[#4F5664]">{typedSummary}<span className={`${typedSummary.length<answer.body.length?'inline-block':'hidden'} ml-0.5 h-4 w-[2px] animate-pulse bg-[#6674FF] align-middle`}/></p>
               {typedSummary.length>=answer.body.length&&<p className="mt-4 animate-in fade-in duration-500 rounded-2xl bg-[#F3F4F8] px-4 py-3 text-[11px] leading-6 text-[#697181]">{answer.personal}</p>}
@@ -604,7 +606,7 @@ export function SearchOverlay({
                   if (mode === "idle" && query.trim()) submit();
                 }}
                 disabled={mode === "thinking"}
-                placeholder={mode === "answered" ? "继续追问…" : mode === "thinking" ? "正在查找你的记忆…" : "找记忆、问问题，或让 Memo 帮你完成一件事"}
+                placeholder={mode === "answered" ? "继续追问…" : mode === "thinking" ? "正在查找相关内容…" : "搜索知识库，或问一个学习问题"}
                 className="min-w-0 flex-1 bg-transparent px-3 text-[15px] text-[#292D33] outline-none placeholder:text-[#888E97] disabled:text-[#A1A7B2]"
               />
               <button type="button" onClick={toggleVoiceInput} aria-label="语音输入" disabled={mode === "thinking"} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-[#20242A] transition hover:bg-[#F4F6F8] disabled:opacity-40"><Mic size={20}/></button>
