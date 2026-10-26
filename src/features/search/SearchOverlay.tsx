@@ -192,12 +192,14 @@ export function SearchOverlay({
   const [lumoEnabled, setLumoEnabled] = useState(false);
   const [resultTab, setResultTab] = useState<"笔记"|"作业"|"资料">("笔记");
   const [historyDropdownOpen, setHistoryDropdownOpen] = useState(false);
+  const [homeHistoryOpen, setHomeHistoryOpen] = useState(false);
   const [typedSummary, setTypedSummary] = useState("");
   const [todayScrolled, setTodayScrolled] = useState(false);
   const [todayScrollTop, setTodayScrollTop] = useState(0);
   const [historyItems, setHistoryItems] = useState(["定积分换元法", "上周物理课的简谐振动", "英语论证结构", "最近做错的积分题", "明天需要预习什么", "误差测量实验"]);
   const inputRef = useRef<HTMLInputElement>(null);
   const headerSearchRef = useRef<HTMLDivElement>(null);
+  const homeSearchRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const microphoneStreamRef = useRef<MediaStream | null>(null);
@@ -236,6 +238,7 @@ export function SearchOverlay({
   useEffect(() => {
     const closeHistory = (event: PointerEvent) => {
       if (!headerSearchRef.current?.contains(event.target as Node)) setHistoryDropdownOpen(false);
+      if (!homeSearchRef.current?.contains(event.target as Node)) setHomeHistoryOpen(false);
     };
     document.addEventListener("pointerdown", closeHistory);
     return () => document.removeEventListener("pointerdown", closeHistory);
@@ -321,6 +324,7 @@ export function SearchOverlay({
     if (!value) return;
     setHistoryItems(items => [value, ...items.filter(item => item !== value)].slice(0, 8));
     setHistoryDropdownOpen(false);
+    setHomeHistoryOpen(false);
     setQuery(value);
     setSubmittedQuery(value);
     setMode("thinking");
@@ -480,10 +484,10 @@ export function SearchOverlay({
   const greeting = currentHour < 6 ? "夜深了" : currentHour < 12 ? "上午好" : currentHour < 18 ? "下午好" : "晚上好";
 
   if (!isOpen && todayScrolled) return <div className="fixed left-[336px] right-0 top-4 z-[180] animate-in px-[10%] duration-200 fade-in slide-in-from-top-2">
-    <div className="flex h-16 w-full items-center rounded-full border border-[#E1E4EA] bg-white/95 px-3 backdrop-blur-xl">
+    <div ref={homeSearchRef} className="relative flex h-16 w-full items-center rounded-full border border-[#E1E4EA] bg-white/95 px-3 backdrop-blur-xl">
       <div className="flex min-w-0 flex-1 items-center gap-3 px-3">
         <Search size={17} className="shrink-0 text-[#737B89]"/>
-        <input value={query} onFocus={onOpen} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"&&query.trim()){onOpen();submit();}}} className="min-w-0 flex-1 bg-transparent text-[13px] text-[#292D33] outline-none placeholder:text-[#969DA9]" placeholder="从课程、笔记和学习记录中搜索" aria-label="搜索内容"/>
+        <input value={query} onFocus={()=>setHomeHistoryOpen(true)} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"&&query.trim()){onOpen();submit();}}} className="min-w-0 flex-1 bg-transparent text-[13px] text-[#292D33] outline-none placeholder:text-[#969DA9]" placeholder="从课程、笔记和学习记录中搜索" aria-label="搜索内容"/>
       </div>
       <button type="button" onClick={onOpenVoice} className="flex h-9 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[10px] text-[#59606D] hover:bg-[#F2F3F6]" aria-label="开始录音"><Mic size={14}/><span>录音</span></button>
       <button type="button" onClick={onAddSource} className="flex h-9 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[10px] text-[#59606D] hover:bg-[#F2F3F6]" aria-label="上传资料"><Plus size={15}/><span>上传</span></button>
@@ -493,6 +497,7 @@ export function SearchOverlay({
         {query&&<button type="button" onClick={()=>setQuery("")} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#F1F2F5] text-[#7D8490] transition hover:bg-[#E6E8ED] hover:text-[#292D33]" aria-label="清空搜索内容"><X size={16}/></button>}
         <button type="button" onClick={()=>{if(query.trim()){onOpen();submit();}}} disabled={!query.trim()} className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-white transition ${query.trim()?"bg-[#17191F] hover:bg-black":"bg-[#D9DCE2] cursor-default"}`} aria-label="搜索"><Search size={17}/></button>
       </div>
+      {homeHistoryOpen&&historyItems.length>0&&<div className="absolute left-0 right-0 top-[72px] z-30 overflow-hidden rounded-[22px] border border-[#E2E5EB] bg-white p-3 shadow-[0_18px_46px_rgba(31,38,54,.16)]"><div className="flex items-center px-2 pb-2"><span className="text-[11px] font-medium text-[#8A919D]">搜索记录</span><button type="button" onClick={()=>setHistoryItems([])} className="ml-auto text-[10px] text-[#8A919D] hover:text-[#353A44]">清空</button></div><div className="grid gap-1">{historyItems.map(item=><button type="button" key={item} onClick={()=>{onOpen();submit(item);}} className="flex h-10 items-center gap-3 rounded-xl px-3 text-left text-[12px] text-[#3E444F] transition hover:bg-[#F3F5F8]"><Search size={14} className="text-[#959CA8]"/><span className="truncate">{item}</span></button>)}</div></div>}
     </div>
   </div>;
 
@@ -505,9 +510,9 @@ export function SearchOverlay({
       <button type="button" onClick={onAddSource} className="flex h-11 min-w-[144px] items-center justify-center gap-2 rounded-full border border-white/90 bg-[linear-gradient(105deg,#F0ECFF_0%,#FFFFFF_48%,#E5F7FF_100%)] px-6 text-[12px] font-medium text-[#313640] ring-1 ring-[#DDE1E8] transition hover:-translate-y-0.5 hover:ring-[#BFC7FF]"><Plus size={16}/><span>上传</span></button>
       <button type="button" onClick={onOpenConnections} className="flex h-11 min-w-[144px] items-center justify-center gap-2 rounded-full border border-white/90 bg-[linear-gradient(105deg,#EAF7FF_0%,#FFFFFF_48%,#F4ECFF_100%)] px-6 text-[12px] font-medium text-[#313640] ring-1 ring-[#DDE1E8] transition hover:-translate-y-0.5 hover:ring-[#BFC7FF]"><Link2 size={15}/><span>连接</span></button>
     </div>
-    <div className="flex h-[112px] flex-col rounded-[28px] border border-[#E1E4EA] bg-white/95 px-7 py-5 backdrop-blur-xl">
+    <div ref={homeSearchRef} className="relative flex h-[112px] flex-col rounded-[28px] border border-[#E1E4EA] bg-white/95 px-7 py-5 backdrop-blur-xl">
       <div className="relative flex w-full items-center">
-        <input value={query} onFocus={onOpen} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"&&query.trim()){onOpen();submit();}}} placeholder="从课程、笔记和学习记录中搜索，或问我一个学习问题" className="w-full bg-transparent text-[15px] text-[#292D33] outline-none placeholder:text-[#9CA2AD]" aria-label="搜索内容"/>
+        <input value={query} onFocus={()=>setHomeHistoryOpen(true)} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"&&query.trim()){onOpen();submit();}}} placeholder="从课程、笔记和学习记录中搜索，或问我一个学习问题" className="w-full bg-transparent text-[15px] text-[#292D33] outline-none placeholder:text-[#9CA2AD]" aria-label="搜索内容"/>
       </div>
       <div className="mt-auto flex items-center gap-3">
         <button type="button" onClick={()=>setLumoEnabled(value=>!value)} className={`memo-ai-glow-button flex h-9 min-w-0 items-center gap-1 rounded-full border px-2.5 text-[9px] font-medium text-[#313640] transition ${lumoEnabled?"ring-2 ring-[#C9CEFF]":""}`} aria-pressed={lumoEnabled} aria-label={lumoEnabled?"关闭 AI 联网深度推理":"开启 AI 联网深度推理"}>
@@ -518,6 +523,7 @@ export function SearchOverlay({
           <button type="button" onClick={()=>{if(query.trim()){onOpen();submit();}}} disabled={!query.trim()} className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-white transition ${query.trim()?"bg-[#17191F] hover:bg-black":"bg-[#D9DCE2] cursor-default"}`} aria-label="搜索"><Search size={17}/></button>
         </div>
       </div>
+      {homeHistoryOpen&&historyItems.length>0&&<div className="absolute left-0 right-0 top-[124px] z-30 overflow-hidden rounded-[22px] border border-[#E2E5EB] bg-white p-3 shadow-[0_18px_46px_rgba(31,38,54,.16)]"><div className="flex items-center px-2 pb-2"><span className="text-[11px] font-medium text-[#8A919D]">搜索记录</span><button type="button" onClick={()=>setHistoryItems([])} className="ml-auto text-[10px] text-[#8A919D] hover:text-[#353A44]">清空</button></div><div className="grid gap-1">{historyItems.map(item=><button type="button" key={item} onClick={()=>{onOpen();submit(item);}} className="flex h-10 items-center gap-3 rounded-xl px-3 text-left text-[12px] text-[#3E444F] transition hover:bg-[#F3F5F8]"><Search size={14} className="text-[#959CA8]"/><span className="truncate">{item}</span></button>)}</div></div>}
     </div>
   </div>;
 
